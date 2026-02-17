@@ -1,7 +1,3 @@
--- Blade Ball Auto Parry + Spam (PC Version)
--- HOLD F to spam parry (releases when you let go)
--- Auto parry always active with cooldown protection
-
 if getgenv().__na_aex then 
     return 
 end
@@ -22,26 +18,33 @@ local Net = require(RSrv.TS.Network.Network).Network
 local Def = require(RSrv.TS.Abilities.DeflectAbility).DeflectAbility
 local PNotif = RSrv:WaitForChild("PromptNotification")
 
--- Hook para sempre permitir parry
-hookfunction(Def.IsAvailable, function()
-    return true
-end)
+if hookfunction then
+    pcall(function()
+        hookfunction(Def.IsAvailable, function()
+            return true
+        end)
+    end)
+end
 
--- Hook para corrigir router IDs
 local oSend
-oSend = hookfunction(Net.CSendEvent, function(self, router, evt, ...)
-    if router == 46848415795802784000000000000000000000000000000000000000000000000000000000000 then
-        return oSend(self, router, 29338138590583890000000000000000000000000000000000000000000000000000000000000, ...)
-    end
-    return oSend(self, router, evt, ...)
-end)
+if hookfunction then
+    pcall(function()
+        oSend = hookfunction(Net.CSendEvent, function(self, router, evt, ...)
+            if router == 46848415795802784000000000000000000000000000000000000000000000000000000000000 then
+                return oSend(self, router, 29338138590583890000000000000000000000000000000000000000000000000000000000000, ...)
+            end
+            return oSend(self, router, evt, ...)
+        end)
+    end)
+end
 
 local function sendParry()
     if not Net then return end
-    Net:CSendEvent(46848415795802784000000000000000000000000000000000000000000000000000000000000, 6846744283873508500000000000000000000000000000000000000000000000000000000000)
+    pcall(function()
+        Net:CSendEvent(46848415795802784000000000000000000000000000000000000000000000000000000000000, 6846744283873508500000000000000000000000000000000000000000000000000000000000)
+    end)
 end
 
--- ================== GAME INFO ==================
 local gi, br
 
 do
@@ -86,7 +89,6 @@ local function tgtOn()
     return false
 end
 
--- ================== SPAM MODE (HOLD F) ==================
 local spamOn = false
 local spamConn
 
@@ -107,7 +109,6 @@ local function setSpam(v)
     end
 end
 
--- HOLD F para ativar spam, soltar F para desativar
 UIS.InputBegan:Connect(function(inp, gpe)
     if gpe then return end
     if inp.KeyCode == Enum.KeyCode.F then
@@ -122,14 +123,13 @@ UIS.InputEnded:Connect(function(inp, gpe)
     end
 end)
 
--- ================== NOTIFICATION ==================
 task.spawn(function()
     local playerGui = lp:WaitForChild("PlayerGui")
     
-    -- Notificação in-game
-    PNotif:Fire("Auto Parry ativado! Segure F para spam 🎯", true)
+    pcall(function()
+        PNotif:Fire("Auto Parry ativado! Segure F para spam 🎯", true)
+    end)
     
-    -- Notificação visual customizada
     local notifGui = Instance.new("ScreenGui")
     notifGui.Name = "ParryNotification"
     notifGui.ResetOnSpawn = false
@@ -174,15 +174,13 @@ task.spawn(function()
     infoText.TextYAlignment = Enum.TextYAlignment.Top
     infoText.Parent = notification
 
-    -- Animação de entrada
     local slideIn = TS:Create(notification, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), 
         {Position = UDim2.new(0.5, -175, 0, 20)}
     )
     slideIn:Play()
 
-    -- Esperar 5 segundos e sair
     task.wait(5)
-    
+
     local slideOut = TS:Create(notification, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.In), 
         {Position = UDim2.new(0.5, -175, 0, -90)}
     )
@@ -192,7 +190,6 @@ task.spawn(function()
     end)
 end)
 
--- ================== AUTO PARRY ==================
 local hb
 
 local function bind(ch)
@@ -201,16 +198,17 @@ local function bind(ch)
         hb = nil
     end
 
-    local hrp = ch:WaitForChild("HumanoidRootPart", 9000000000)
+    local hrp = ch:WaitForChild("HumanoidRootPart", 10)
+    if not hrp then return end
+    
     local lastPos, lastT = nil, nil
     local vel = Vector3.zero
     local tau = 0.05
     local minR, maxR = 9, 90
-    local cd = 0.3  -- COOLDOWN DE 0.3s
+    local cd = 0.3
     local lastFire = 0
 
     hb = RS.Heartbeat:Connect(function(dt)
-        -- Se spam mode (F pressionado) estiver ativo, não usa auto parry
         if spamOn then
             return
         end
@@ -227,7 +225,6 @@ local function bind(ch)
         local now = tick()
         local bp = b.Position
 
-        -- Calcular velocidade da bola
         local raw
         local okVel, av = pcall(function()
             return b.AssemblyLinearVelocity
@@ -251,7 +248,6 @@ local function bind(ch)
         local hrpPos = hrp.Position
         local spd = vel.Magnitude
 
-        -- Calcular raio de parry
         local baseWin = 0.32
         local baseOff = 6
         local rad = spd * baseWin + baseOff
@@ -269,10 +265,8 @@ local function bind(ch)
             tImp = d / spd
         end
 
-        -- Condições para parry
         local can = tgt and app and spd > 5 and d <= parryRad and tImp <= 0.35
 
-        -- COOLDOWN: só dispara se passou 0.3s desde último parry
         if can and now - lastFire >= cd then
             sendParry()
             lastFire = now
