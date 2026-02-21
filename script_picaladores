@@ -1,0 +1,336 @@
+if game.GameId ~= 4538598064 then 
+    print("Aviso: Você não está no lugar certo ou o ID do jogo mudou!")
+    return 
+end
+
+local Plrs  = game:GetService("Players")
+local RS    = game:GetService("RunService")
+local RSrv  = game:GetService("ReplicatedStorage")
+local WS    = workspace
+local UIS   = game:GetService("UserInputService")
+local Stats = game:GetService("Stats")
+
+local Config = {
+    parryCD           = 0.3,
+    tickRate          = 0.002,
+    velSmooth         = 0.05,
+    minRadius         = 9,
+    maxRadius         = 90,
+    radiusWin         = 0.32,
+    radiusOff         = 6,
+    radiusPre         = 8,
+    minSpeed          = 5,
+    maxImpactTime     = 0.35,
+    spamThreads       = 3,
+    spamCallsPerIter  = 3,
+    pingSmooth        = 0.15,
+    pingMultiplier    = 1.1,
+    pingOffset        = 0.02,
+    pingMin           = 0.02,
+    pingMax           = 0.25,
+    clashHistorySize  = 6,
+    clashTimeWindow   = 0.6,
+    clashMinDist      = 40,
+    clashCriticalDist = 20,
+    clashDecayTime    = 0.5,
+    clashBurstCount   = 12,
+    processResetInt   = 0.4,
+}
+
+local PNotif = RSrv:WaitForChild("PromptNotification", 5)
+
+task.spawn(function()
+    if PNotif then
+        PNotif:Fire("Auto Parry PC (Adaptado) ✅ | Segure [F] = Spam", true)
+    end
+end)
+
+local function sendParry()
+    pcall(function()
+        local args = {
+            [1] = 2.933813859058389e+76
+        }
+        RSrv.TS.GeneratedNetworkRemotes
+            :FindFirstChild("RE_4.6848415795802784e+76")
+            :FireServer(unpack(args))
+    end)
+end
+
+local gi, br
+
+do
+    local ok, mod = pcall(function()
+        return require(RSrv:WaitForChild("TS"):WaitForChild("GameInfo"))
+    end)
+    if ok and mod and mod.GameInfo then gi = mod.GameInfo end
+end
+
+do
+    local ok, mod = pcall(function()
+        return require(RSrv:WaitForChild("TS"):WaitForChild("BallReplicator"):WaitForChild("BallReplicator"))
+    end)
+    if ok and mod and mod.BallReplicator then br = mod.BallReplicator end
+end
+
+local lp = Plrs.LocalPlayer
+
+local Cache = { Character = nil, RootPart = nil, Ball = nil }
+
+local function setupCharacter(ch)
+    if not ch then return end
+    Cache.Character = ch
+    Cache.RootPart  = ch:WaitForChild("HumanoidRootPart", 10)
+end
+
+lp.CharacterAdded:Connect(setupCharacter)
+setupCharacter(lp.Character)
+
+local function getBall()
+    if Cache.Ball and Cache.Ball.Parent then return Cache.Ball end
+    if gi and gi.BallModel and gi.BallModel.Parent then
+        Cache.Ball = gi.BallModel
+        return Cache.Ball
+    end
+    local found = WS:FindFirstChild("GameBall", true)
+    if found then Cache.Ball = found end
+    return Cache.Ball
+end
+
+local function tgtOn()
+    local ch = lp.Character
+    if ch and ch:FindFirstChild("Highlight") then return true end
+    if WS:GetAttribute("GameBallTarget") == lp.UserId then return true end
+    if br and br.syncData and br.syncData.HighlightTargetPlayerID == lp.UserId then return true end
+    return false
+end
+
+local smoothedPing = 0.05
+
+local function updatePing()
+    local ok, raw = pcall(function()
+        return Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000
+    end)
+    if ok and type(raw) == "number" and raw > 0 then
+        smoothedPing = (smoothedPing * (1 - Config.pingSmooth)) + (raw * Config.pingSmooth)
+    end
+end
+
+local function getPingCompensation()
+    return math.clamp(
+        smoothedPing * Config.pingMultiplier + Config.pingOffset,
+        Config.pingMin,
+        Config.pingMax
+    )
+end
+
+local State = { current = "normal", lastTransition = 0 }
+
+local function setState(s)
+    if State.current == s then return end
+    State.current        = s
+    State.lastTransition = tick()
+end
+
+local ClashState = {
+    Active             = false,
+    LastActivationTime = 0,
+    IsBursting         = false,
+    CurrentOpponent    = nil,
+}
+
+local TargetHistory = {}
+local lastTarget    = nil
+
+local function updateClashDetection(newTargetID, ballPos)
+    if newTargetID == lastTarget then return end
+    lastTarget = newTargetID
+
+    if not Cache.RootPart then return end
+    local dist = (Cache.RootPart.Position - ballPos).Magnitude
+    local now  = tick()
+
+    table.insert(TargetHistory, 1, { id = newTargetID, t = now })
+    if #TargetHistory > Config.clashHistorySize then
+        table.remove(TargetHistory)
+    end
+
+    if #TargetHistory >= 3 then
+        local timeGap       = TargetHistory[1].t - TargetHistory[3].t
+        local isAlternating = (
+            TargetHistory[1].id == lp.UserId and
+            TargetHistory[3].id == lp.UserId
+        )
+        if isAlternating and timeGap < Config.clashTimeWindow and dist < Config.clashMinDist then
+            ClashState.Active             = true
+            ClashState.LastActivationTime = now
+            ClashState.CurrentOpponent    = TargetHistory[2].id
+            setState("clash")
+        end
+    end
+
+    if newTargetID == lp.UserId and dist < Config.clashCriticalDist then
+        ClashState.Active             = true
+        ClashState.LastActivationTime = now
+        setState("clash")
+    end
+end
+
+local function performClashBurst()
+    if ClashState.IsBursting then return end
+    ClashState.IsBursting = true
+    task.spawn(function()
+        for i = 1, Config.clashBurstCount do
+            if not ClashState.Active then break end
+            sendParry()
+            task.wait(0)
+        end
+        ClashState.IsBursting = false
+    end)
+end
+
+local ballProcessed    = false
+local lastProcessReset = 0
+
+local function resetProcessedIfNeeded(now)
+    if ballProcessed and (now - lastProcessReset) >= Config.processResetInt then
+        ballProcessed = false
+    end
+end
+
+local spamOn     = false
+local spamActive = false
+
+local function startSpam()
+    if spamOn then return end
+    spamOn     = true
+    spamActive = true
+    setState("spam")
+    for i = 1, Config.spamThreads do
+        task.spawn(function()
+            while spamActive do
+                for _ = 1, Config.spamCallsPerIter do
+                    sendParry()
+                end
+                task.wait(0)
+            end
+        end)
+    end
+end
+
+local function stopSpam()
+    if not spamOn then return end
+    spamOn     = false
+    spamActive = false
+    setState("normal")
+end
+
+UIS.InputBegan:Connect(function(inp, gpe)
+    if gpe then return end
+    if inp.KeyCode == Enum.KeyCode.F then
+        startSpam()
+    end
+end)
+
+UIS.InputEnded:Connect(function(inp)
+    if inp.KeyCode == Enum.KeyCode.F then
+        stopSpam()
+    end
+end)
+
+local function bind(ch)
+    setupCharacter(ch)
+
+    local hrp = ch:WaitForChild("HumanoidRootPart", 9000000000)
+    local lastPos, lastT  = nil, nil
+    local vel             = Vector3.zero
+    local lastFire        = 0
+    local running         = true
+    local pingUpdateTimer = 0
+
+    task.spawn(function()
+        while running do
+            local dt  = task.wait(Config.tickRate)
+            local now = tick()
+
+            pingUpdateTimer = pingUpdateTimer + dt
+            if pingUpdateTimer >= 2 then
+                pingUpdateTimer = 0
+                task.spawn(updatePing)
+            end
+
+            resetProcessedIfNeeded(now)
+
+            if ClashState.Active and (now - ClashState.LastActivationTime) > Config.clashDecayTime then
+                ClashState.Active = false
+                if State.current == "clash" then setState("normal") end
+            end
+
+            if not spamOn then
+                if ClashState.Active then
+                    performClashBurst()
+                elseif ch and ch.Parent and hrp and hrp.Parent then
+                    local b = getBall()
+                    if b and b.Parent then
+                        local bp = b.Position
+
+                        local currentTarget = WS:GetAttribute("GameBallTarget")
+                        if currentTarget then
+                            updateClashDetection(currentTarget, bp)
+                        end
+
+                        local okVel, av = pcall(function()
+                            return b.AssemblyLinearVelocity
+                        end)
+
+                        if okVel and typeof(av) == "Vector3" and av.Magnitude > 0.1 then
+                            vel   = av
+                            lastT, lastPos = now, bp
+                        elseif not lastT then
+                            lastT, lastPos = now, bp
+                        else
+                            local dtt = now - lastT
+                            if dtt > 0 then
+                                local raw = (bp - lastPos) / dtt
+                                local a   = dt / (Config.velSmooth + dt)
+                                vel       = vel + (raw - vel) * a
+                                lastT, lastPos = now, bp
+                            end
+                        end
+
+                        local hrpPos    = hrp.Position
+                        local spd       = vel.Magnitude
+                        local rad       = math.clamp(spd * Config.radiusWin + Config.radiusOff, Config.minRadius, Config.maxRadius) + Config.radiusPre
+                        local d         = (bp - hrpPos).Magnitude
+                        local app       = vel:Dot(hrpPos - bp) > 0
+                        local tgt       = tgtOn()
+                        local tImp      = spd > 1 and (d / spd) or 1000000
+                        local adjImpact = Config.maxImpactTime + getPingCompensation()
+
+                        local can = tgt and app and spd > Config.minSpeed and d <= rad and tImp <= adjImpact
+
+                        if can and not ballProcessed and now - lastFire >= Config.parryCD then
+                            sendParry()
+                            lastFire         = now
+                            ballProcessed    = true
+                            lastProcessReset = now
+                            setState("normal")
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    ch.AncestryChanged:Connect(function(_, p)
+        if not p then
+            running           = false
+            spamActive        = false
+            spamOn            = false
+            ClashState.Active = false
+        end
+    end)
+end
+
+lp.CharacterAdded:Connect(bind)
+if lp.Character then bind(lp.Character) end
+print("Script injetado! Tente jogar.")
