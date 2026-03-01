@@ -400,14 +400,14 @@ end
 
 getgenv().__deltaV3_setSpam = function(v) setSpam(v) end
 
--- Hold X = spam ativo enquanto pressionado, desativa ao soltar
+-- Hold 1 = spam ativo enquanto pressionado, desativa ao soltar
 UIS.InputBegan:Connect(function(inp, gpe)
     if gpe then return end
-    if inp.KeyCode == Enum.KeyCode.X then setSpam(true) end
+    if inp.KeyCode == Enum.KeyCode.One then setSpam(true) end
 end)
 
 UIS.InputEnded:Connect(function(inp)
-    if inp.KeyCode == Enum.KeyCode.X then setSpam(false) end
+    if inp.KeyCode == Enum.KeyCode.One then setSpam(false) end
 end)
 
 -- ============================================================
