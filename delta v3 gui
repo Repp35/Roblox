@@ -1,8 +1,5 @@
--- ============================================================
--- DELTA V3 — CONTROLE (GUI)
--- Controla o delta_v3_alma.lua via getgenv()
--- Rode DEPOIS da Alma, ou antes — os defaults são seguros.
--- ============================================================
+-- DELTA V3 HUB — CONTROLE (GUI)
+-- Controla a alma via getgenv()
 
 local Players          = game:GetService("Players")
 local TweenService     = game:GetService("TweenService")
@@ -13,13 +10,12 @@ local TS       = TweenService
 local lp       = Players.LocalPlayer
 local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
--- Garante defaults na getgenv caso a Alma ainda não tenha rodado
-if getgenv().__deltaV3_autoParryOn  == nil then getgenv().__deltaV3_autoParryOn  = true  end
-if getgenv().__deltaV3_autoClashOn  == nil then getgenv().__deltaV3_autoClashOn  = true  end
-if getgenv().__deltaV3_auraOn       == nil then getgenv().__deltaV3_auraOn       = false end
+-- defaults caso a alma ainda não tenha rodado
+if getgenv().__deltaV3_autoParryOn  == nil then getgenv().__deltaV3_autoParryOn  = true    end
+if getgenv().__deltaV3_autoClashOn  == nil then getgenv().__deltaV3_autoClashOn  = true    end
+if getgenv().__deltaV3_auraOn       == nil then getgenv().__deltaV3_auraOn       = false   end
 if getgenv().__deltaV3_spamInterval == nil then getgenv().__deltaV3_spamInterval = 0.00167 end
 
--- Remove GUI antiga
 local old = CoreGui:FindFirstChild("DeltaV3Gui")
 if old then old:Destroy() end
 
@@ -30,9 +26,7 @@ ScreenGui.IgnoreGuiInset   = true
 ScreenGui.ZIndexBehavior   = Enum.ZIndexBehavior.Sibling
 ScreenGui.Parent           = CoreGui
 
--- ══════════════════════════════════════════
--- HELPERS
--- ══════════════════════════════════════════
+-- helpers
 local function tw(obj, t, props, style, dir)
     return TS:Create(obj, TweenInfo.new(t, style or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out), props)
 end
@@ -44,16 +38,11 @@ local function corner(p, r)
     return c
 end
 
--- ══════════════════════════════════════════
--- CONSTANTS
--- ══════════════════════════════════════════
 local WIDE   = 580
 local MINI   = 195
 local RADIUS = 18
 
--- ══════════════════════════════════════════
--- MAIN FRAME
--- ══════════════════════════════════════════
+-- frame principal
 local MainFrame = Instance.new("Frame")
 MainFrame.Name                   = "MainFrame"
 MainFrame.Size                   = UDim2.new(0, WIDE, 0, 0)
@@ -95,9 +84,7 @@ task.spawn(function()
     }, Enum.EasingStyle.Back):Play()
 end)
 
--- ══════════════════════════════════════════
--- HEADER
--- ══════════════════════════════════════════
+-- header
 local HEADER_H = 50
 
 local Header = Instance.new("Frame")
@@ -180,9 +167,7 @@ local Line1 = makeLine(-5)
 local Line2 = makeLine(-1)
 local Line3 = makeLine(3)
 
--- ══════════════════════════════════════════
--- BODY
--- ══════════════════════════════════════════
+-- body
 local Body = Instance.new("Frame")
 Body.Name                   = "Body"
 Body.Size                   = UDim2.new(1, 0, 0, 0)
@@ -228,9 +213,7 @@ ColRight.BackgroundTransparency = 1
 ColRight.Parent                 = ColsRow
 Instance.new("UIListLayout", ColRight).Padding = UDim.new(0, 7)
 
--- ══════════════════════════════════════════
--- HELPERS DE CARD
--- ══════════════════════════════════════════
+-- helpers de card
 local allCards = {}
 
 local function makeCard(parent, order, h)
@@ -326,11 +309,8 @@ local BLUE  = Color3.fromRGB(55,95,210)
 local GREEN = Color3.fromRGB(40,155,75)
 local PURP  = Color3.fromRGB(120,60,210)
 
--- ══════════════════════════════════════════
--- COLUNA ESQUERDA
--- ══════════════════════════════════════════
+-- coluna esquerda
 
--- Card 1: Auto Parry
 local c1 = makeCard(ColLeft, 1)
 cardLabel(c1, "Auto Parry", 12, 10, 12, true)
 cardLabel(c1, "Auto parry perfeito hein", 12, 30, 9, false, Color3.fromRGB(95,95,125))
@@ -339,7 +319,6 @@ attachSwitch(c1, true, function(isOn)
     getgenv().__deltaV3_autoParryOn = isOn
 end)
 
--- Card 2: Auto Clash
 local c2 = makeCard(ColLeft, 2)
 cardLabel(c2, "Auto Clash", 12, 10, 12, true)
 cardLabel(c2, "Só em clash confirmado", 12, 30, 9, false, Color3.fromRGB(95,95,125))
@@ -348,7 +327,6 @@ attachSwitch(c2, true, function(isOn)
     getgenv().__deltaV3_autoClashOn = isOn
 end)
 
--- Card 3: Manual Spam GUI
 local c3 = makeCard(ColLeft, 3)
 cardLabel(c3, "Manual Spam GUI", 12, 10, 12, true)
 cardLabel(c3, "Mostra/esconde a GUI de spam", 12, 30, 9, false, Color3.fromRGB(95,95,125))
@@ -365,11 +343,8 @@ attachSwitch(c3, false, function(isOn)
     end)
 end)
 
--- ══════════════════════════════════════════
--- COLUNA DIREITA
--- ══════════════════════════════════════════
+-- coluna direita
 
--- Card 4: Aura Visual
 local c4 = makeCard(ColRight, 1)
 cardLabel(c4, "Aura Visual", 12, 10, 12, true)
 cardLabel(c4, "Ring 3D no personagem", 12, 30, 9, false, Color3.fromRGB(95,95,125))
@@ -378,7 +353,7 @@ attachSwitch(c4, false, function(isOn)
     getgenv().__deltaV3_auraOn = isOn
 end)
 
--- Card 5: CPS
+-- card de CPS
 local CpsCard = makeCard(ColRight, 2, 108)
 CpsCard.Size = UDim2.new(1, 0, 0, 108)
 
@@ -472,7 +447,7 @@ for i, d in ipairs(cpsData) do
     end)
 end
 
--- Card 6: Tecla
+-- card de tecla
 local KeyCard = makeCard(ColRight, 3, 80)
 KeyCard.Size = UDim2.new(1, 0, 0, 80)
 
@@ -493,7 +468,7 @@ KeyValue.Position                = UDim2.new(1, -62, 0, 8)
 KeyValue.BackgroundColor3        = Color3.fromRGB(50,90,200)
 KeyValue.BackgroundTransparency  = 0.5
 KeyValue.BorderSizePixel         = 0
-KeyValue.Text                    = "1"   -- padrão agora é 1
+KeyValue.Text                    = "1"
 KeyValue.TextColor3              = Color3.fromRGB(150,190,255)
 KeyValue.TextSize                = 9
 KeyValue.Font                    = Enum.Font.GothamBold
@@ -515,7 +490,7 @@ KeyRowList.SortOrder          = Enum.SortOrder.LayoutOrder
 KeyRowList.Parent             = KeyRow
 
 local keyOptions = {
-    {label="1",   sel=true },   -- padrão agora é 1
+    {label="1",   sel=true },
     {label="MB1", sel=false},
     {label="MB2", sel=false},
     {label="F",   sel=false},
@@ -525,7 +500,7 @@ local keyOptions = {
 }
 
 local keyMap = {
-    ["1"] = Enum.KeyCode.One,   -- 1 no lugar de X
+    ["1"] = Enum.KeyCode.One,
     F     = Enum.KeyCode.F,
     G     = Enum.KeyCode.G,
     Q     = Enum.KeyCode.Q,
@@ -534,13 +509,10 @@ local keyMap = {
 
 local keyBtns     = {}
 local selectedKey = 1
-
 local spamKeyConns = {}
 
 local function clearSpamKeyConns()
-    for _, conn in ipairs(spamKeyConns) do
-        conn:Disconnect()
-    end
+    for _, conn in ipairs(spamKeyConns) do conn:Disconnect() end
     spamKeyConns = {}
 end
 
@@ -552,48 +524,36 @@ local function bindSpamKey(label)
             and Enum.UserInputType.MouseButton1
             or  Enum.UserInputType.MouseButton2
 
-        -- Hold: segura = spam ON, solta = spam OFF
         table.insert(spamKeyConns, UserInputService.InputBegan:Connect(function(inp, gpe)
             if gpe then return end
             if inp.UserInputType == uType then
-                if getgenv().__deltaV3_setSpam then
-                    getgenv().__deltaV3_setSpam(true)
-                end
+                if getgenv().__deltaV3_setSpam then getgenv().__deltaV3_setSpam(true) end
             end
         end))
-
         table.insert(spamKeyConns, UserInputService.InputEnded:Connect(function(inp)
             if inp.UserInputType == uType then
-                if getgenv().__deltaV3_setSpam then
-                    getgenv().__deltaV3_setSpam(false)
-                end
+                if getgenv().__deltaV3_setSpam then getgenv().__deltaV3_setSpam(false) end
             end
         end))
     else
         local kc = keyMap[label]
         if not kc then return end
 
-        -- Hold: aperta = spam ON, solta = spam OFF
         table.insert(spamKeyConns, UserInputService.InputBegan:Connect(function(inp, gpe)
             if gpe then return end
             if inp.KeyCode == kc then
-                if getgenv().__deltaV3_setSpam then
-                    getgenv().__deltaV3_setSpam(true)
-                end
+                if getgenv().__deltaV3_setSpam then getgenv().__deltaV3_setSpam(true) end
             end
         end))
-
         table.insert(spamKeyConns, UserInputService.InputEnded:Connect(function(inp)
             if inp.KeyCode == kc then
-                if getgenv().__deltaV3_setSpam then
-                    getgenv().__deltaV3_setSpam(false)
-                end
+                if getgenv().__deltaV3_setSpam then getgenv().__deltaV3_setSpam(false) end
             end
         end))
     end
 end
 
-bindSpamKey("1")  -- padrão agora é 1
+bindSpamKey("1")
 
 local function selectKey(idx)
     selectedKey = idx
@@ -631,9 +591,7 @@ for i, d in ipairs(keyOptions) do
     end)
 end
 
--- ══════════════════════════════════════════
--- STATUS BAR
--- ══════════════════════════════════════════
+-- status bar
 local StatusWrapper = Instance.new("Frame")
 StatusWrapper.Name                   = "StatusWrapper"
 StatusWrapper.Size                   = UDim2.new(1, 0, 0, 32)
@@ -703,9 +661,7 @@ makeDot("Clash ON",   Color3.fromRGB(80,130,255))
 makeDot("600 CPS",    Color3.fromRGB(255,160,50))
 makeDot("DELTA v5.0", Color3.fromRGB(180,100,255))
 
--- ══════════════════════════════════════════
--- DRAG
--- ══════════════════════════════════════════
+-- drag
 local BORDER = 18
 
 local DragBorder = Instance.new("Frame")
@@ -736,11 +692,9 @@ local DRAG_TYPES = {
 DragBorder.InputBegan:Connect(function(input)
     if DRAG_TYPES[input.UserInputType] then startDrag(input) end
 end)
-
 Header.InputBegan:Connect(function(input)
     if DRAG_TYPES[input.UserInputType] then startDrag(input) end
 end)
-
 CollapseBtn.InputBegan:Connect(function(input)
     if DRAG_TYPES[input.UserInputType] then dragging = false end
 end)
@@ -756,9 +710,7 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
--- ══════════════════════════════════════════
--- COLLAPSE
--- ══════════════════════════════════════════
+-- collapse
 local isOpen     = true
 local lastToggle = 0
 local COOLDOWN   = 0.55
@@ -826,11 +778,7 @@ local function toggleCollapse()
     if now - lastToggle < COOLDOWN then return end
     lastToggle = now
     isOpen = not isOpen
-    if isOpen then
-        doExpand()
-    else
-        doCollapse()
-    end
+    if isOpen then doExpand() else doCollapse() end
 end
 
 CollapseBtn.MouseButton1Click:Connect(toggleCollapse)
@@ -843,9 +791,6 @@ CollapseBtn.MouseLeave:Connect(function()
     tw(CollapseBtn, 0.12, {BackgroundColor3 = Color3.fromRGB(30,30,55)}):Play()
 end)
 
--- Cleanup ao remover GUI
 ScreenGui.AncestryChanged:Connect(function()
-    if not ScreenGui.Parent then
-        clearSpamKeyConns()
-    end
+    if not ScreenGui.Parent then clearSpamKeyConns() end
 end)
