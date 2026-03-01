@@ -91,8 +91,5 @@ slideOut.Completed:Connect(function()
     notificationGui:Destroy()
 end)
 
-print("PC Spam loaded successfully!")
-print("Current multiplier: "..MULTIPLIER)
-print("Delay between executions: "..DELAY.." seconds")
 
 loadstring(game:HttpGet("https://raw.githubusercontent.com/Elison999/thunder-hub-phantom-balll/main/thunder%20hub"))()
