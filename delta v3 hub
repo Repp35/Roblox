@@ -1,0 +1,862 @@
+-- ============================================================
+-- DELTA V3 — CONTROLE (GUI)
+-- Controla o delta_v3_alma.lua via getgenv()
+-- Rode DEPOIS da Alma, ou antes — os defaults são seguros.
+-- ============================================================
+
+local Players          = game:GetService("Players")
+local TweenService     = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui          = game:GetService("CoreGui")
+
+local TS       = TweenService
+local lp       = Players.LocalPlayer
+local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+
+-- Garante defaults na getgenv caso a Alma ainda não tenha rodado
+if getgenv().__deltaV3_autoParryOn  == nil then getgenv().__deltaV3_autoParryOn  = true  end
+if getgenv().__deltaV3_autoClashOn  == nil then getgenv().__deltaV3_autoClashOn  = true  end
+if getgenv().__deltaV3_auraOn       == nil then getgenv().__deltaV3_auraOn       = false end
+if getgenv().__deltaV3_spamInterval == nil then getgenv().__deltaV3_spamInterval = 0.00167 end
+
+-- Remove GUI antiga
+local old = CoreGui:FindFirstChild("DeltaV3Gui")
+if old then old:Destroy() end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name             = "DeltaV3Gui"
+ScreenGui.ResetOnSpawn     = false
+ScreenGui.IgnoreGuiInset   = true
+ScreenGui.ZIndexBehavior   = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent           = CoreGui
+
+-- ══════════════════════════════════════════
+-- HELPERS
+-- ══════════════════════════════════════════
+local function tw(obj, t, props, style, dir)
+    return TS:Create(obj, TweenInfo.new(t, style or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out), props)
+end
+
+local function corner(p, r)
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, r or 12)
+    c.Parent = p
+    return c
+end
+
+-- ══════════════════════════════════════════
+-- CONSTANTS
+-- ══════════════════════════════════════════
+local WIDE   = 580
+local MINI   = 195
+local RADIUS = 18
+
+-- ══════════════════════════════════════════
+-- MAIN FRAME
+-- ══════════════════════════════════════════
+local MainFrame = Instance.new("Frame")
+MainFrame.Name                   = "MainFrame"
+MainFrame.Size                   = UDim2.new(0, WIDE, 0, 0)
+MainFrame.AutomaticSize          = Enum.AutomaticSize.Y
+MainFrame.Position               = UDim2.new(0, -(WIDE + 20), 0.5, -160)
+MainFrame.BackgroundColor3       = Color3.fromRGB(10, 10, 20)
+MainFrame.BackgroundTransparency = 1
+MainFrame.BorderSizePixel        = 0
+MainFrame.ClipsDescendants       = false
+MainFrame.Parent                 = ScreenGui
+corner(MainFrame, RADIUS)
+
+local Stroke = Instance.new("UIStroke")
+Stroke.Thickness = 1.5
+Stroke.Parent    = MainFrame
+
+local strokeRunning = true
+ScreenGui.AncestryChanged:Connect(function()
+    if not ScreenGui.Parent then strokeRunning = false end
+end)
+
+task.spawn(function()
+    local t = 0
+    while strokeRunning and Stroke.Parent do
+        t = t + 0.025
+        Stroke.Color = Color3.fromRGB(
+            math.floor(70  + 70  * math.sin(t)),
+            math.floor(100 + 80  * math.sin(t + 2.1)),
+            255)
+        task.wait(0.05)
+    end
+end)
+
+task.spawn(function()
+    task.wait(0.05)
+    tw(MainFrame, 0.55, {
+        Position               = UDim2.new(0, 16, 0.5, -160),
+        BackgroundTransparency = 0.2,
+    }, Enum.EasingStyle.Back):Play()
+end)
+
+-- ══════════════════════════════════════════
+-- HEADER
+-- ══════════════════════════════════════════
+local HEADER_H = 50
+
+local Header = Instance.new("Frame")
+Header.Name                    = "Header"
+Header.Size                    = UDim2.new(1, 0, 0, HEADER_H)
+Header.Position                = UDim2.new(0, 0, 0, 0)
+Header.BackgroundColor3        = Color3.fromRGB(18, 18, 34)
+Header.BackgroundTransparency  = 0.25
+Header.BorderSizePixel         = 0
+Header.ClipsDescendants        = false
+Header.Parent                  = MainFrame
+corner(Header, RADIUS)
+
+local HeaderGlow = Instance.new("Frame")
+HeaderGlow.Size                    = UDim2.new(1, 0, 0, 1)
+HeaderGlow.Position                = UDim2.new(0, 0, 0, 0)
+HeaderGlow.BackgroundColor3        = Color3.fromRGB(100, 130, 255)
+HeaderGlow.BackgroundTransparency  = 0.6
+HeaderGlow.BorderSizePixel         = 0
+HeaderGlow.Parent                  = Header
+
+local Icon = Instance.new("TextLabel")
+Icon.Size                   = UDim2.new(0, 30, 0, 30)
+Icon.Position               = UDim2.new(0, 12, 0, 10)
+Icon.BackgroundColor3       = Color3.fromRGB(80, 120, 255)
+Icon.BorderSizePixel        = 0
+Icon.Text                   = "⚡"
+Icon.TextSize               = 15
+Icon.Font                   = Enum.Font.GothamBold
+Icon.TextColor3             = Color3.fromRGB(255, 255, 255)
+Icon.TextXAlignment         = Enum.TextXAlignment.Center
+Icon.TextYAlignment         = Enum.TextYAlignment.Center
+Icon.Parent                 = Header
+corner(Icon, 8)
+
+task.spawn(function()
+    while Icon.Parent do
+        tw(Icon, 1.1, {BackgroundColor3 = Color3.fromRGB(110,160,255)}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut):Play()
+        task.wait(1.1)
+        tw(Icon, 1.1, {BackgroundColor3 = Color3.fromRGB(60,90,200)},  Enum.EasingStyle.Sine, Enum.EasingDirection.InOut):Play()
+        task.wait(1.1)
+    end
+end)
+
+local Title = Instance.new("TextLabel")
+Title.Size             = UDim2.new(1, -110, 0, HEADER_H)
+Title.Position         = UDim2.new(0, 50, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text             = "DELTA V3"
+Title.TextColor3       = Color3.fromRGB(255, 255, 255)
+Title.TextSize         = 15
+Title.Font             = Enum.Font.GothamBold
+Title.TextXAlignment   = Enum.TextXAlignment.Left
+Title.TextTruncate     = Enum.TextTruncate.AtEnd
+Title.Parent           = Header
+
+local CollapseBtn = Instance.new("TextButton")
+CollapseBtn.Size                    = UDim2.new(0, 32, 0, 32)
+CollapseBtn.Position                = UDim2.new(1, -44, 0, 9)
+CollapseBtn.BackgroundColor3        = Color3.fromRGB(30, 30, 55)
+CollapseBtn.BackgroundTransparency  = 0.3
+CollapseBtn.BorderSizePixel         = 0
+CollapseBtn.Text                    = ""
+CollapseBtn.Parent                  = Header
+corner(CollapseBtn, 9)
+
+local function makeLine(yOff)
+    local L = Instance.new("Frame")
+    L.Size                  = UDim2.new(0, 15, 0, 2)
+    L.Position              = UDim2.new(0.5, -8, 0.5, yOff)
+    L.BackgroundColor3      = Color3.fromRGB(190, 195, 255)
+    L.BackgroundTransparency = 0.1
+    L.BorderSizePixel       = 0
+    L.Parent                = CollapseBtn
+    corner(L, 2)
+    return L
+end
+
+local Line1 = makeLine(-5)
+local Line2 = makeLine(-1)
+local Line3 = makeLine(3)
+
+-- ══════════════════════════════════════════
+-- BODY
+-- ══════════════════════════════════════════
+local Body = Instance.new("Frame")
+Body.Name                   = "Body"
+Body.Size                   = UDim2.new(1, 0, 0, 0)
+Body.Position               = UDim2.new(0, 0, 0, HEADER_H)
+Body.AutomaticSize          = Enum.AutomaticSize.Y
+Body.BackgroundTransparency = 1
+Body.ClipsDescendants       = false
+Body.Parent                 = MainFrame
+
+local BodyList = Instance.new("UIListLayout")
+BodyList.SortOrder = Enum.SortOrder.LayoutOrder
+BodyList.Padding   = UDim.new(0, 0)
+BodyList.Parent    = Body
+
+local BodyPad = Instance.new("UIPadding")
+BodyPad.PaddingLeft   = UDim.new(0, 12)
+BodyPad.PaddingRight  = UDim.new(0, 12)
+BodyPad.PaddingTop    = UDim.new(0, 6)
+BodyPad.PaddingBottom = UDim.new(0, 18)
+BodyPad.Parent        = Body
+
+local ColsRow = Instance.new("Frame")
+ColsRow.Name                   = "ColsRow"
+ColsRow.Size                   = UDim2.new(1, 0, 0, 0)
+ColsRow.AutomaticSize          = Enum.AutomaticSize.Y
+ColsRow.BackgroundTransparency = 1
+ColsRow.LayoutOrder            = 1
+ColsRow.Parent                 = Body
+
+local ColLeft = Instance.new("Frame")
+ColLeft.Size                   = UDim2.new(0.5, -5, 0, 0)
+ColLeft.Position               = UDim2.new(0, 0, 0, 0)
+ColLeft.AutomaticSize          = Enum.AutomaticSize.Y
+ColLeft.BackgroundTransparency = 1
+ColLeft.Parent                 = ColsRow
+Instance.new("UIListLayout", ColLeft).Padding = UDim.new(0, 7)
+
+local ColRight = Instance.new("Frame")
+ColRight.Size                   = UDim2.new(0.5, -5, 0, 0)
+ColRight.Position               = UDim2.new(0.5, 5, 0, 0)
+ColRight.AutomaticSize          = Enum.AutomaticSize.Y
+ColRight.BackgroundTransparency = 1
+ColRight.Parent                 = ColsRow
+Instance.new("UIListLayout", ColRight).Padding = UDim.new(0, 7)
+
+-- ══════════════════════════════════════════
+-- HELPERS DE CARD
+-- ══════════════════════════════════════════
+local allCards = {}
+
+local function makeCard(parent, order, h)
+    local Card = Instance.new("Frame")
+    Card.Size                   = UDim2.new(1, 0, 0, h or 80)
+    Card.BackgroundColor3       = Color3.fromRGB(22, 22, 40)
+    Card.BackgroundTransparency = 1
+    Card.BorderSizePixel        = 0
+    Card.LayoutOrder            = order
+    Card.Parent                 = parent
+    corner(Card, 12)
+    table.insert(allCards, Card)
+    task.delay(0.12 + order * 0.07, function()
+        tw(Card, 0.38, {BackgroundTransparency = 0.35}, Enum.EasingStyle.Back):Play()
+    end)
+    Card.MouseEnter:Connect(function() tw(Card, 0.14, {BackgroundTransparency = 0.18}):Play() end)
+    Card.MouseLeave:Connect(function() tw(Card, 0.14, {BackgroundTransparency = 0.35}):Play() end)
+    return Card
+end
+
+local function attachSwitch(card, initOn, cb)
+    local on = initOn
+    local Base = Instance.new("Frame")
+    Base.Size                    = UDim2.new(0, 44, 0, 24)
+    Base.Position                = UDim2.new(1, -52, 0.5, -12)
+    Base.BackgroundColor3        = on and Color3.fromRGB(80,130,255) or Color3.fromRGB(40,40,62)
+    Base.BackgroundTransparency  = 0.25
+    Base.BorderSizePixel         = 0
+    Base.Parent                  = card
+    corner(Base, 100)
+
+    local Knob = Instance.new("Frame")
+    Knob.Size                   = UDim2.new(0, 18, 0, 18)
+    Knob.Position               = on and UDim2.new(1,-21,0.5,-9) or UDim2.new(0,3,0.5,-9)
+    Knob.BackgroundColor3       = on and Color3.fromRGB(255,255,255) or Color3.fromRGB(100,100,130)
+    Knob.BackgroundTransparency = 0.1
+    Knob.BorderSizePixel        = 0
+    Knob.Parent                 = Base
+    corner(Knob, 100)
+
+    local function flip()
+        on = not on
+        tw(Base, 0.18, {BackgroundColor3 = on and Color3.fromRGB(80,130,255) or Color3.fromRGB(40,40,62)}):Play()
+        tw(Knob, 0.2, {
+            Position         = on and UDim2.new(1,-21,0.5,-9) or UDim2.new(0,3,0.5,-9),
+            BackgroundColor3 = on and Color3.fromRGB(255,255,255) or Color3.fromRGB(100,100,130),
+        }, Enum.EasingStyle.Back):Play()
+        tw(card, 0.09, {BackgroundColor3 = on and Color3.fromRGB(26,35,65) or Color3.fromRGB(22,22,40)}):Play()
+        task.delay(0.18, function() tw(card, 0.2, {BackgroundColor3 = Color3.fromRGB(22,22,40)}):Play() end)
+        if cb then cb(on) end
+    end
+
+    Base.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+            flip()
+        end
+    end)
+    return flip
+end
+
+local function cardLabel(parent, text, x, y, sz, bold, col)
+    local L = Instance.new("TextLabel")
+    L.Size                  = UDim2.new(1, -62, 0, 18)
+    L.Position              = UDim2.new(0, x, 0, y)
+    L.BackgroundTransparency = 1
+    L.Text                  = text
+    L.TextColor3            = col or Color3.fromRGB(235,235,255)
+    L.TextSize              = sz or 12
+    L.Font                  = bold and Enum.Font.GothamBold or Enum.Font.Gotham
+    L.TextXAlignment        = Enum.TextXAlignment.Left
+    L.Parent                = parent
+    return L
+end
+
+local function cardBadge(parent, text, color, yOff)
+    local B = Instance.new("TextLabel")
+    B.Size                    = UDim2.new(0, 44, 0, 14)
+    B.Position                = UDim2.new(0, 12, 0, yOff or 50)
+    B.BackgroundColor3        = color
+    B.BackgroundTransparency  = 0.45
+    B.BorderSizePixel         = 0
+    B.Text                    = text
+    B.TextColor3              = Color3.fromRGB(215,220,255)
+    B.TextSize                = 9
+    B.Font                    = Enum.Font.GothamBold
+    B.TextXAlignment          = Enum.TextXAlignment.Center
+    B.Parent                  = parent
+    corner(B, 5)
+    return B
+end
+
+local BLUE  = Color3.fromRGB(55,95,210)
+local GREEN = Color3.fromRGB(40,155,75)
+local PURP  = Color3.fromRGB(120,60,210)
+
+-- ══════════════════════════════════════════
+-- COLUNA ESQUERDA
+-- ══════════════════════════════════════════
+
+-- Card 1: Auto Parry
+local c1 = makeCard(ColLeft, 1)
+cardLabel(c1, "Auto Parry", 12, 10, 12, true)
+cardLabel(c1, "Auto parry perfeito hein", 12, 30, 9, false, Color3.fromRGB(95,95,125))
+cardBadge(c1, "AUTO", BLUE, 50)
+attachSwitch(c1, true, function(isOn)
+    getgenv().__deltaV3_autoParryOn = isOn
+end)
+
+-- Card 2: Auto Clash
+local c2 = makeCard(ColLeft, 2)
+cardLabel(c2, "Auto Clash", 12, 10, 12, true)
+cardLabel(c2, "Só em clash confirmado", 12, 30, 9, false, Color3.fromRGB(95,95,125))
+cardBadge(c2, "AUTO", BLUE, 50)
+attachSwitch(c2, true, function(isOn)
+    getgenv().__deltaV3_autoClashOn = isOn
+end)
+
+-- Card 3: Manual Spam GUI
+-- MUDANÇA: o toggle apenas mostra/esconde a ParrySpamToggleGui.
+-- O spam em si é controlado pelo botão ON/OFF dentro dessa GUI.
+local c3 = makeCard(ColLeft, 3)
+cardLabel(c3, "Manual Spam GUI", 12, 10, 12, true)
+cardLabel(c3, "Mostra/esconde a GUI de spam", 12, 30, 9, false, Color3.fromRGB(95,95,125))
+cardBadge(c3, isMobile and "GUI" or "GUI", GREEN, 50)
+attachSwitch(c3, false, function(isOn)
+    -- Aguarda um tick para a Alma ter criado a GUI, se necessário
+    task.spawn(function()
+        local spamGui = CoreGui:FindFirstChild("ParrySpamToggleGui")
+        if spamGui then
+            spamGui.Enabled = isOn
+            -- Se esconder a GUI, desativa o spam também
+            if not isOn and getgenv().__deltaV3_setSpam then
+                getgenv().__deltaV3_setSpam(false)
+            end
+        end
+    end)
+end)
+
+-- ══════════════════════════════════════════
+-- COLUNA DIREITA
+-- ══════════════════════════════════════════
+
+-- Card 4: Aura Visual
+local c4 = makeCard(ColRight, 1)
+cardLabel(c4, "Aura Visual", 12, 10, 12, true)
+cardLabel(c4, "Ring 3D no personagem", 12, 30, 9, false, Color3.fromRGB(95,95,125))
+cardBadge(c4, "3D", PURP, 50)
+attachSwitch(c4, false, function(isOn)
+    getgenv().__deltaV3_auraOn = isOn
+end)
+
+-- Card 5: CPS
+local CpsCard = makeCard(ColRight, 2, 108)
+CpsCard.Size = UDim2.new(1, 0, 0, 108)
+
+local CpsTitle = Instance.new("TextLabel")
+CpsTitle.Size                  = UDim2.new(0.55, 0, 0, 16)
+CpsTitle.Position              = UDim2.new(0, 12, 0, 9)
+CpsTitle.BackgroundTransparency = 1
+CpsTitle.Text                  = "CPS DO SPAM"
+CpsTitle.TextColor3            = Color3.fromRGB(235,235,255)
+CpsTitle.TextSize              = 10
+CpsTitle.Font                  = Enum.Font.GothamBold
+CpsTitle.TextXAlignment        = Enum.TextXAlignment.Left
+CpsTitle.Parent                = CpsCard
+
+local CpsValue = Instance.new("TextLabel")
+CpsValue.Size                    = UDim2.new(0, 58, 0, 16)
+CpsValue.Position                = UDim2.new(1, -68, 0, 8)
+CpsValue.BackgroundColor3        = Color3.fromRGB(50,90,200)
+CpsValue.BackgroundTransparency  = 0.5
+CpsValue.BorderSizePixel         = 0
+CpsValue.Text                    = "600 /s"
+CpsValue.TextColor3              = Color3.fromRGB(150,190,255)
+CpsValue.TextSize                = 9
+CpsValue.Font                    = Enum.Font.GothamBold
+CpsValue.TextXAlignment          = Enum.TextXAlignment.Center
+CpsValue.Parent                  = CpsCard
+corner(CpsValue, 6)
+
+local CpsGrid = Instance.new("Frame")
+CpsGrid.Size                   = UDim2.new(1, -20, 0, 62)
+CpsGrid.Position               = UDim2.new(0, 10, 0, 34)
+CpsGrid.BackgroundTransparency = 1
+CpsGrid.Parent                 = CpsCard
+
+local CpsUIGrid = Instance.new("UIGridLayout")
+CpsUIGrid.CellSize    = UDim2.new(0.22, -4, 0, 24)
+CpsUIGrid.CellPadding = UDim2.new(0, 4, 0, 4)
+CpsUIGrid.SortOrder   = Enum.SortOrder.LayoutOrder
+CpsUIGrid.Parent      = CpsGrid
+
+local cpsData = {
+    {v=10,   warn=false, sel=false},
+    {v=20,   warn=false, sel=false},
+    {v=60,   warn=false, sel=false},
+    {v=100,  warn=false, sel=false},
+    {v=166,  warn=false, sel=false},
+    {v=300,  warn=false, sel=false},
+    {v=600,  warn=false, sel=true },
+    {v=1000, warn=true,  sel=false},
+}
+local cpsBtns     = {}
+local selectedCps = 7
+
+local function selectCps(idx)
+    selectedCps = idx
+    local chosen = cpsData[idx]
+    getgenv().__deltaV3_spamInterval = 1 / chosen.v
+
+    for i, d in ipairs(cpsData) do
+        local sel = i == idx
+        tw(cpsBtns[i], 0.16, {
+            BackgroundColor3       = sel and Color3.fromRGB(60,100,200) or (d.warn and Color3.fromRGB(150,40,15) or Color3.fromRGB(28,28,48)),
+            BackgroundTransparency = sel and 0.3 or (d.warn and 0.45 or 0.15),
+        }):Play()
+        cpsBtns[i].TextColor3 = sel and Color3.fromRGB(170,210,255) or (d.warn and Color3.fromRGB(255,120,80) or Color3.fromRGB(105,105,135))
+        cpsBtns[i].Text = tostring(d.v) .. (sel and "★" or (d.warn and "⚠" or ""))
+    end
+    CpsValue.Text = tostring(chosen.v) .. " /s"
+    tw(CpsValue, 0.14, {BackgroundColor3 = chosen.warn and Color3.fromRGB(150,50,15) or Color3.fromRGB(50,90,200)}):Play()
+end
+
+for i, d in ipairs(cpsData) do
+    local Btn = Instance.new("TextButton")
+    Btn.Size                    = UDim2.new(1, 0, 1, 0)
+    Btn.BorderSizePixel         = 0
+    Btn.Font                    = Enum.Font.GothamBold
+    Btn.TextSize                = 9
+    Btn.LayoutOrder             = i
+    Btn.BackgroundColor3        = d.sel and Color3.fromRGB(60,100,200) or (d.warn and Color3.fromRGB(150,40,15) or Color3.fromRGB(28,28,48))
+    Btn.BackgroundTransparency  = d.sel and 0.3 or (d.warn and 0.45 or 0.15)
+    Btn.TextColor3              = d.sel and Color3.fromRGB(170,210,255) or (d.warn and Color3.fromRGB(255,120,80) or Color3.fromRGB(105,105,135))
+    Btn.Text                    = tostring(d.v) .. (d.sel and "★" or (d.warn and "⚠" or ""))
+    Btn.Parent                  = CpsGrid
+    corner(Btn, 6)
+    cpsBtns[i] = Btn
+    Btn.MouseButton1Click:Connect(function() selectCps(i) end)
+    Btn.TouchTap:Connect(function() selectCps(i) end)
+    Btn.MouseEnter:Connect(function() tw(Btn, 0.1, {BackgroundTransparency = 0.05}):Play() end)
+    Btn.MouseLeave:Connect(function()
+        tw(Btn, 0.1, {BackgroundTransparency = (i == selectedCps) and 0.3 or (d.warn and 0.45 or 0.15)}):Play()
+    end)
+end
+
+-- Card 6: Tecla
+local KeyCard = makeCard(ColRight, 3, 80)
+KeyCard.Size = UDim2.new(1, 0, 0, 80)
+
+local KeyTitle = Instance.new("TextLabel")
+KeyTitle.Size                  = UDim2.new(0.5, 0, 0, 16)
+KeyTitle.Position              = UDim2.new(0, 12, 0, 9)
+KeyTitle.BackgroundTransparency = 1
+KeyTitle.Text                  = "TECLA DO SPAM"
+KeyTitle.TextColor3            = Color3.fromRGB(235,235,255)
+KeyTitle.TextSize              = 10
+KeyTitle.Font                  = Enum.Font.GothamBold
+KeyTitle.TextXAlignment        = Enum.TextXAlignment.Left
+KeyTitle.Parent                = KeyCard
+
+local KeyValue = Instance.new("TextLabel")
+KeyValue.Size                    = UDim2.new(0, 52, 0, 16)
+KeyValue.Position                = UDim2.new(1, -62, 0, 8)
+KeyValue.BackgroundColor3        = Color3.fromRGB(50,90,200)
+KeyValue.BackgroundTransparency  = 0.5
+KeyValue.BorderSizePixel         = 0
+KeyValue.Text                    = "X"
+KeyValue.TextColor3              = Color3.fromRGB(150,190,255)
+KeyValue.TextSize                = 9
+KeyValue.Font                    = Enum.Font.GothamBold
+KeyValue.TextXAlignment          = Enum.TextXAlignment.Center
+KeyValue.Parent                  = KeyCard
+corner(KeyValue, 6)
+
+local KeyRow = Instance.new("Frame")
+KeyRow.Size                   = UDim2.new(1, -20, 0, 30)
+KeyRow.Position               = UDim2.new(0, 10, 0, 38)
+KeyRow.BackgroundTransparency = 1
+KeyRow.Parent                 = KeyCard
+
+local KeyRowList = Instance.new("UIListLayout")
+KeyRowList.FillDirection      = Enum.FillDirection.Horizontal
+KeyRowList.VerticalAlignment  = Enum.VerticalAlignment.Center
+KeyRowList.Padding            = UDim.new(0, 4)
+KeyRowList.SortOrder          = Enum.SortOrder.LayoutOrder
+KeyRowList.Parent             = KeyRow
+
+local keyOptions = {
+    {label="X",   sel=true },
+    {label="MB1", sel=false},
+    {label="MB2", sel=false},
+    {label="F",   sel=false},
+    {label="G",   sel=false},
+    {label="Q",   sel=false},
+    {label="E",   sel=false},
+}
+
+local keyMap = {
+    X   = Enum.KeyCode.X,
+    F   = Enum.KeyCode.F,
+    G   = Enum.KeyCode.G,
+    Q   = Enum.KeyCode.Q,
+    E   = Enum.KeyCode.E,
+}
+
+local keyBtns     = {}
+local selectedKey = 1
+
+-- FIX: armazena AMBAS as conexões (begin + ended) para desconectar corretamente
+local spamKeyConns = {}
+
+local function clearSpamKeyConns()
+    for _, conn in ipairs(spamKeyConns) do
+        conn:Disconnect()
+    end
+    spamKeyConns = {}
+end
+
+-- Helper para acionar o botão da GUI de spam (simula clique no toggleButton da ParrySpamToggleGui)
+local function triggerSpamGuiButton()
+    local spamGui = CoreGui:FindFirstChild("ParrySpamToggleGui")
+    if not spamGui then return end
+    local frame  = spamGui:FindFirstChild("Frame")
+    local btn    = frame and frame:FindFirstChildOfClass("TextButton")
+    if btn then btn.Activated:Fire() end
+end
+
+local function bindSpamKey(label)
+    clearSpamKeyConns()
+
+    if label == "MB1" or label == "MB2" then
+        -- Mouse: segura = spam ON, solta = spam OFF
+        local uType = label == "MB1"
+            and Enum.UserInputType.MouseButton1
+            or  Enum.UserInputType.MouseButton2
+
+        table.insert(spamKeyConns, UserInputService.InputBegan:Connect(function(inp, gpe)
+            if gpe then return end
+            if inp.UserInputType == uType then
+                if getgenv().__deltaV3_setSpam then
+                    getgenv().__deltaV3_setSpam(true)
+                end
+            end
+        end))
+
+        -- FIX: conexão do InputEnded agora é guardada e desconectada corretamente
+        table.insert(spamKeyConns, UserInputService.InputEnded:Connect(function(inp)
+            if inp.UserInputType == uType then
+                if getgenv().__deltaV3_setSpam then
+                    getgenv().__deltaV3_setSpam(false)
+                end
+            end
+        end))
+    else
+        local kc = keyMap[label]
+        if not kc then return end
+
+        -- Teclas: aperta = simula clique no botão da GUI de spam (toggle)
+        -- FIX: usa estado real da Alma via __deltaV3_setSpam com toggle correto,
+        --      rastreado localmente pois a Alma não expõe um getter
+        local localSpamState = false
+        table.insert(spamKeyConns, UserInputService.InputBegan:Connect(function(inp, gpe)
+            if gpe then return end
+            if inp.KeyCode == kc then
+                localSpamState = not localSpamState
+                if getgenv().__deltaV3_setSpam then
+                    getgenv().__deltaV3_setSpam(localSpamState)
+                end
+            end
+        end))
+    end
+end
+
+bindSpamKey("X")  -- padrão
+
+local function selectKey(idx)
+    selectedKey = idx
+    for i, _ in ipairs(keyOptions) do
+        local sel = i == idx
+        tw(keyBtns[i], 0.16, {
+            BackgroundColor3       = sel and Color3.fromRGB(60,100,200) or Color3.fromRGB(28,28,48),
+            BackgroundTransparency = sel and 0.3 or 0.15,
+        }):Play()
+        keyBtns[i].TextColor3 = sel and Color3.fromRGB(170,210,255) or Color3.fromRGB(105,105,135)
+    end
+    KeyValue.Text = keyOptions[idx].label
+    bindSpamKey(keyOptions[idx].label)
+end
+
+for i, d in ipairs(keyOptions) do
+    local Btn = Instance.new("TextButton")
+    Btn.Size                    = UDim2.new(0, 32, 0, 26)
+    Btn.BorderSizePixel         = 0
+    Btn.Font                    = Enum.Font.GothamBold
+    Btn.TextSize                = 9
+    Btn.LayoutOrder             = i
+    Btn.BackgroundColor3        = d.sel and Color3.fromRGB(60,100,200) or Color3.fromRGB(28,28,48)
+    Btn.BackgroundTransparency  = d.sel and 0.3 or 0.15
+    Btn.TextColor3              = d.sel and Color3.fromRGB(170,210,255) or Color3.fromRGB(105,105,135)
+    Btn.Text                    = d.label
+    Btn.Parent                  = KeyRow
+    corner(Btn, 7)
+    keyBtns[i] = Btn
+    Btn.MouseButton1Click:Connect(function() selectKey(i) end)
+    Btn.TouchTap:Connect(function() selectKey(i) end)
+    Btn.MouseEnter:Connect(function() tw(Btn, 0.1, {BackgroundTransparency = 0.05}):Play() end)
+    Btn.MouseLeave:Connect(function()
+        tw(Btn, 0.1, {BackgroundTransparency = (i == selectedKey) and 0.3 or 0.15}):Play()
+    end)
+end
+
+-- ══════════════════════════════════════════
+-- STATUS BAR
+-- ══════════════════════════════════════════
+local StatusWrapper = Instance.new("Frame")
+StatusWrapper.Name                   = "StatusWrapper"
+StatusWrapper.Size                   = UDim2.new(1, 0, 0, 32)
+StatusWrapper.BackgroundTransparency = 1
+StatusWrapper.LayoutOrder            = 2
+StatusWrapper.Parent                 = Body
+
+local StatusBar = Instance.new("Frame")
+StatusBar.Size                    = UDim2.new(1, 0, 0, 28)
+StatusBar.Position                = UDim2.new(0, 0, 0, 2)
+StatusBar.BackgroundColor3        = Color3.fromRGB(8, 8, 18)
+StatusBar.BackgroundTransparency  = 0.35
+StatusBar.BorderSizePixel         = 0
+StatusBar.Parent                  = StatusWrapper
+corner(StatusBar, RADIUS)
+
+local SList = Instance.new("UIListLayout")
+SList.FillDirection        = Enum.FillDirection.Horizontal
+SList.HorizontalAlignment  = Enum.HorizontalAlignment.Center
+SList.VerticalAlignment    = Enum.VerticalAlignment.Center
+SList.Padding              = UDim.new(0, 20)
+SList.Parent               = StatusBar
+
+local function makeDot(label, dotColor)
+    local f = Instance.new("Frame")
+    f.Size                   = UDim2.new(0, 0, 1, 0)
+    f.AutomaticSize          = Enum.AutomaticSize.X
+    f.BackgroundTransparency = 1
+    f.Parent                 = SList
+
+    local fl = Instance.new("UIListLayout")
+    fl.FillDirection       = Enum.FillDirection.Horizontal
+    fl.VerticalAlignment   = Enum.VerticalAlignment.Center
+    fl.Padding             = UDim.new(0, 5)
+    fl.Parent              = f
+
+    local d = Instance.new("Frame")
+    d.Size             = UDim2.new(0, 6, 0, 6)
+    d.BackgroundColor3 = dotColor
+    d.BorderSizePixel  = 0
+    d.Parent           = f
+    corner(d, 100)
+
+    task.spawn(function()
+        while d.Parent do
+            tw(d, 1.3, {BackgroundTransparency = 0.55}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut):Play()
+            task.wait(1.3)
+            tw(d, 1.3, {BackgroundTransparency = 0}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut):Play()
+            task.wait(1.3)
+        end
+    end)
+
+    local t = Instance.new("TextLabel")
+    t.Size                   = UDim2.new(0, 0, 1, 0)
+    t.AutomaticSize          = Enum.AutomaticSize.X
+    t.BackgroundTransparency = 1
+    t.Text                   = label
+    t.TextColor3             = Color3.fromRGB(105,105,135)
+    t.TextSize               = 10
+    t.Font                   = Enum.Font.Gotham
+    t.TextXAlignment         = Enum.TextXAlignment.Left
+    t.Parent                 = f
+end
+
+makeDot("Parry ON",   Color3.fromRGB(50,220,80))
+makeDot("Clash ON",   Color3.fromRGB(80,130,255))
+makeDot("600 CPS",    Color3.fromRGB(255,160,50))
+makeDot("DELTA v3.2", Color3.fromRGB(180,100,255))
+
+-- ══════════════════════════════════════════
+-- DRAG
+-- ══════════════════════════════════════════
+local BORDER = 18
+
+local DragBorder = Instance.new("Frame")
+DragBorder.Name                   = "DragBorder"
+DragBorder.Size                   = UDim2.new(1, BORDER * 2, 1, BORDER * 2)
+DragBorder.Position               = UDim2.new(0, -BORDER, 0, -BORDER)
+DragBorder.BackgroundTransparency = 1
+DragBorder.BorderSizePixel        = 0
+DragBorder.ZIndex                 = 0
+DragBorder.Parent                 = MainFrame
+
+local dragging, dragStart, frameStart = false, nil, nil
+
+local function startDrag(input)
+    dragging   = true
+    dragStart  = input.Position
+    frameStart = MainFrame.Position
+    input.Changed:Connect(function()
+        if input.UserInputState == Enum.UserInputState.End then dragging = false end
+    end)
+end
+
+local DRAG_TYPES = {
+    [Enum.UserInputType.MouseButton1] = true,
+    [Enum.UserInputType.Touch]        = true,
+}
+
+DragBorder.InputBegan:Connect(function(input)
+    if DRAG_TYPES[input.UserInputType] then startDrag(input) end
+end)
+
+Header.InputBegan:Connect(function(input)
+    if DRAG_TYPES[input.UserInputType] then startDrag(input) end
+end)
+
+CollapseBtn.InputBegan:Connect(function(input)
+    if DRAG_TYPES[input.UserInputType] then dragging = false end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if not dragging then return end
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        local d = input.Position - dragStart
+        MainFrame.Position = UDim2.new(
+            frameStart.X.Scale, frameStart.X.Offset + d.X,
+            frameStart.Y.Scale, frameStart.Y.Offset + d.Y
+        )
+    end
+end)
+
+-- ══════════════════════════════════════════
+-- COLLAPSE
+-- ══════════════════════════════════════════
+local isOpen     = true
+local lastToggle = 0
+local COOLDOWN   = 0.55
+
+local function animateHamburger(closing)
+    if closing then
+        tw(Line1, 0.25, {Position = UDim2.new(0.5,-8,0.5,-1), Rotation =  45}, Enum.EasingStyle.Back):Play()
+        tw(Line2, 0.12, {BackgroundTransparency = 1}):Play()
+        tw(Line3, 0.25, {Position = UDim2.new(0.5,-8,0.5,-1), Rotation = -45}, Enum.EasingStyle.Back):Play()
+    else
+        tw(Line1, 0.25, {Position = UDim2.new(0.5,-8,0.5,-5), Rotation = 0}, Enum.EasingStyle.Back):Play()
+        tw(Line2, 0.20, {BackgroundTransparency = 0.1}):Play()
+        tw(Line3, 0.25, {Position = UDim2.new(0.5,-8,0.5, 3), Rotation = 0}, Enum.EasingStyle.Back):Play()
+    end
+end
+
+local function doCollapse()
+    animateHamburger(true)
+    for i, card in ipairs(allCards) do
+        task.delay((i - 1) * 0.03, function()
+            tw(card, 0.13, {BackgroundTransparency = 1}):Play()
+        end)
+    end
+    task.delay(0.15, function()
+        Body.Visible = false
+        local currentH = MainFrame.AbsoluteSize.Y
+        MainFrame.AutomaticSize = Enum.AutomaticSize.None
+        MainFrame.Size = UDim2.new(0, WIDE, 0, currentH)
+        tw(MainFrame, 0.40, {
+            Size = UDim2.new(0, MINI, 0, HEADER_H)
+        }, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut):Play()
+        task.delay(0.40, function()
+            tw(Header, 0.09, {BackgroundTransparency = 0.05}):Play()
+            task.delay(0.09, function()
+                tw(Header, 0.20, {BackgroundTransparency = 0.25}):Play()
+            end)
+        end)
+    end)
+end
+
+local function doExpand()
+    animateHamburger(false)
+    tw(MainFrame, 0.42, {
+        Size = UDim2.new(0, WIDE, 0, HEADER_H)
+    }, Enum.EasingStyle.Back, Enum.EasingDirection.Out):Play()
+    task.delay(0.20, function()
+        for _, card in ipairs(allCards) do
+            card.BackgroundTransparency = 1
+        end
+        Body.Visible = true
+        task.delay(0.10, function()
+            MainFrame.AutomaticSize = Enum.AutomaticSize.Y
+        end)
+        for i, card in ipairs(allCards) do
+            task.delay((i - 1) * 0.05, function()
+                tw(card, 0.30, {BackgroundTransparency = 0.35}, Enum.EasingStyle.Back):Play()
+            end)
+        end
+        tw(MainFrame, 0.22, {BackgroundTransparency = 0.2}):Play()
+    end)
+end
+
+local function toggleCollapse()
+    local now = os.clock()
+    if now - lastToggle < COOLDOWN then return end
+    lastToggle = now
+    isOpen = not isOpen
+    if isOpen then
+        doExpand()
+    else
+        doCollapse()
+    end
+end
+
+CollapseBtn.MouseButton1Click:Connect(toggleCollapse)
+CollapseBtn.TouchTap:Connect(toggleCollapse)
+
+CollapseBtn.MouseEnter:Connect(function()
+    tw(CollapseBtn, 0.12, {BackgroundColor3 = Color3.fromRGB(50,50,88)}):Play()
+end)
+CollapseBtn.MouseLeave:Connect(function()
+    tw(CollapseBtn, 0.12, {BackgroundColor3 = Color3.fromRGB(30,30,55)}):Play()
+end)
+
+-- Cleanup ao remover GUI
+ScreenGui.AncestryChanged:Connect(function()
+    if not ScreenGui.Parent then
+        clearSpamKeyConns()
+    end
+end)
