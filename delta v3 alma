@@ -1,5 +1,5 @@
 -- Blade Ball Auto Parry + Spam [v5.0]
--- 1 Heartbeat | Aura via BallSyncData
+-- 1 Heartbeat | Aurudo
 
 local tick       = tick
 local math_clamp = math.clamp
