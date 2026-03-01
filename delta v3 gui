@@ -520,9 +520,9 @@ end
 -- ── NOVO bindSpamKey com suporte a hold/toggle ──
 local function bindSpamKey(label)
     clearSpamKeyConns()
-    local mode = getgenv().__deltaV3_spamKeyMode or "hold"
 
     local function onPress()
+        local mode = getgenv().__deltaV3_spamKeyMode or "hold"
         if mode == "toggle" then
             if getgenv().__deltaV3_setSpam then
                 local cur = getgenv().__deltaV3_spamActive
@@ -534,6 +534,7 @@ local function bindSpamKey(label)
     end
 
     local function onRelease()
+        local mode = getgenv().__deltaV3_spamKeyMode or "hold"
         if mode == "hold" then
             if getgenv().__deltaV3_setSpam then getgenv().__deltaV3_setSpam(false) end
         end
@@ -643,22 +644,24 @@ ModeBtn.Position               = UDim2.new(0, 10, 0, 24)
 ModeBtn.BorderSizePixel        = 0
 ModeBtn.Font                   = Enum.Font.GothamBold
 ModeBtn.TextSize               = 10
-ModeBtn.BackgroundColor3       = Color3.fromRGB(28, 28, 48)
-ModeBtn.BackgroundTransparency = 0.15
-ModeBtn.TextColor3             = Color3.fromRGB(105, 105, 135)
+ModeBtn.BackgroundColor3       = Color3.fromRGB(60, 100, 200)
+ModeBtn.BackgroundTransparency = 0.3
+ModeBtn.TextColor3             = Color3.fromRGB(170, 210, 255)
 ModeBtn.Text                   = "HOLD"
 ModeBtn.Parent                 = ModeCard
 corner(ModeBtn, 7)
 
 local function updateModeBtn()
     if isToggleMode then
-        tw(ModeBtn, 0.16, {BackgroundColor3 = Color3.fromRGB(60,100,200), BackgroundTransparency = 0.3}):Play()
-        ModeBtn.TextColor3 = Color3.fromRGB(170, 210, 255)
-        ModeBtn.Text       = "TOGGLE"
+        ModeBtn.BackgroundColor3       = Color3.fromRGB(120, 60, 210)
+        ModeBtn.BackgroundTransparency = 0.3
+        ModeBtn.TextColor3             = Color3.fromRGB(210, 170, 255)
+        ModeBtn.Text                   = "TOGGLE"
     else
-        tw(ModeBtn, 0.16, {BackgroundColor3 = Color3.fromRGB(28,28,48), BackgroundTransparency = 0.15}):Play()
-        ModeBtn.TextColor3 = Color3.fromRGB(105, 105, 135)
-        ModeBtn.Text       = "HOLD"
+        ModeBtn.BackgroundColor3       = Color3.fromRGB(60, 100, 200)
+        ModeBtn.BackgroundTransparency = 0.3
+        ModeBtn.TextColor3             = Color3.fromRGB(170, 210, 255)
+        ModeBtn.Text                   = "HOLD"
     end
 end
 
@@ -666,15 +669,17 @@ local function onModeClick()
     isToggleMode = not isToggleMode
     getgenv().__deltaV3_spamKeyMode = isToggleMode and "toggle" or "hold"
     bindSpamKey(keyOptions[selectedKey].label)
-    updateModeBtn()
+    tw(ModeBtn, 0.08, {BackgroundTransparency = 0.0}):Play()
+    task.delay(0.08, function()
+        updateModeBtn()
+        tw(ModeBtn, 0.16, {BackgroundTransparency = 0.3}):Play()
+    end)
 end
 
 ModeBtn.MouseButton1Click:Connect(onModeClick)
 ModeBtn.TouchTap:Connect(onModeClick)
 ModeBtn.MouseEnter:Connect(function() tw(ModeBtn, 0.1, {BackgroundTransparency = 0.05}):Play() end)
-ModeBtn.MouseLeave:Connect(function()
-    tw(ModeBtn, 0.1, {BackgroundTransparency = isToggleMode and 0.3 or 0.15}):Play()
-end)
+ModeBtn.MouseLeave:Connect(function() tw(ModeBtn, 0.1, {BackgroundTransparency = 0.3}):Play() end)
 
 -- status bar
 local StatusWrapper = Instance.new("Frame")
