@@ -1,5 +1,4 @@
 -- DELTA V3 — CONTROLE (GUI)
--- Rode junto ou depois da alma, os defaults são seguros
 -- Controla a alma via getgenv()
 
 local Players          = game:GetService("Players")
