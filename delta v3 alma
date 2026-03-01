@@ -1,11 +1,11 @@
--- Blade Ball Auto Parry + Spam [v5.0]
--- 1 Heartbeat | Aurudo
+-- phantom Ball Auto Parry + Spam [FINAL v5.2]
+-- 1 Heartbeat | Aura real | Clash preciso
+-- PC + Mobile | hooks via pcall (ignorados se não suportado)
 
 local tick       = tick
 local math_clamp = math.clamp
 local typeof     = typeof
 
--- cleanup de execução anterior
 if getgenv().__na_aex_conn then
     getgenv().__na_aex_conn:Disconnect()
     getgenv().__na_aex_conn = nil
@@ -15,7 +15,6 @@ getgenv().__na_aex = true
 
 if game.GameId ~= 4538598064 then return end
 
--- services
 local Plrs    = game:GetService("Players")
 local RS      = game:GetService("RunService")
 local RSrv    = game:GetService("ReplicatedStorage")
@@ -24,7 +23,6 @@ local UIS     = game:GetService("UserInputService")
 local Stats   = game:GetService("Stats")
 local CoreGui = game:GetService("CoreGui")
 
--- config
 local Config = {
     parryCDMin    = 0.05,
     parryCDMax    = 0.3,
@@ -69,76 +67,81 @@ local Config = {
     auraUpdateRate           = 0.015,
 }
 
--- getgenv: defaults e comunicação com o controle
 if getgenv().__deltaV3_autoParryOn  == nil then getgenv().__deltaV3_autoParryOn  = true    end
 if getgenv().__deltaV3_autoClashOn  == nil then getgenv().__deltaV3_autoClashOn  = true    end
 if getgenv().__deltaV3_auraOn       == nil then getgenv().__deltaV3_auraOn       = true    end
 if getgenv().__deltaV3_spamInterval == nil then getgenv().__deltaV3_spamInterval = 0.00167 end
 
--- network
-local Net  = require(RSrv.TS.Network.Network).Network
-local Def  = require(RSrv.TS.Abilities.DeflectAbility).DeflectAbility
+-- ============================================================
+-- NETWORK
+-- ============================================================
+local Net = nil
+local Def = nil
+
+pcall(function()
+    Net = require(RSrv.TS.Network.Network).Network
+end)
+
+pcall(function()
+    Def = require(RSrv.TS.Abilities.DeflectAbility).DeflectAbility
+end)
 
 local TS_Folder   = RSrv:WaitForChild("TS", 10)
 local NetRemotes  = TS_Folder and TS_Folder:WaitForChild("GeneratedNetworkRemotes", 10)
 local parryRemote = NetRemotes and NetRemotes:FindFirstChild("RE_4.6848415795802784e+76")
 
--- BallSyncData: velocidade real do servidor, usada pela aura
-local ballSyncRemote = RSrv:WaitForChild("Remotes", 5)
-ballSyncRemote = ballSyncRemote and ballSyncRemote:FindFirstChild("BallSyncData")
-
-local touchTapEvent = RSrv:FindFirstChild("TouchTap")
+local ballSyncFolder = RSrv:WaitForChild("Remotes", 5)
+local ballSyncRemote = ballSyncFolder and ballSyncFolder:FindFirstChild("BallSyncData")
 
 local PNotif = RSrv:WaitForChild("PromptNotification")
 task.spawn(function()
-    PNotif:Fire("Auto Parry FINAL v5.0 ✅ | Aura Real | Clash Preciso", true)
+    PNotif:Fire("Auto Parry FINAL v5.2 ✅ | PC + Mobile", true)
 end)
 
 local spamOn      = false
 local clashSpamOn = false
 
-local originalIsAvailable
-originalIsAvailable = hookfunction(Def.IsAvailable, function(self, ...)
-    if spamOn or clashSpamOn then return true end
-    return originalIsAvailable(self, ...)
+-- hooks opcionais: funcionam no mobile, ignorados silenciosamente no PC
+pcall(function()
+    local originalIsAvailable
+    originalIsAvailable = hookfunction(Def.IsAvailable, function(self, ...)
+        if spamOn or clashSpamOn then return true end
+        return originalIsAvailable(self, ...)
+    end)
 end)
 
-local oSend
-oSend = hookfunction(Net.CSendEvent, function(self, router, evt, ...)
-    if router == 46848415795802784000000000000000000000000000000000000000000000000000000000000 then
-        return oSend(self, router, 29338138590583890000000000000000000000000000000000000000000000000000000000000, ...)
-    end
-    return oSend(self, router, evt, ...)
+pcall(function()
+    local oSend
+    oSend = hookfunction(Net.CSendEvent, function(self, router, evt, ...)
+        if router == 46848415795802784000000000000000000000000000000000000000000000000000000000000 then
+            return oSend(self, router, 29338138590583890000000000000000000000000000000000000000000000000000000000000, ...)
+        end
+        return oSend(self, router, evt, ...)
+    end)
 end)
 
-local Cache = { Character = nil, RootPart = nil, Ball = nil }
-
-local function getParryCFrame()
-    return Cache.RootPart and Cache.RootPart.CFrame or CFrame.new()
-end
-
-local function getBallCFrame()
-    return Cache.Ball and Cache.Ball.CFrame or getParryCFrame()
-end
-
+-- ============================================================
+-- SEND PARRY — FireServer direto (PC e mobile)
+-- fallback via Net se remote não carregar
+-- ============================================================
 local function sendParry()
-    -- método direto com CFrame real (Tek/Phantom)
-    if parryRemote and Cache.RootPart then
-        parryRemote:FireServer(2.933813859058389e+76, getParryCFrame(), getBallCFrame())
+    if parryRemote then
+        pcall(function()
+            parryRemote:FireServer(2.933813859058389e+76)
+        end)
+        return
     end
-    -- fallback via Net
     if Net then
         Net:CSendEvent(
             46848415795802784000000000000000000000000000000000000000000000000000000000000,
             6846744283873508500000000000000000000000000000000000000000000000000000000000
         )
     end
-    if touchTapEvent then
-        touchTapEvent:Fire()
-    end
 end
 
--- game info
+-- ============================================================
+-- GAME INFO
+-- ============================================================
 local gi, br
 
 do
@@ -161,7 +164,11 @@ end
 
 local lp = Plrs.LocalPlayer
 
--- cache de bola
+-- ============================================================
+-- CACHE
+-- ============================================================
+local Cache = { Character = nil, RootPart = nil, Ball = nil }
+
 local function trySetBall(obj)
     if obj.Name == "GameBall" then Cache.Ball = obj end
 end
@@ -202,31 +209,25 @@ local function tgtOn()
     return false
 end
 
--- ball sync: pega velocidade real do servidor pra aura bater certo
-local BallSync = {
-    RealPosition = Vector3.zero,
-    Speed        = 0,
-    TargetID     = -999,
-}
+-- ============================================================
+-- BALL SYNC (aura)
+-- ============================================================
+local BallSync = { Speed = 0 }
 
 if ballSyncRemote then
     ballSyncRemote.OnClientEvent:Connect(function(data)
         if typeof(data) ~= "table" then return end
-        if data.RealPosition then
-            BallSync.RealPosition = data.RealPosition
-        end
         if typeof(data.Speed) == "number" then
             BallSync.Speed = data.Speed
         elseif type(data.Speed) == "table" and data.Speed.Magnitude then
             BallSync.Speed = data.Speed.Magnitude
         end
-        if data.TargetPlayerID then
-            BallSync.TargetID = data.TargetPlayerID
-        end
     end)
 end
 
--- ping
+-- ============================================================
+-- PING
+-- ============================================================
 local smoothedPing = 0.05
 
 local function updatePing()
@@ -245,7 +246,9 @@ local function getPingCompensation()
     )
 end
 
--- state machine
+-- ============================================================
+-- STATE MACHINE
+-- ============================================================
 local State = { current = "normal", lastTransition = 0 }
 
 local function setState(s)
@@ -254,12 +257,15 @@ local function setState(s)
     State.lastTransition = tick()
 end
 
--- reentrância
+-- ============================================================
+-- REENTRÂNCIA
+-- ============================================================
 local ballProcessed    = false
 local lastProcessReset = 0
 
--- clash: exige padrão alternado confirmado + cooldown entre ativações
--- corrige o bug do v3.2 original que ativava clash com qualquer bola perto
+-- ============================================================
+-- CLASH DETECTION
+-- ============================================================
 local ClashState = {
     Active             = false,
     LastActivationTime = 0,
@@ -273,7 +279,6 @@ local lastTarget    = nil
 local function updateClashDetection(newTargetID, ballPos, ballVel, hrpPos)
     if newTargetID == lastTarget then return end
 
-    -- troca de alvo = bola mudou direção, libera parry imediatamente
     if lastTarget ~= nil then
         ballProcessed    = false
         lastProcessReset = 0
@@ -293,10 +298,8 @@ local function updateClashDetection(newTargetID, ballPos, ballVel, hrpPos)
 
     if (now - ClashState.LastClashTime) < Config.clashCooldown then return end
 
-    -- padrão alternado: eu → oponente → eu → oponente...
     if #TargetHistory >= Config.clashMinHistory then
-        local timeGap = TargetHistory[1].t - TargetHistory[Config.clashMinHistory].t
-
+        local timeGap       = TargetHistory[1].t - TargetHistory[Config.clashMinHistory].t
         local isAlternating = true
         for i = 1, Config.clashMinHistory do
             local expectedMe = (i % 2 == 1)
@@ -316,7 +319,6 @@ local function updateClashDetection(newTargetID, ballPos, ballVel, hrpPos)
         end
     end
 
-    -- distância crítica: só ativa se bola vem em minha direção
     if newTargetID == lp.UserId
         and dist < Config.clashCriticalDist
         and ballVel ~= nil
@@ -329,7 +331,9 @@ local function updateClashDetection(newTargetID, ballPos, ballVel, hrpPos)
     end
 end
 
--- spam
+-- ============================================================
+-- SPAM
+-- ============================================================
 local lastSpamFire = 0
 local toggleButton
 
@@ -351,9 +355,9 @@ end
 
 getgenv().__deltaV3_setSpam = function(v) setSpam(v) end
 
--- tecla gerenciada pelo controle via bindSpamKey
-
--- GUI de spam (começa escondida, o controle mostra)
+-- ============================================================
+-- GUI DE SPAM
+-- ============================================================
 task.spawn(function()
     local old = CoreGui:FindFirstChild("ParrySpamToggleGui")
     if old then old:Destroy() end
@@ -389,7 +393,7 @@ task.spawn(function()
     titleLabel.Size                   = UDim2.new(1, -6, 1, 0)
     titleLabel.Position               = UDim2.new(0, 6, 0, 0)
     titleLabel.BackgroundTransparency = 1
-    titleLabel.Text                   = "FINAL v5.0 [1]"
+    titleLabel.Text                   = "FINAL v5.2"
     titleLabel.TextColor3             = Color3.fromRGB(180, 195, 255)
     titleLabel.TextScaled             = true
     titleLabel.Font                   = Enum.Font.GothamBold
@@ -451,8 +455,9 @@ task.spawn(function()
     updateGUI()
 end)
 
--- aura visual (RenderStepped — só visual, correto separar do Heartbeat)
--- raio usa BallSync.Speed (real) pra bater com a zona de detecção real
+-- ============================================================
+-- AURA VISUAL
+-- ============================================================
 local OUTER_TRANSPARENCY = 0.18
 local INNER_TRANSPARENCY = 0.9
 local AREA_COLOR         = Color3.fromRGB(255, 255, 255)
@@ -473,8 +478,8 @@ local function createAuraPart(name)
     return p
 end
 
-local auraOuter = createAuraPart("DeltaAuraOuter")
-local auraInner = createAuraPart("DeltaAuraInner")
+local auraOuter        = createAuraPart("DeltaAuraOuter")
+local auraInner        = createAuraPart("DeltaAuraInner")
 local lastVisualUpdate = 0
 
 local auraConn = RS.RenderStepped:Connect(function()
@@ -496,13 +501,12 @@ local auraConn = RS.RenderStepped:Connect(function()
                    or (b and b.Parent and b.AssemblyLinearVelocity.Magnitude)
                    or 45
 
-    -- mesma fórmula do auto parry: raio visual = raio de detecção real
     local baseRad = math_clamp(
         realSpeed * Config.radiusWin + Config.radiusOff,
         Config.minRadius, Config.maxRadius
     ) + Config.radiusPre + Config.activationDistanceOffset
 
-    local rad = ClashState.Active and (baseRad * Config.clashRadMult) or baseRad
+    local rad  = ClashState.Active and (baseRad * Config.clashRadMult) or baseRad
     local sz   = Vector3.new(rad * 2, rad * 2, rad * 2)
     local szIn = Vector3.new((rad - 0.5) * 2, (rad - 0.5) * 2, (rad - 0.5) * 2)
 
@@ -520,7 +524,9 @@ local auraConn = RS.RenderStepped:Connect(function()
     auraInner.Transparency = INNER_TRANSPARENCY
 end)
 
--- heartbeat principal: parry + spam + clash num único loop
+-- ============================================================
+-- HEARTBEAT PRINCIPAL
+-- ============================================================
 local function bind(ch)
     setupCharacter(ch)
 
@@ -547,7 +553,6 @@ local function bind(ch)
 
         clashSpamOn = (autoClashOn and ClashState.Active) and true or false
 
-        -- spam (manual ou clash): prioridade máxima, não roda parry no mesmo frame
         if spamOn or clashSpamOn then
             local fired = 0
             while (now - lastSpamFire) >= spamInterval and fired < Config.spamCapPerFrame do
@@ -587,7 +592,6 @@ local function bind(ch)
 
         local bp = b.Position
 
-        -- teleporte/reset da bola: bloqueia parry por ballResetLockout
         if lastBallPos then
             local jump = (bp - lastBallPos).Magnitude
             if jump > Config.ballResetThresh then
@@ -677,7 +681,6 @@ end
 lp.CharacterAdded:Connect(bind)
 if lp.Character then bind(lp.Character) end
 
--- cleanup ao remover a GUI do controle
 CoreGui.ChildRemoved:Connect(function(c)
     if c.Name == "DeltaV3Gui" then
         if auraConn then auraConn:Disconnect() end
