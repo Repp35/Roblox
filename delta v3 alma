@@ -1,5 +1,5 @@
 -- ============================================================
--- Blade Ball Auto Parry + Spam [DELTA v3.2] — ALMA (fixed)
+-- Blade Ball Auto Parry + Spam [DELTA v3.2] — ALMA
 -- Controlado pelo delta_v3_controle.lua via getgenv()
 -- ============================================================
 
@@ -277,25 +277,135 @@ end
 -- SPAM STATE
 -- ============================================================
 local lastSpamFire = 0
+local toggleButton  -- referência ao botão da ParrySpamToggleGui
 
--- FIX: guarda contra chamadas redundantes + setState correto
+local function updateGUI()
+    if not toggleButton then return end
+    toggleButton.Text             = spamOn and "SPAM ON" or "SPAM OFF"
+    toggleButton.BackgroundColor3 = spamOn
+        and Color3.fromRGB(50, 220, 50)
+        or  Color3.fromRGB(220, 50, 50)
+end
+
 local function setSpam(v)
     if spamOn == v then return end
     spamOn       = v
     lastSpamFire = tick()
     setState(v and "spam" or "normal")
+    updateGUI()
 end
 
--- Expõe para o Controle
+-- Expõe para o Controle — NÃO há mais binding de tecla aqui.
+-- O Controle (card "TECLA DO SPAM") é responsável por chamar setSpam.
 getgenv().__deltaV3_setSpam = function(v)
     setSpam(v)
 end
 
-UIS.InputBegan:Connect(function(inp, gpe)
-    if gpe then return end
-    if inp.KeyCode == Enum.KeyCode.X then
-        setSpam(not spamOn)
+-- ============================================================
+-- GUI DE SPAM (ParrySpamToggleGui)
+-- Criada pela Alma, mas começa ESCONDIDA (Enabled = false).
+-- O Controle (card "Manual Spam GUI") controla Enabled.
+-- ============================================================
+task.spawn(function()
+    local old = CoreGui:FindFirstChild("ParrySpamToggleGui")
+    if old then old:Destroy() end
+
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name           = "ParrySpamToggleGui"
+    screenGui.ResetOnSpawn   = false
+    screenGui.IgnoreGuiInset = true
+    screenGui.Enabled        = false  -- começa oculta até o Controle mostrar
+    screenGui.Parent         = CoreGui
+
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Size             = UDim2.new(0, 120, 0, 95)
+    mainFrame.Position         = UDim2.new(1, -130, 0.5, -47)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 30)
+    mainFrame.BorderSizePixel  = 0
+    mainFrame.Parent           = screenGui
+    Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 14)
+
+    local stroke     = Instance.new("UIStroke")
+    stroke.Color     = Color3.fromRGB(70, 90, 200)
+    stroke.Thickness = 1.5
+    stroke.Parent    = mainFrame
+
+    local titleBar = Instance.new("Frame")
+    titleBar.Size             = UDim2.new(1, 0, 0, 24)
+    titleBar.BackgroundColor3 = Color3.fromRGB(30, 30, 55)
+    titleBar.BorderSizePixel  = 0
+    titleBar.Parent           = mainFrame
+    Instance.new("UICorner", titleBar).CornerRadius = UDim.new(0, 14)
+
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Size                   = UDim2.new(1, -6, 1, 0)
+    titleLabel.Position               = UDim2.new(0, 6, 0, 0)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text                   = "SPAM δ3.2"
+    titleLabel.TextColor3             = Color3.fromRGB(180, 195, 255)
+    titleLabel.TextScaled             = true
+    titleLabel.Font                   = Enum.Font.GothamBold
+    titleLabel.Parent                 = titleBar
+
+    toggleButton = Instance.new("TextButton")
+    toggleButton.Size             = UDim2.new(0.85, 0, 0, 52)
+    toggleButton.Position         = UDim2.new(0.075, 0, 0, 30)
+    toggleButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+    toggleButton.BorderSizePixel  = 0
+    toggleButton.Text             = "SPAM OFF"
+    toggleButton.TextColor3       = Color3.fromRGB(255, 255, 255)
+    toggleButton.TextScaled       = true
+    toggleButton.Font             = Enum.Font.GothamBold
+    toggleButton.Parent           = mainFrame
+    Instance.new("UICorner", toggleButton).CornerRadius = UDim.new(0, 10)
+
+    -- Drag na titleBar
+    local dragging, dragStart, startPos = false, nil, nil
+
+    local function updateDrag(input)
+        if not dragStart or not startPos then return end
+        local delta  = input.Position - dragStart
+        local vpSize = WS.CurrentCamera.ViewportSize
+        local fSize  = mainFrame.AbsoluteSize
+        mainFrame.Position = UDim2.new(
+            0, math_clamp(startPos.X.Offset + delta.X, 0, vpSize.X - fSize.X),
+            0, math_clamp(startPos.Y.Offset + delta.Y, 0, vpSize.Y - fSize.Y)
+        )
     end
+
+    titleBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging  = true
+            dragStart = input.Position
+            startPos  = mainFrame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    titleBar.InputChanged:Connect(function(input)
+        if dragging and (
+            input.UserInputType == Enum.UserInputType.MouseMovement or
+            input.UserInputType == Enum.UserInputType.Touch
+        ) then updateDrag(input) end
+    end)
+
+    UIS.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.Touch then
+            updateDrag(input)
+        end
+    end)
+
+    -- Clique no botão → toggle spam
+    toggleButton.Activated:Connect(function()
+        setSpam(not spamOn)
+    end)
+
+    updateGUI()
 end)
 
 -- ============================================================
@@ -325,7 +435,6 @@ end
 local auraOuter = createAuraPart("DeltaAuraOuter")
 local auraInner = createAuraPart("DeltaAuraInner")
 
--- FIX: guarda conexão da aura para poder desconectar no cleanup
 local auraConn = RS.RenderStepped:Connect(function()
     local now = tick()
     if (now - lastVisualUpdate) < 0.015 then return end
@@ -346,8 +455,8 @@ local auraConn = RS.RenderStepped:Connect(function()
     local ballSpeed = (b and b.Parent and b.AssemblyLinearVelocity.Magnitude) or 45
     local vSize     = (math.max(ballSpeed, 45) * 0.22) + activationDistanceOffset
 
-    local cf  = hrp.CFrame
-    local sz  = Vector3.new(vSize * 2, vSize * 2, vSize * 2)
+    local cf   = hrp.CFrame
+    local sz   = Vector3.new(vSize * 2, vSize * 2, vSize * 2)
     local szIn = Vector3.new((vSize - 0.4) * 2, (vSize - 0.4) * 2, (vSize - 0.4) * 2)
 
     auraOuter.CFrame = cf
@@ -385,12 +494,10 @@ local function bind(ch)
 
         local now = tick()
 
-        -- Lê configurações do Controle a cada frame
         local autoParryOn  = getgenv().__deltaV3_autoParryOn
         local autoClashOn  = getgenv().__deltaV3_autoClashOn
         local spamInterval = getgenv().__deltaV3_spamInterval or Config.spamInterval
 
-        -- FIX: parênteses explícitos para precedência correta em Lua
         clashSpamOn = (autoClashOn and ClashState.Active) and true or false
 
         -- ── SPAM (manual OU clash) ──
@@ -401,17 +508,15 @@ local function bind(ch)
                 lastSpamFire = lastSpamFire + spamInterval
                 fired        = fired + 1
             end
-            -- FIX: reseta se atrasado demais para evitar burst infinito
             if (now - lastSpamFire) > spamInterval * Config.spamCapPerFrame then
                 lastSpamFire = now
             end
             return
         else
-            -- FIX: só reseta lastSpamFire se não estava spammando no frame anterior
             lastSpamFire = now
         end
 
-        -- ── AUTO PARRY (só se ativado pelo Controle) ──
+        -- ── AUTO PARRY ──
         if not autoParryOn then return end
 
         pingTimer = pingTimer + dt
@@ -505,7 +610,6 @@ local function bind(ch)
     ch.AncestryChanged:Connect(function(_, p)
         if not p then
             connection:Disconnect()
-            -- FIX: usa setSpam(false) para garantir setState consistente
             setSpam(false)
             clashSpamOn       = false
             lastSpamFire      = 0
@@ -521,14 +625,11 @@ lp.CharacterAdded:Connect(bind)
 if lp.Character then bind(lp.Character) end
 
 -- ============================================================
--- CLEANUP GLOBAL (quando o Controle destrói a GUI)
+-- CLEANUP GLOBAL
 -- ============================================================
 CoreGui.ChildRemoved:Connect(function(c)
     if c.Name == "DeltaV3Gui" then
-        -- FIX: desconecta aura antes de destruir as parts
-        if auraConn then
-            auraConn:Disconnect()
-        end
+        if auraConn then auraConn:Disconnect() end
         pcall(function() auraOuter:Destroy() end)
         pcall(function() auraInner:Destroy() end)
         getgenv().__na_aex = nil
