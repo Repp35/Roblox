@@ -349,19 +349,15 @@ attachSwitch(c2, true, function(isOn)
 end)
 
 -- Card 3: Manual Spam GUI
--- MUDANÇA: o toggle apenas mostra/esconde a ParrySpamToggleGui.
--- O spam em si é controlado pelo botão ON/OFF dentro dessa GUI.
 local c3 = makeCard(ColLeft, 3)
 cardLabel(c3, "Manual Spam GUI", 12, 10, 12, true)
 cardLabel(c3, "Mostra/esconde a GUI de spam", 12, 30, 9, false, Color3.fromRGB(95,95,125))
 cardBadge(c3, isMobile and "GUI" or "GUI", GREEN, 50)
 attachSwitch(c3, false, function(isOn)
-    -- Aguarda um tick para a Alma ter criado a GUI, se necessário
     task.spawn(function()
         local spamGui = CoreGui:FindFirstChild("ParrySpamToggleGui")
         if spamGui then
             spamGui.Enabled = isOn
-            -- Se esconder a GUI, desativa o spam também
             if not isOn and getgenv().__deltaV3_setSpam then
                 getgenv().__deltaV3_setSpam(false)
             end
@@ -497,7 +493,7 @@ KeyValue.Position                = UDim2.new(1, -62, 0, 8)
 KeyValue.BackgroundColor3        = Color3.fromRGB(50,90,200)
 KeyValue.BackgroundTransparency  = 0.5
 KeyValue.BorderSizePixel         = 0
-KeyValue.Text                    = "X"
+KeyValue.Text                    = "1"   -- padrão agora é 1
 KeyValue.TextColor3              = Color3.fromRGB(150,190,255)
 KeyValue.TextSize                = 9
 KeyValue.Font                    = Enum.Font.GothamBold
@@ -519,7 +515,7 @@ KeyRowList.SortOrder          = Enum.SortOrder.LayoutOrder
 KeyRowList.Parent             = KeyRow
 
 local keyOptions = {
-    {label="X",   sel=true },
+    {label="1",   sel=true },   -- padrão agora é 1
     {label="MB1", sel=false},
     {label="MB2", sel=false},
     {label="F",   sel=false},
@@ -529,17 +525,16 @@ local keyOptions = {
 }
 
 local keyMap = {
-    X   = Enum.KeyCode.X,
-    F   = Enum.KeyCode.F,
-    G   = Enum.KeyCode.G,
-    Q   = Enum.KeyCode.Q,
-    E   = Enum.KeyCode.E,
+    ["1"] = Enum.KeyCode.One,   -- 1 no lugar de X
+    F     = Enum.KeyCode.F,
+    G     = Enum.KeyCode.G,
+    Q     = Enum.KeyCode.Q,
+    E     = Enum.KeyCode.E,
 }
 
 local keyBtns     = {}
 local selectedKey = 1
 
--- FIX: armazena AMBAS as conexões (begin + ended) para desconectar corretamente
 local spamKeyConns = {}
 
 local function clearSpamKeyConns()
@@ -549,24 +544,15 @@ local function clearSpamKeyConns()
     spamKeyConns = {}
 end
 
--- Helper para acionar o botão da GUI de spam (simula clique no toggleButton da ParrySpamToggleGui)
-local function triggerSpamGuiButton()
-    local spamGui = CoreGui:FindFirstChild("ParrySpamToggleGui")
-    if not spamGui then return end
-    local frame  = spamGui:FindFirstChild("Frame")
-    local btn    = frame and frame:FindFirstChildOfClass("TextButton")
-    if btn then btn.Activated:Fire() end
-end
-
 local function bindSpamKey(label)
     clearSpamKeyConns()
 
     if label == "MB1" or label == "MB2" then
-        -- Mouse: segura = spam ON, solta = spam OFF
         local uType = label == "MB1"
             and Enum.UserInputType.MouseButton1
             or  Enum.UserInputType.MouseButton2
 
+        -- Hold: segura = spam ON, solta = spam OFF
         table.insert(spamKeyConns, UserInputService.InputBegan:Connect(function(inp, gpe)
             if gpe then return end
             if inp.UserInputType == uType then
@@ -576,7 +562,6 @@ local function bindSpamKey(label)
             end
         end))
 
-        -- FIX: conexão do InputEnded agora é guardada e desconectada corretamente
         table.insert(spamKeyConns, UserInputService.InputEnded:Connect(function(inp)
             if inp.UserInputType == uType then
                 if getgenv().__deltaV3_setSpam then
@@ -588,23 +573,27 @@ local function bindSpamKey(label)
         local kc = keyMap[label]
         if not kc then return end
 
-        -- Teclas: aperta = simula clique no botão da GUI de spam (toggle)
-        -- FIX: usa estado real da Alma via __deltaV3_setSpam com toggle correto,
-        --      rastreado localmente pois a Alma não expõe um getter
-        local localSpamState = false
+        -- Hold: aperta = spam ON, solta = spam OFF
         table.insert(spamKeyConns, UserInputService.InputBegan:Connect(function(inp, gpe)
             if gpe then return end
             if inp.KeyCode == kc then
-                localSpamState = not localSpamState
                 if getgenv().__deltaV3_setSpam then
-                    getgenv().__deltaV3_setSpam(localSpamState)
+                    getgenv().__deltaV3_setSpam(true)
+                end
+            end
+        end))
+
+        table.insert(spamKeyConns, UserInputService.InputEnded:Connect(function(inp)
+            if inp.KeyCode == kc then
+                if getgenv().__deltaV3_setSpam then
+                    getgenv().__deltaV3_setSpam(false)
                 end
             end
         end))
     end
 end
 
-bindSpamKey("X")  -- padrão
+bindSpamKey("1")  -- padrão agora é 1
 
 local function selectKey(idx)
     selectedKey = idx
@@ -712,7 +701,7 @@ end
 makeDot("Parry ON",   Color3.fromRGB(50,220,80))
 makeDot("Clash ON",   Color3.fromRGB(80,130,255))
 makeDot("600 CPS",    Color3.fromRGB(255,160,50))
-makeDot("DELTA v3.2", Color3.fromRGB(180,100,255))
+makeDot("DELTA v5.0", Color3.fromRGB(180,100,255))
 
 -- ══════════════════════════════════════════
 -- DRAG
