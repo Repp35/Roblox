@@ -601,9 +601,28 @@ for i, d in ipairs(keyOptions) do
     end)
 end
 
--- ── CARD MODO DA TECLA (hold / toggle) ──
-local ModeCard = makeCard(ColRight, 4, 52)
-ModeCard.Size = UDim2.new(1, 0, 0, 52)
+-- ── CARD MODO DA TECLA (hold / toggle) — linha própria centralizada ──
+local ModeWrapper = Instance.new("Frame")
+ModeWrapper.Name                   = "ModeWrapper"
+ModeWrapper.Size                   = UDim2.new(1, 0, 0, 52)
+ModeWrapper.BackgroundTransparency = 1
+ModeWrapper.LayoutOrder            = 15  -- entre ColsRow(1) e StatusWrapper(2... será 20)
+ModeWrapper.Parent                 = Body
+
+local ModeCard = Instance.new("Frame")
+ModeCard.Size                   = UDim2.new(0, 280, 0, 52)
+ModeCard.Position               = UDim2.new(0.5, -140, 0, 0)
+ModeCard.BackgroundColor3       = Color3.fromRGB(22, 22, 40)
+ModeCard.BackgroundTransparency = 1
+ModeCard.BorderSizePixel        = 0
+ModeCard.Parent                 = ModeWrapper
+corner(ModeCard, 12)
+table.insert(allCards, ModeCard)
+task.delay(0.12 + 5 * 0.07, function()
+    tw(ModeCard, 0.38, {BackgroundTransparency = 0.35}, Enum.EasingStyle.Back):Play()
+end)
+ModeCard.MouseEnter:Connect(function() tw(ModeCard, 0.14, {BackgroundTransparency = 0.18}):Play() end)
+ModeCard.MouseLeave:Connect(function() tw(ModeCard, 0.14, {BackgroundTransparency = 0.35}):Play() end)
 
 local ModeTitle = Instance.new("TextLabel")
 ModeTitle.Size                   = UDim2.new(0.5, 0, 0, 16)
@@ -616,68 +635,53 @@ ModeTitle.Font                   = Enum.Font.GothamBold
 ModeTitle.TextXAlignment         = Enum.TextXAlignment.Left
 ModeTitle.Parent                 = ModeCard
 
-local ModeRow = Instance.new("Frame")
-ModeRow.Size                   = UDim2.new(1, -20, 0, 24)
-ModeRow.Position               = UDim2.new(0, 10, 0, 24)
-ModeRow.BackgroundTransparency = 1
-ModeRow.Parent                 = ModeCard
+local isToggleMode = false
 
-local ModeRowList = Instance.new("UIListLayout")
-ModeRowList.FillDirection     = Enum.FillDirection.Horizontal
-ModeRowList.VerticalAlignment = Enum.VerticalAlignment.Center
-ModeRowList.Padding           = UDim.new(0, 6)
-ModeRowList.SortOrder         = Enum.SortOrder.LayoutOrder
-ModeRowList.Parent            = ModeRow
+local ModeBtn = Instance.new("TextButton")
+ModeBtn.Size                   = UDim2.new(1, -20, 0, 24)
+ModeBtn.Position               = UDim2.new(0, 10, 0, 24)
+ModeBtn.BorderSizePixel        = 0
+ModeBtn.Font                   = Enum.Font.GothamBold
+ModeBtn.TextSize               = 10
+ModeBtn.BackgroundColor3       = Color3.fromRGB(28, 28, 48)
+ModeBtn.BackgroundTransparency = 0.15
+ModeBtn.TextColor3             = Color3.fromRGB(105, 105, 135)
+ModeBtn.Text                   = "HOLD"
+ModeBtn.Parent                 = ModeCard
+corner(ModeBtn, 7)
 
-local modeBtns = {}
-local modeOptions = {"HOLD", "TOGGLE"}
-local selectedMode = 1 -- HOLD por padrão
-
-local function selectMode(idx)
-    selectedMode = idx
-    local mode = idx == 1 and "hold" or "toggle"
-    getgenv().__deltaV3_spamKeyMode = mode
-    -- rebinda com novo modo
-    bindSpamKey(keyOptions[selectedKey].label)
-
-    for i = 1, 2 do
-        local sel = i == idx
-        tw(modeBtns[i], 0.16, {
-            BackgroundColor3       = sel and Color3.fromRGB(60,100,200) or Color3.fromRGB(28,28,48),
-            BackgroundTransparency = sel and 0.3 or 0.15,
-        }):Play()
-        modeBtns[i].TextColor3 = sel and Color3.fromRGB(170,210,255) or Color3.fromRGB(105,105,135)
+local function updateModeBtn()
+    if isToggleMode then
+        tw(ModeBtn, 0.16, {BackgroundColor3 = Color3.fromRGB(60,100,200), BackgroundTransparency = 0.3}):Play()
+        ModeBtn.TextColor3 = Color3.fromRGB(170, 210, 255)
+        ModeBtn.Text       = "TOGGLE"
+    else
+        tw(ModeBtn, 0.16, {BackgroundColor3 = Color3.fromRGB(28,28,48), BackgroundTransparency = 0.15}):Play()
+        ModeBtn.TextColor3 = Color3.fromRGB(105, 105, 135)
+        ModeBtn.Text       = "HOLD"
     end
 end
 
-for i, label in ipairs(modeOptions) do
-    local Btn = Instance.new("TextButton")
-    Btn.Size                    = UDim2.new(0, 72, 0, 22)
-    Btn.BorderSizePixel         = 0
-    Btn.Font                    = Enum.Font.GothamBold
-    Btn.TextSize                = 9
-    Btn.LayoutOrder             = i
-    Btn.BackgroundColor3        = i == 1 and Color3.fromRGB(60,100,200) or Color3.fromRGB(28,28,48)
-    Btn.BackgroundTransparency  = i == 1 and 0.3 or 0.15
-    Btn.TextColor3              = i == 1 and Color3.fromRGB(170,210,255) or Color3.fromRGB(105,105,135)
-    Btn.Text                    = label
-    Btn.Parent                  = ModeRow
-    corner(Btn, 7)
-    modeBtns[i] = Btn
-    Btn.MouseButton1Click:Connect(function() selectMode(i) end)
-    Btn.TouchTap:Connect(function() selectMode(i) end)
-    Btn.MouseEnter:Connect(function() tw(Btn, 0.1, {BackgroundTransparency = 0.05}):Play() end)
-    Btn.MouseLeave:Connect(function()
-        tw(Btn, 0.1, {BackgroundTransparency = (i == selectedMode) and 0.3 or 0.15}):Play()
-    end)
+local function onModeClick()
+    isToggleMode = not isToggleMode
+    getgenv().__deltaV3_spamKeyMode = isToggleMode and "toggle" or "hold"
+    bindSpamKey(keyOptions[selectedKey].label)
+    updateModeBtn()
 end
+
+ModeBtn.MouseButton1Click:Connect(onModeClick)
+ModeBtn.TouchTap:Connect(onModeClick)
+ModeBtn.MouseEnter:Connect(function() tw(ModeBtn, 0.1, {BackgroundTransparency = 0.05}):Play() end)
+ModeBtn.MouseLeave:Connect(function()
+    tw(ModeBtn, 0.1, {BackgroundTransparency = isToggleMode and 0.3 or 0.15}):Play()
+end)
 
 -- status bar
 local StatusWrapper = Instance.new("Frame")
 StatusWrapper.Name                   = "StatusWrapper"
 StatusWrapper.Size                   = UDim2.new(1, 0, 0, 32)
 StatusWrapper.BackgroundTransparency = 1
-StatusWrapper.LayoutOrder            = 2
+StatusWrapper.LayoutOrder            = 20
 StatusWrapper.Parent                 = Body
 
 local StatusBar = Instance.new("Frame")
