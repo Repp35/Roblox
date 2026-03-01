@@ -1,4 +1,5 @@
--- DELTA V3 HUB — CONTROLE (GUI)
+-- DELTA V3 — CONTROLE (GUI)
+-- Rode junto ou depois da alma, os defaults são seguros
 -- Controla a alma via getgenv()
 
 local Players          = game:GetService("Players")
@@ -516,39 +517,48 @@ local function clearSpamKeyConns()
     spamKeyConns = {}
 end
 
+-- ── NOVO bindSpamKey com suporte a hold/toggle ──
 local function bindSpamKey(label)
     clearSpamKeyConns()
+    local mode = getgenv().__deltaV3_spamKeyMode or "hold"
+
+    local function onPress()
+        if mode == "toggle" then
+            if getgenv().__deltaV3_setSpam then
+                local cur = getgenv().__deltaV3_spamActive
+                getgenv().__deltaV3_setSpam(not cur)
+            end
+        else
+            if getgenv().__deltaV3_setSpam then getgenv().__deltaV3_setSpam(true) end
+        end
+    end
+
+    local function onRelease()
+        if mode == "hold" then
+            if getgenv().__deltaV3_setSpam then getgenv().__deltaV3_setSpam(false) end
+        end
+    end
 
     if label == "MB1" or label == "MB2" then
         local uType = label == "MB1"
             and Enum.UserInputType.MouseButton1
             or  Enum.UserInputType.MouseButton2
-
         table.insert(spamKeyConns, UserInputService.InputBegan:Connect(function(inp, gpe)
             if gpe then return end
-            if inp.UserInputType == uType then
-                if getgenv().__deltaV3_setSpam then getgenv().__deltaV3_setSpam(true) end
-            end
+            if inp.UserInputType == uType then onPress() end
         end))
         table.insert(spamKeyConns, UserInputService.InputEnded:Connect(function(inp)
-            if inp.UserInputType == uType then
-                if getgenv().__deltaV3_setSpam then getgenv().__deltaV3_setSpam(false) end
-            end
+            if inp.UserInputType == uType then onRelease() end
         end))
     else
         local kc = keyMap[label]
         if not kc then return end
-
         table.insert(spamKeyConns, UserInputService.InputBegan:Connect(function(inp, gpe)
             if gpe then return end
-            if inp.KeyCode == kc then
-                if getgenv().__deltaV3_setSpam then getgenv().__deltaV3_setSpam(true) end
-            end
+            if inp.KeyCode == kc then onPress() end
         end))
         table.insert(spamKeyConns, UserInputService.InputEnded:Connect(function(inp)
-            if inp.KeyCode == kc then
-                if getgenv().__deltaV3_setSpam then getgenv().__deltaV3_setSpam(false) end
-            end
+            if inp.KeyCode == kc then onRelease() end
         end))
     end
 end
@@ -588,6 +598,77 @@ for i, d in ipairs(keyOptions) do
     Btn.MouseEnter:Connect(function() tw(Btn, 0.1, {BackgroundTransparency = 0.05}):Play() end)
     Btn.MouseLeave:Connect(function()
         tw(Btn, 0.1, {BackgroundTransparency = (i == selectedKey) and 0.3 or 0.15}):Play()
+    end)
+end
+
+-- ── CARD MODO DA TECLA (hold / toggle) ──
+local ModeCard = makeCard(ColRight, 4, 52)
+ModeCard.Size = UDim2.new(1, 0, 0, 52)
+
+local ModeTitle = Instance.new("TextLabel")
+ModeTitle.Size                   = UDim2.new(0.5, 0, 0, 16)
+ModeTitle.Position               = UDim2.new(0, 12, 0, 8)
+ModeTitle.BackgroundTransparency = 1
+ModeTitle.Text                   = "MODO DA TECLA"
+ModeTitle.TextColor3             = Color3.fromRGB(235,235,255)
+ModeTitle.TextSize               = 10
+ModeTitle.Font                   = Enum.Font.GothamBold
+ModeTitle.TextXAlignment         = Enum.TextXAlignment.Left
+ModeTitle.Parent                 = ModeCard
+
+local ModeRow = Instance.new("Frame")
+ModeRow.Size                   = UDim2.new(1, -20, 0, 24)
+ModeRow.Position               = UDim2.new(0, 10, 0, 24)
+ModeRow.BackgroundTransparency = 1
+ModeRow.Parent                 = ModeCard
+
+local ModeRowList = Instance.new("UIListLayout")
+ModeRowList.FillDirection     = Enum.FillDirection.Horizontal
+ModeRowList.VerticalAlignment = Enum.VerticalAlignment.Center
+ModeRowList.Padding           = UDim.new(0, 6)
+ModeRowList.SortOrder         = Enum.SortOrder.LayoutOrder
+ModeRowList.Parent            = ModeRow
+
+local modeBtns = {}
+local modeOptions = {"HOLD", "TOGGLE"}
+local selectedMode = 1 -- HOLD por padrão
+
+local function selectMode(idx)
+    selectedMode = idx
+    local mode = idx == 1 and "hold" or "toggle"
+    getgenv().__deltaV3_spamKeyMode = mode
+    -- rebinda com novo modo
+    bindSpamKey(keyOptions[selectedKey].label)
+
+    for i = 1, 2 do
+        local sel = i == idx
+        tw(modeBtns[i], 0.16, {
+            BackgroundColor3       = sel and Color3.fromRGB(60,100,200) or Color3.fromRGB(28,28,48),
+            BackgroundTransparency = sel and 0.3 or 0.15,
+        }):Play()
+        modeBtns[i].TextColor3 = sel and Color3.fromRGB(170,210,255) or Color3.fromRGB(105,105,135)
+    end
+end
+
+for i, label in ipairs(modeOptions) do
+    local Btn = Instance.new("TextButton")
+    Btn.Size                    = UDim2.new(0, 72, 0, 22)
+    Btn.BorderSizePixel         = 0
+    Btn.Font                    = Enum.Font.GothamBold
+    Btn.TextSize                = 9
+    Btn.LayoutOrder             = i
+    Btn.BackgroundColor3        = i == 1 and Color3.fromRGB(60,100,200) or Color3.fromRGB(28,28,48)
+    Btn.BackgroundTransparency  = i == 1 and 0.3 or 0.15
+    Btn.TextColor3              = i == 1 and Color3.fromRGB(170,210,255) or Color3.fromRGB(105,105,135)
+    Btn.Text                    = label
+    Btn.Parent                  = ModeRow
+    corner(Btn, 7)
+    modeBtns[i] = Btn
+    Btn.MouseButton1Click:Connect(function() selectMode(i) end)
+    Btn.TouchTap:Connect(function() selectMode(i) end)
+    Btn.MouseEnter:Connect(function() tw(Btn, 0.1, {BackgroundTransparency = 0.05}):Play() end)
+    Btn.MouseLeave:Connect(function()
+        tw(Btn, 0.1, {BackgroundTransparency = (i == selectedMode) and 0.3 or 0.15}):Play()
     end)
 end
 
