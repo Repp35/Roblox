@@ -1,6 +1,7 @@
 -- ============================================================
--- Blade Ball Auto Parry + Spam [DELTA v3.2] — ALMA
--- Controlado pelo delta_v3_controle.lua via getgenv()
+-- Blade Ball Auto Parry + Spam [MERGED v4.0] — ALMA
+-- Mesclagem de Delta v3.2 + Beta v2
+-- 1 único Heartbeat | Clash mais preciso e raro
 -- ============================================================
 
 local tick       = tick
@@ -32,11 +33,13 @@ local CoreGui = game:GetService("CoreGui")
 -- CONFIG
 -- ============================================================
 local Config = {
+    -- Parry timing
     parryCDMin    = 0.05,
     parryCDMax    = 0.3,
     parryCDFactor = 0.5,
     clashCDFactor = 0.1,
 
+    -- Velocidade / raio
     velSmooth     = 0.05,
     minRadius     = 9,
     maxRadius     = 90,
@@ -46,28 +49,36 @@ local Config = {
     minSpeed      = 5,
     maxImpactTime = 0.35,
 
+    -- Reset de bola
     ballResetThresh  = 50,
     ballResetLockout = 0.6,
 
+    -- Reset de processamento
     processResetNormal = 0.3,
     processResetClash  = 0.05,
 
+    -- Raio clash
     clashRadMult = 1.5,
 
-    spamInterval    = 0.00167,
+    -- Spam
+    spamInterval    = 0.00167,   -- ~600 CPS
     spamCapPerFrame = 10,
 
+    -- Ping
     pingSmooth     = 0.15,
     pingMultiplier = 1.1,
     pingOffset     = 0.02,
     pingMin        = 0.02,
     pingMax        = 0.25,
 
-    clashHistorySize  = 6,
-    clashTimeWindow   = 0.6,
-    clashMinDist      = 40,
-    clashCriticalDist = 20,
-    clashDecayTime    = 0.5,
+    -- Clash detection — mais raro e preciso
+    clashHistorySize  = 8,    -- mais histórico antes de confirmar (era 6)
+    clashTimeWindow   = 0.45, -- janela mais apertada (era 0.6)
+    clashMinDist      = 35,   -- distância menor exigida (era 40)
+    clashCriticalDist = 12,   -- muito mais perto pra ativar via distância crítica (era 20)
+    clashDecayTime    = 1.2,  -- fica ativo mais tempo depois de confirmado (era 0.5)
+    clashMinHistory   = 4,    -- exige 4 entradas pro padrão alternado (era 3)
+    clashCooldown     = 1.5,  -- tempo mínimo entre ativações de clash
 }
 
 -- ============================================================
@@ -86,7 +97,7 @@ local Def    = require(RSrv.TS.Abilities.DeflectAbility).DeflectAbility
 local PNotif = RSrv:WaitForChild("PromptNotification")
 
 task.spawn(function()
-    PNotif:Fire("Auto Parry DELTA v3.2 ✅ | Clash Spam", true)
+    PNotif:Fire("Auto Parry MERGED v4.0 ✅ | Clash Preciso", true)
 end)
 
 local spamOn      = false
@@ -172,7 +183,8 @@ local function getBall()
         Cache.Ball = gi.BallModel
         return Cache.Ball
     end
-    return nil
+    Cache.Ball = WS:FindFirstChild("GameBall", true)
+    return Cache.Ball
 end
 
 local function tgtOn()
@@ -222,20 +234,22 @@ local ballProcessed    = false
 local lastProcessReset = 0
 
 -- ============================================================
--- CLASH DETECTION
+-- CLASH DETECTION — mais raro e preciso
 -- ============================================================
 local ClashState = {
     Active             = false,
     LastActivationTime = 0,
+    LastClashTime      = 0,  -- cooldown entre ativações
     CurrentOpponent    = nil,
 }
 
 local TargetHistory = {}
 local lastTarget    = nil
 
-local function updateClashDetection(newTargetID, ballPos)
+local function updateClashDetection(newTargetID, ballPos, ballVel, hrpPos)
     if newTargetID == lastTarget then return end
 
+    -- Reset de processo quando o alvo muda (do v3.2)
     if lastTarget ~= nil then
         ballProcessed    = false
         lastProcessReset = 0
@@ -244,7 +258,8 @@ local function updateClashDetection(newTargetID, ballPos)
     lastTarget = newTargetID
 
     if not Cache.RootPart then return end
-    local dist = (Cache.RootPart.Position - ballPos).Magnitude
+
+    local dist = (hrpPos - ballPos).Magnitude
     local now  = tick()
 
     table.insert(TargetHistory, 1, { id = newTargetID, t = now })
@@ -252,23 +267,45 @@ local function updateClashDetection(newTargetID, ballPos)
         table.remove(TargetHistory)
     end
 
-    if #TargetHistory >= 3 then
-        local timeGap       = TargetHistory[1].t - TargetHistory[3].t
-        local isAlternating = (
-            TargetHistory[1].id == lp.UserId and
-            TargetHistory[3].id == lp.UserId
-        )
-        if isAlternating and timeGap < Config.clashTimeWindow and dist < Config.clashMinDist then
+    -- Cooldown entre ativações de clash
+    if (now - ClashState.LastClashTime) < Config.clashCooldown then return end
+
+    -- Padrão alternado: exige clashMinHistory entradas (4 por padrão)
+    if #TargetHistory >= Config.clashMinHistory then
+        local timeGap = TargetHistory[1].t - TargetHistory[Config.clashMinHistory].t
+
+        -- Verifica alternância: posições ímpares = eu, pares = oponente
+        local isAlternating = true
+        for i = 1, Config.clashMinHistory do
+            local expectedMe = (i % 2 == 1)
+            local isMe       = (TargetHistory[i].id == lp.UserId)
+            if expectedMe ~= isMe then
+                isAlternating = false
+                break
+            end
+        end
+
+        if isAlternating
+            and timeGap < Config.clashTimeWindow
+            and dist   < Config.clashMinDist
+        then
             ClashState.Active             = true
             ClashState.LastActivationTime = now
+            ClashState.LastClashTime      = now
             ClashState.CurrentOpponent    = TargetHistory[2].id
             setState("clash")
         end
     end
 
-    if newTargetID == lp.UserId and dist < Config.clashCriticalDist then
+    -- Distância crítica: exige que a bola esteja SE APROXIMANDO de mim
+    if newTargetID == lp.UserId
+        and dist < Config.clashCriticalDist
+        and ballVel ~= nil
+        and ballVel:Dot(hrpPos - ballPos) > 0  -- bola vindo em direção a mim
+    then
         ClashState.Active             = true
         ClashState.LastActivationTime = now
+        ClashState.LastClashTime      = now
         setState("clash")
     end
 end
@@ -277,7 +314,7 @@ end
 -- SPAM STATE
 -- ============================================================
 local lastSpamFire = 0
-local toggleButton  -- referência ao botão da ParrySpamToggleGui
+local toggleButton
 
 local function updateGUI()
     if not toggleButton then return end
@@ -295,16 +332,10 @@ local function setSpam(v)
     updateGUI()
 end
 
--- Expõe para o Controle — NÃO há mais binding de tecla aqui.
--- O Controle (card "TECLA DO SPAM") é responsável por chamar setSpam.
-getgenv().__deltaV3_setSpam = function(v)
-    setSpam(v)
-end
+getgenv().__deltaV3_setSpam = function(v) setSpam(v) end
 
 -- ============================================================
--- GUI DE SPAM (ParrySpamToggleGui)
--- Criada pela Alma, mas começa ESCONDIDA (Enabled = false).
--- O Controle (card "Manual Spam GUI") controla Enabled.
+-- GUI
 -- ============================================================
 task.spawn(function()
     local old = CoreGui:FindFirstChild("ParrySpamToggleGui")
@@ -314,7 +345,7 @@ task.spawn(function()
     screenGui.Name           = "ParrySpamToggleGui"
     screenGui.ResetOnSpawn   = false
     screenGui.IgnoreGuiInset = true
-    screenGui.Enabled        = false  -- começa oculta até o Controle mostrar
+    screenGui.Enabled        = false
     screenGui.Parent         = CoreGui
 
     local mainFrame = Instance.new("Frame")
@@ -341,7 +372,7 @@ task.spawn(function()
     titleLabel.Size                   = UDim2.new(1, -6, 1, 0)
     titleLabel.Position               = UDim2.new(0, 6, 0, 0)
     titleLabel.BackgroundTransparency = 1
-    titleLabel.Text                   = "SPAM δ3.2"
+    titleLabel.Text                   = "SPAM v4.0"
     titleLabel.TextColor3             = Color3.fromRGB(180, 195, 255)
     titleLabel.TextScaled             = true
     titleLabel.Font                   = Enum.Font.GothamBold
@@ -359,7 +390,6 @@ task.spawn(function()
     toggleButton.Parent           = mainFrame
     Instance.new("UICorner", toggleButton).CornerRadius = UDim.new(0, 10)
 
-    -- Drag na titleBar
     local dragging, dragStart, startPos = false, nil, nil
 
     local function updateDrag(input)
@@ -400,21 +430,24 @@ task.spawn(function()
         end
     end)
 
-    -- Clique no botão → toggle spam
-    toggleButton.Activated:Connect(function()
-        setSpam(not spamOn)
+    -- Tecla X (do v2) também funciona aqui
+    UIS.InputBegan:Connect(function(inp, gpe)
+        if gpe then return end
+        if inp.KeyCode == Enum.KeyCode.X then setSpam(not spamOn) end
     end)
 
+    toggleButton.Activated:Connect(function() setSpam(not spamOn) end)
     updateGUI()
 end)
 
 -- ============================================================
--- AURA VISUAL
+-- AURA VISUAL (RenderStepped — correto, é só visual)
 -- ============================================================
 local OUTER_TRANSPARENCY       = 0.18
 local INNER_TRANSPARENCY       = 0.9
 local AREA_COLOR               = Color3.fromRGB(255, 255, 255)
 local SPAM_COLOR               = Color3.fromRGB(255, 50,  50)
+local CLASH_COLOR              = Color3.fromRGB(255, 200, 50)  -- cor especial no clash
 local activationDistanceOffset = 7
 local lastVisualUpdate         = 0
 
@@ -449,29 +482,26 @@ local auraConn = RS.RenderStepped:Connect(function()
         return
     end
 
-    local auraSpamActive = spamOn or clashSpamOn
-
     local b         = getBall()
     local ballSpeed = (b and b.Parent and b.AssemblyLinearVelocity.Magnitude) or 45
     local vSize     = (math.max(ballSpeed, 45) * 0.22) + activationDistanceOffset
 
-    local cf   = hrp.CFrame
-    local sz   = Vector3.new(vSize * 2, vSize * 2, vSize * 2)
-    local szIn = Vector3.new((vSize - 0.4) * 2, (vSize - 0.4) * 2, (vSize - 0.4) * 2)
+    auraOuter.CFrame = hrp.CFrame
+    auraInner.CFrame = hrp.CFrame
+    auraOuter.Size   = Vector3.new(vSize * 2, vSize * 2, vSize * 2)
+    auraInner.Size   = Vector3.new((vSize - 0.4) * 2, (vSize - 0.4) * 2, (vSize - 0.4) * 2)
 
-    auraOuter.CFrame = cf
-    auraInner.CFrame = cf
-    auraOuter.Size   = sz
-    auraInner.Size   = szIn
+    local targetColor = clashSpamOn and CLASH_COLOR
+                     or spamOn      and SPAM_COLOR
+                     or AREA_COLOR
 
-    local targetColor = auraSpamActive and SPAM_COLOR or AREA_COLOR
     auraOuter.Color        = auraOuter.Color:Lerp(targetColor, 0.3)
     auraOuter.Transparency = OUTER_TRANSPARENCY
     auraInner.Transparency = INNER_TRANSPARENCY
 end)
 
 -- ============================================================
--- SINGLE HEARTBEAT
+-- SINGLE HEARTBEAT — parry + spam + clash tudo junto
 -- ============================================================
 local function bind(ch)
     setupCharacter(ch)
@@ -492,12 +522,12 @@ local function bind(ch)
             return
         end
 
-        local now = tick()
-
+        local now          = tick()
         local autoParryOn  = getgenv().__deltaV3_autoParryOn
         local autoClashOn  = getgenv().__deltaV3_autoClashOn
         local spamInterval = getgenv().__deltaV3_spamInterval or Config.spamInterval
 
+        -- Clash spam só ativo se autoClash ligado e clash confirmado
         clashSpamOn = (autoClashOn and ClashState.Active) and true or false
 
         -- ── SPAM (manual OU clash) ──
@@ -508,6 +538,7 @@ local function bind(ch)
                 lastSpamFire = lastSpamFire + spamInterval
                 fired        = fired + 1
             end
+            -- Evita acúmulo infinito de débito
             if (now - lastSpamFire) > spamInterval * Config.spamCapPerFrame then
                 lastSpamFire = now
             end
@@ -519,17 +550,20 @@ local function bind(ch)
         -- ── AUTO PARRY ──
         if not autoParryOn then return end
 
+        -- Ping atualizado a cada 2s
         pingTimer = pingTimer + dt
         if pingTimer >= 2 then
             pingTimer = 0
             task.spawn(updatePing)
         end
 
+        -- Reset de processamento
         local resetInt = ClashState.Active and Config.processResetClash or Config.processResetNormal
         if ballProcessed and (now - lastProcessReset) >= resetInt then
             ballProcessed = false
         end
 
+        -- Decay do clash
         if ClashState.Active and (now - ClashState.LastActivationTime) > Config.clashDecayTime then
             ClashState.Active = false
             clashSpamOn       = false
@@ -541,6 +575,7 @@ local function bind(ch)
 
         local bp = b.Position
 
+        -- Detecta teleporte/reset da bola
         if lastBallPos then
             local jump = (bp - lastBallPos).Magnitude
             if jump > Config.ballResetThresh then
@@ -557,11 +592,7 @@ local function bind(ch)
 
         if (now - ballResetAt) < Config.ballResetLockout then return end
 
-        local currentTarget = WS:GetAttribute("GameBallTarget")
-        if currentTarget then
-            updateClashDetection(currentTarget, bp)
-        end
-
+        -- Velocidade da bola
         local av = b.AssemblyLinearVelocity
         if typeof(av) == "Vector3" and av.Magnitude > 0.1 then
             vel            = av
@@ -578,7 +609,14 @@ local function bind(ch)
             end
         end
 
-        local hrpPos  = hrp.Position
+        local hrpPos = hrp.Position
+
+        -- Detecção de clash com velocidade da bola como argumento
+        local currentTarget = WS:GetAttribute("GameBallTarget")
+        if currentTarget then
+            updateClashDetection(currentTarget, bp, vel, hrpPos)
+        end
+
         local spd     = vel.Magnitude
         local baseRad = math_clamp(spd * Config.radiusWin + Config.radiusOff, Config.minRadius, Config.maxRadius) + Config.radiusPre
         local rad     = ClashState.Active and (baseRad * Config.clashRadMult) or baseRad
@@ -611,10 +649,11 @@ local function bind(ch)
         if not p then
             connection:Disconnect()
             setSpam(false)
-            clashSpamOn       = false
-            lastSpamFire      = 0
-            ClashState.Active = false
-            lastBallPos       = nil
+            clashSpamOn            = false
+            lastSpamFire           = 0
+            ClashState.Active      = false
+            ClashState.LastClashTime = 0
+            lastBallPos            = nil
             auraOuter.Transparency = 1
             auraInner.Transparency = 1
         end
