@@ -1,6 +1,6 @@
--- phantom Ball Auto Parry + Spam [FINAL v5.2]
+-- Phantom Ball Auto Parry + Spam [FINAL v5.3]
 -- 1 Heartbeat | Aura real | Clash preciso
--- PC + Mobile | hooks via pcall (ignorados se não suportado)
+-- PC + Mobile | hooks via pcall | fix reset bola limpando clash
 
 local tick       = tick
 local math_clamp = math.clamp
@@ -95,13 +95,12 @@ local ballSyncRemote = ballSyncFolder and ballSyncFolder:FindFirstChild("BallSyn
 
 local PNotif = RSrv:WaitForChild("PromptNotification")
 task.spawn(function()
-    PNotif:Fire("Auto Parry FINAL v5.2 ✅ | PC + Mobile", true)
+    PNotif:Fire("Auto Parry FINAL v5.3 ✅ | PC + Mobile", true)
 end)
 
 local spamOn      = false
 local clashSpamOn = false
 
--- hooks opcionais: funcionam no mobile, ignorados silenciosamente no PC
 pcall(function()
     local originalIsAvailable
     originalIsAvailable = hookfunction(Def.IsAvailable, function(self, ...)
@@ -120,10 +119,6 @@ pcall(function()
     end)
 end)
 
--- ============================================================
--- SEND PARRY — FireServer direto (PC e mobile)
--- fallback via Net se remote não carregar
--- ============================================================
 local function sendParry()
     if parryRemote then
         pcall(function()
@@ -276,6 +271,13 @@ local ClashState = {
 local TargetHistory = {}
 local lastTarget    = nil
 
+local function resetClash()
+    ClashState.Active   = false
+    clashSpamOn         = false
+    TargetHistory       = {}
+    lastTarget          = nil
+end
+
 local function updateClashDetection(newTargetID, ballPos, ballVel, hrpPos)
     if newTargetID == lastTarget then return end
 
@@ -393,7 +395,7 @@ task.spawn(function()
     titleLabel.Size                   = UDim2.new(1, -6, 1, 0)
     titleLabel.Position               = UDim2.new(0, 6, 0, 0)
     titleLabel.BackgroundTransparency = 1
-    titleLabel.Text                   = "FINAL v5.2"
+    titleLabel.Text                   = "FINAL v5.3"
     titleLabel.TextColor3             = Color3.fromRGB(180, 195, 255)
     titleLabel.TextScaled             = true
     titleLabel.Font                   = Enum.Font.GothamBold
@@ -582,8 +584,7 @@ local function bind(ch)
         end
 
         if ClashState.Active and (now - ClashState.LastActivationTime) > Config.clashDecayTime then
-            ClashState.Active = false
-            clashSpamOn       = false
+            resetClash()
             if State.current == "clash" then setState("normal") end
         end
 
@@ -592,6 +593,7 @@ local function bind(ch)
 
         local bp = b.Position
 
+        -- ── FIX v5.3: reset da bola limpa clash completamente ──
         if lastBallPos then
             local jump = (bp - lastBallPos).Magnitude
             if jump > Config.ballResetThresh then
@@ -601,6 +603,8 @@ local function bind(ch)
                 vel              = Vector3.zero
                 lastBP, lastBT   = nil, nil
                 lastBallPos      = bp
+                resetClash()
+                setState("normal")
                 return
             end
         end
@@ -666,10 +670,8 @@ local function bind(ch)
         if not p then
             connection:Disconnect()
             setSpam(false)
-            clashSpamOn              = false
+            resetClash()
             lastSpamFire             = 0
-            ClashState.Active        = false
-            ClashState.LastClashTime = 0
             lastBallPos              = nil
             auraOuter.Transparency   = 1
             auraInner.Transparency   = 1
