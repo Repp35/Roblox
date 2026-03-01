@@ -1,6 +1,4 @@
 -- Phantom Ball Auto Parry + Spam [FINAL v5.4]
--- Auto Parry: lógica Phantom (BallSync real) | Clash corrigido
--- Spam: hold ou toggle via getgenv | PC + Mobile
 
 local tick       = tick
 local math_clamp = math.clamp
