@@ -1,4 +1,5 @@
 -- Phantom Ball Auto Parry + Spam [FINAL v5.4]
+-- Fix clash: 3 condições de saída | aura off por padrão
 
 local tick       = tick
 local math_clamp = math.clamp
@@ -52,7 +53,7 @@ local Config = {
 
 if getgenv().__deltaV3_autoParryOn  == nil then getgenv().__deltaV3_autoParryOn  = true    end
 if getgenv().__deltaV3_autoClashOn  == nil then getgenv().__deltaV3_autoClashOn  = true    end
-if getgenv().__deltaV3_auraOn       == nil then getgenv().__deltaV3_auraOn       = true    end
+if getgenv().__deltaV3_auraOn       == nil then getgenv().__deltaV3_auraOn       = false   end
 if getgenv().__deltaV3_spamInterval == nil then getgenv().__deltaV3_spamInterval = 0.00167 end
 if getgenv().__deltaV3_spamKeyMode  == nil then getgenv().__deltaV3_spamKeyMode  = "hold"  end
 
@@ -191,17 +192,13 @@ local BallSync = {
 if ballSyncRemote then
     ballSyncRemote.OnClientEvent:Connect(function(data)
         if typeof(data) ~= "table" then return end
-        if data.RealPosition then
-            BallSync.RealPosition = data.RealPosition
-        end
+        if data.RealPosition then BallSync.RealPosition = data.RealPosition end
         if typeof(data.Speed) == "number" then
             BallSync.Speed = data.Speed
         elseif type(data.Speed) == "table" and data.Speed.Magnitude then
             BallSync.Speed = data.Speed.Magnitude
         end
-        if data.TargetPlayerID then
-            BallSync.TargetID = data.TargetPlayerID
-        end
+        if data.TargetPlayerID then BallSync.TargetID = data.TargetPlayerID end
     end)
 end
 
@@ -233,10 +230,11 @@ local TargetHistory = {}
 local lastTarget    = nil
 
 local function resetClash()
-    ClashState.Active = false
-    clashSpamOn       = false
-    TargetHistory     = {}
-    lastTarget        = nil
+    ClashState.Active          = false
+    ClashState.CurrentOpponent = nil
+    clashSpamOn                = false
+    TargetHistory              = {}
+    lastTarget                 = nil
 end
 
 local function updateClashDetection(newTargetID, ballPos, hrpPos)
@@ -268,7 +266,7 @@ local function updateClashDetection(newTargetID, ballPos, hrpPos)
             ClashState.Active             = true
             ClashState.LastActivationTime = now
             ClashState.LastClashTime      = now
-            ClashState.CurrentOpponent    = TargetHistory[2].id
+            ClashState.CurrentOpponent    = TargetHistory[2] and TargetHistory[2].id or nil
         end
     end
 
@@ -295,9 +293,8 @@ end
 
 local function setSpam(v)
     if spamOn == v then return end
-    spamOn       = v
-    lastSpamFire = tick()
-    -- ── expõe o estado atual para a GUI poder ler no toggle ──
+    spamOn                         = v
+    lastSpamFire                   = tick()
     getgenv().__deltaV3_spamActive = v
     updateGUI()
 end
@@ -337,7 +334,6 @@ local function bindSpamKey(label)
         local uType = label == "MB1"
             and Enum.UserInputType.MouseButton1
             or  Enum.UserInputType.MouseButton2
-
         table.insert(spamKeyConns, UIS.InputBegan:Connect(function(inp, gpe)
             if gpe then return end
             if inp.UserInputType == uType then onPress() end
@@ -353,7 +349,6 @@ local function bindSpamKey(label)
         }
         local kc = keyMap[label]
         if not kc then return end
-
         table.insert(spamKeyConns, UIS.InputBegan:Connect(function(inp, gpe)
             if gpe then return end
             if inp.KeyCode == kc then onPress() end
@@ -551,6 +546,28 @@ local function bind(ch)
         local autoClashOn  = getgenv().__deltaV3_autoClashOn
         local spamInterval = getgenv().__deltaV3_spamInterval or Config.spamInterval
 
+        -- ── DECAY DO CLASH (3 condições) — ANTES de calcular clashSpamOn ──
+        if ClashState.Active then
+            local b        = getBall()
+            local ballDist = b and (hrp.Position - b.Position).Magnitude or 999
+            local ballTgt  = BallSync.TargetID ~= -999 and BallSync.TargetID
+                          or WS:GetAttribute("GameBallTarget")
+
+            -- 1. bola foi pra outra pessoa fora do clash
+            if ballTgt
+                and ballTgt ~= lp.UserId
+                and ballTgt ~= ClashState.CurrentOpponent
+            then
+                resetClash()
+            -- 2. bola foi longe demais
+            elseif ballDist > Config.clashMinDist + 10 then
+                resetClash()
+            -- 3. timeout
+            elseif (now - ClashState.LastActivationTime) > Config.clashDecayTime then
+                resetClash()
+            end
+        end
+
         clashSpamOn = (autoClashOn and ClashState.Active) and true or false
 
         -- ── SPAM ──
@@ -581,23 +598,17 @@ local function bind(ch)
             ballProcessed = false
         end
 
-        if ClashState.Active and (now - ClashState.LastActivationTime) > Config.clashDecayTime then
-            resetClash()
-        end
-
         local b = getBall()
         if not (b and b.Parent) then return end
 
         local bp = b.Position
 
-        -- bola nova
         if not lastBallPos then
             lastBallPos = bp
             resetClash()
             return
         end
 
-        -- teleporte/reset
         if (bp - lastBallPos).Magnitude > Config.ballResetThresh then
             ballProcessed    = true
             lastProcessReset = now
