@@ -1,5 +1,6 @@
--- Phantom Ball Auto Parry + Spam [FINAL v5.4]
+-- Phantom Ball Auto Parry + Spam [FINAL v5.5]
 -- Fix clash: 3 condições de saída | aura off por padrão
+-- Reset dinâmico | Safety net distância fixa
 
 local tick       = tick
 local math_clamp = math.clamp
@@ -23,14 +24,20 @@ local Stats   = game:GetService("Stats")
 local CoreGui = game:GetService("CoreGui")
 
 local Config = {
-    manualPingOffset     = 0.045,
-    pingSmooth           = 0.15,
-    pingMultiplier       = 1.05,
-    thresholdMin         = 0.05,
-    thresholdMax         = 0.55,
-    thresholdBase        = 0.12,
-    processResetInterval = 0.4,
-    parryFireCD          = 0.05,
+    manualPingOffset = 0.045,
+    pingSmooth       = 0.15,
+    pingMultiplier   = 1.05,
+    thresholdMin     = 0.05,
+    thresholdMax     = 0.55,
+    thresholdBase    = 0.12,
+    parryFireCD      = 0.05,
+
+    -- reset dinâmico (substitui processResetInterval fixo)
+    resetFactor = 1.8,   -- (distância / speed) × 1.8
+    resetMin    = 0.05,  -- mínimo absoluto
+
+    -- safety net
+    safetyDistance = 8,  -- studs mínimos pra sempre parry
 
     ballResetThresh  = 50,
     ballResetLockout = 0.6,
@@ -75,7 +82,7 @@ local ballSyncRemote = ballSyncFolder and ballSyncFolder:FindFirstChild("BallSyn
 
 local PNotif = RSrv:WaitForChild("PromptNotification")
 task.spawn(function()
-    PNotif:Fire("Auto Parry FINAL v5.4 ✅ | PC + Mobile", true)
+    PNotif:Fire("Auto Parry FINAL v5.5 ✅ | PC + Mobile", true)
 end)
 
 local spamOn      = false
@@ -400,7 +407,7 @@ task.spawn(function()
     titleLabel.Size                   = UDim2.new(1, -6, 1, 0)
     titleLabel.Position               = UDim2.new(0, 6, 0, 0)
     titleLabel.BackgroundTransparency = 1
-    titleLabel.Text                   = "FINAL v5.4"
+    titleLabel.Text                   = "FINAL v5.5"
     titleLabel.TextColor3             = Color3.fromRGB(180, 195, 255)
     titleLabel.TextScaled             = true
     titleLabel.Font                   = Enum.Font.GothamBold
@@ -546,23 +553,20 @@ local function bind(ch)
         local autoClashOn  = getgenv().__deltaV3_autoClashOn
         local spamInterval = getgenv().__deltaV3_spamInterval or Config.spamInterval
 
-        -- ── DECAY DO CLASH (3 condições) — ANTES de calcular clashSpamOn ──
+        -- ── DECAY DO CLASH (3 condições) ──
         if ClashState.Active then
             local b        = getBall()
             local ballDist = b and (hrp.Position - b.Position).Magnitude or 999
             local ballTgt  = BallSync.TargetID ~= -999 and BallSync.TargetID
                           or WS:GetAttribute("GameBallTarget")
 
-            -- 1. bola foi pra outra pessoa fora do clash
             if ballTgt
                 and ballTgt ~= lp.UserId
                 and ballTgt ~= ClashState.CurrentOpponent
             then
                 resetClash()
-            -- 2. bola foi longe demais
             elseif ballDist > Config.clashMinDist + 10 then
                 resetClash()
-            -- 3. timeout
             elseif (now - ClashState.LastActivationTime) > Config.clashDecayTime then
                 resetClash()
             end
@@ -594,14 +598,27 @@ local function bind(ch)
             task.spawn(updatePing)
         end
 
-        if ballProcessed and (now - lastProcessReset) >= Config.processResetInterval then
-            ballProcessed = false
-        end
-
         local b = getBall()
         if not (b and b.Parent) then return end
 
-        local bp = b.Position
+        local bp    = b.Position
+        local hrpPos = hrp.Position
+
+        -- posição e velocidade
+        local ballPos = (BallSync.RealPosition ~= Vector3.zero)
+            and BallSync.RealPosition or bp
+        local speed = BallSync.Speed > 0 and BallSync.Speed
+                   or b.AssemblyLinearVelocity.Magnitude
+        local distance = (hrpPos - ballPos).Magnitude
+
+        -- ── RESET DINÂMICO ──
+        local dynamicReset = math.max(
+            (distance / math.max(speed, 1)) * Config.resetFactor,
+            Config.resetMin
+        )
+        if ballProcessed and (now - lastProcessReset) >= dynamicReset then
+            ballProcessed = false
+        end
 
         if not lastBallPos then
             lastBallPos = bp
@@ -621,22 +638,12 @@ local function bind(ch)
 
         if (now - ballResetAt) < Config.ballResetLockout then return end
 
-        local hrpPos = hrp.Position
-
         local currentTarget = BallSync.TargetID ~= -999 and BallSync.TargetID
                            or WS:GetAttribute("GameBallTarget")
         if currentTarget then
             updateClashDetection(currentTarget, bp, hrpPos)
         end
 
-        -- ── AUTO PARRY (lógica Phantom) ──
-        local ballPos = (BallSync.RealPosition ~= Vector3.zero)
-            and BallSync.RealPosition or bp
-
-        local speed       = BallSync.Speed > 0 and BallSync.Speed
-                         or b.AssemblyLinearVelocity.Magnitude
-
-        local distance    = (hrpPos - ballPos).Magnitude
         local timeToReach = distance / math.max(speed, 1)
         local threshold   = math_clamp(
             Config.thresholdBase
@@ -649,8 +656,11 @@ local function bind(ch)
         local isTarget = (BallSync.TargetID == lp.UserId)
                       or (BallSync.TargetID == -999 and tgtOnFallback())
 
-        if isTarget
-            and timeToReach <= threshold
+        -- ── DISPARO: normal + safety net ──
+        local normalTrigger = isTarget and timeToReach <= threshold
+        local safetyTrigger = isTarget and distance <= Config.safetyDistance
+
+        if (normalTrigger or safetyTrigger)
             and not ballProcessed
             and (now - lastFire) >= Config.parryFireCD
         then
