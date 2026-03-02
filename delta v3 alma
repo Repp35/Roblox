@@ -1,7 +1,8 @@
--- Phantom Ball Auto Parry + Spam [FINAL v5.6]
+-- Phantom Ball Auto Parry + Spam [FINAL v5.7]
 -- Fix clash: 3 condições de saída | aura off por padrão
 -- Reset dinâmico | Safety net distância fixa
--- FIX: safetyTrigger não dispara junto com normalTrigger
+-- FIX v5.6: safetyTrigger não dispara junto com normalTrigger
+-- FIX v5.7: ballProcessed não libera enquanto bola ainda tá na safetyDistance
 
 local tick       = tick
 local math_clamp = math.clamp
@@ -33,12 +34,10 @@ local Config = {
     thresholdBase    = 0.12,
     parryFireCD      = 0.05,
 
-    -- reset dinâmico (substitui processResetInterval fixo)
-    resetFactor = 1.8,   -- (distância / speed) × 1.8
-    resetMin    = 0.05,  -- mínimo absoluto
+    resetFactor = 1.8,
+    resetMin    = 0.05,
 
-    -- safety net
-    safetyDistance = 8,  -- studs mínimos pra sempre parry
+    safetyDistance = 8,
 
     ballResetThresh  = 50,
     ballResetLockout = 0.6,
@@ -83,7 +82,7 @@ local ballSyncRemote = ballSyncFolder and ballSyncFolder:FindFirstChild("BallSyn
 
 local PNotif = RSrv:WaitForChild("PromptNotification")
 task.spawn(function()
-    PNotif:Fire("Auto Parry FINAL v5.6 ✅ | PC + Mobile", true)
+    PNotif:Fire("Auto Parry FINAL v5.7 ✅ | PC + Mobile", true)
 end)
 
 local spamOn      = false
@@ -408,7 +407,7 @@ task.spawn(function()
     titleLabel.Size                   = UDim2.new(1, -6, 1, 0)
     titleLabel.Position               = UDim2.new(0, 6, 0, 0)
     titleLabel.BackgroundTransparency = 1
-    titleLabel.Text                   = "FINAL v5.6"
+    titleLabel.Text                   = "FINAL v5.7"
     titleLabel.TextColor3             = Color3.fromRGB(180, 195, 255)
     titleLabel.TextScaled             = true
     titleLabel.Font                   = Enum.Font.GothamBold
@@ -603,22 +602,23 @@ local function bind(ch)
         local bp     = b.Position
         local hrpPos = hrp.Position
 
-        -- posição e velocidade
         local ballPos  = (BallSync.RealPosition ~= Vector3.zero)
             and BallSync.RealPosition or bp
         local speed    = BallSync.Speed > 0 and BallSync.Speed
                       or b.AssemblyLinearVelocity.Magnitude
         local distance = (hrpPos - ballPos).Magnitude
-
-        -- FIX: speed mínimo 0.1 pra evitar divisão distorcer reset dinâmico
         local safeSpeed = math.max(speed, 0.1)
 
         -- ── RESET DINÂMICO ──
+        -- FIX v5.7: só libera ballProcessed se bola já saiu da safetyDistance
         local dynamicReset = math.max(
             (distance / safeSpeed) * Config.resetFactor,
             Config.resetMin
         )
-        if ballProcessed and (now - lastProcessReset) >= dynamicReset then
+        if ballProcessed
+            and (now - lastProcessReset) >= dynamicReset
+            and distance > Config.safetyDistance
+        then
             ballProcessed = false
         end
 
@@ -659,7 +659,6 @@ local function bind(ch)
                       or (BallSync.TargetID == -999 and tgtOnFallback())
 
         -- ── DISPARO: normal + safety net ──
-        -- FIX v5.6: safetyTrigger só ativa se normalTrigger NÃO ativaria
         local normalTrigger = isTarget and timeToReach <= threshold
         local safetyTrigger = isTarget and not normalTrigger and distance <= Config.safetyDistance
 
