@@ -185,17 +185,15 @@ end)
 
 task.spawn(function()
     task.wait(0.05)
-    -- Se tinha posicao salva, vai pra ela com spring suave
-    -- Se nao tinha, ja esta centralizado, so faz fade-in
     if savedMainX and savedMainY then
-        tw(MainFrame, 0.55, {
+        tw(MainFrame, 0.45, {
             Position               = UDim2.new(0, savedMainX, 0, savedMainY),
             BackgroundTransparency = 0.2,
-        }, Enum.EasingStyle.Spring, Enum.EasingDirection.Out):Play()
+        }, Enum.EasingStyle.Back):Play()
     else
         tw(MainFrame, 0.40, {
             BackgroundTransparency = 0.2,
-        }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out):Play()
+        }, Enum.EasingStyle.Quad):Play()
     end
 end)
 
@@ -1417,7 +1415,6 @@ local function doCollapse()
     saveConfig()
     animateHamburger(true)
 
-    -- fade out cards com stagger
     local cards = currentTab == 1 and allCards or {CalibCard}
     for i, card in ipairs(cards) do
         task.delay((i-1)*0.025, function()
@@ -1429,23 +1426,20 @@ local function doCollapse()
         Body.Visible = false
         Tab2.Visible = false
 
-        -- fade out do fundo principal
-        tw(MainFrame, 0.10, {BackgroundTransparency = 0.55}):Play()
-
         local currentH = MainFrame.AbsoluteSize.Y
         MainFrame.AutomaticSize = Enum.AutomaticSize.None
         MainFrame.Size = UDim2.new(0, WIDE, 0, currentH)
 
-        -- colapsa com spring para dar sensacao de "snap"
-        tw(MainFrame, 0.38, {Size=UDim2.new(0, MINI, 0, HEADER_H)}, Enum.EasingStyle.Back, Enum.EasingDirection.In):Play()
+        tw(MainFrame, 0.35, {Size=UDim2.new(0, MINI, 0, HEADER_H)}, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut):Play()
 
-        task.delay(0.38, function()
-            tw(MainFrame, 0.18, {BackgroundTransparency = 0.25}):Play()
-            -- flash sutil no header
+        task.delay(0.35, function()
+            -- garante que o fundo nao fica transparente
+            MainFrame.BackgroundTransparency = 0.2
             tw(Header, 0.08, {BackgroundTransparency = 0.0}):Play()
             task.delay(0.10, function()
-                tw(Header, 0.22, {BackgroundTransparency = 0.25}):Play()
+                tw(Header, 0.20, {BackgroundTransparency = 0.25}):Play()
             end)
+            clampToScreen()
             saveConfig()
         end)
     end)
@@ -1454,13 +1448,12 @@ end
 local function doExpand()
     animateHamburger(false)
 
-    -- expande com spring overshot
-    tw(MainFrame, 0.45, {Size=UDim2.new(0, WIDE, 0, HEADER_H)}, Enum.EasingStyle.Spring, Enum.EasingDirection.Out):Play()
-    tw(MainFrame, 0.30, {BackgroundTransparency = 0.15}):Play()
+    -- garante fundo visivel antes de expandir
+    MainFrame.BackgroundTransparency = 0.2
 
-    task.delay(0.22, function()
-        tw(MainFrame, 0.18, {BackgroundTransparency = 0.2}):Play()
+    tw(MainFrame, 0.42, {Size=UDim2.new(0, WIDE, 0, HEADER_H)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out):Play()
 
+    task.delay(0.20, function()
         if currentTab == 1 then
             for _, card in ipairs(allCards) do card.BackgroundTransparency = 1 end
             Body.Visible = true
