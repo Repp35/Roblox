@@ -1,7 +1,7 @@
--- DELTA v5.9 — ALMA (engine)
--- Auto Parry: estilo Tek/Phantom (threshold dinamico)
--- Spam: engine calibrada | Calibracao maximizada
--- GUI spam: ON/OFF, hold/toggle via controle, -4% tamanho
+-- DELTA v5.9 — ALMA (engine) [FIXED]
+-- Auto Parry: estilo Tek/Phantom (threshold dinamico + cooldown correto)
+-- Spam: APENAS manual (hold/toggle) — nao dispara sozinho
+-- Clash: burst separado do heartbeat
 
 local tick       = tick
 local math_clamp = math.clamp
@@ -25,38 +25,43 @@ local Stats   = game:GetService("Stats")
 local CoreGui = game:GetService("CoreGui")
 
 -- ============================================================
--- CONFIG [5] — estilo Tek/Phantom
+-- CONFIG
 -- ============================================================
 local Config = {
-    -- auto parry Tek/Phantom
+    -- auto parry
     activationDistanceOffset = 7,
     enableAuraLogic          = true,
     enableAuraVisual         = true,
-    manualPingOffset         = 0.045,  -- sera sobrescrito pela calibracao
+    manualPingOffset         = 0.045,
     pingSmooth               = 0.2,
     processResetInterval     = 0.4,
+
+    -- [FIX] cooldown do auto-parry (evita spam involuntario)
+    parryCDFactor = 0.30,   -- multiplica timeToReach
+    parryCDMin    = 0.08,   -- minimo 80ms entre parries automaticos
+    parryCDMax    = 0.50,   -- maximo 500ms
 
     -- visual
     OUTER_TRANSPARENCY = 0.18,
     INNER_TRANSPARENCY = 0.9,
     AREA_COLOR         = Color3.fromRGB(255,255,255),
 
-    -- spam
+    -- spam (MANUAL apenas)
     spamInterval    = 0.00167,
     spamCapPerFrame = 10,
 
     -- clash
-    clashBurstSize      = 4,
-    clashBurstInterval  = 0.0167,
-    clashBurstCount     = 20,
-    clashMinDist        = 40,
-    clashCriticalDist   = 20,
-    clashDecayTime      = 0.5,
-    processResetClash   = 0.05,
+    clashBurstSize     = 4,
+    clashBurstInterval = 0.0167,
+    clashBurstCount    = 20,
+    clashMinDist       = 40,
+    clashCriticalDist  = 20,
+    clashDecayTime     = 0.5,
+    processResetClash  = 0.05,
 
-    -- ball reset fix
+    -- ball reset
     ballResetThresh  = 55,
-    ballResetLockout = 0.35,   -- [5 bugfix] reducido para nao perder parry logo apos reset
+    ballResetLockout = 0.35,
 }
 
 -- ============================================================
@@ -83,11 +88,13 @@ local Def = nil
 pcall(function() Net = require(RSrv.TS.Network.Network).Network end)
 pcall(function() Def = require(TS_Folder:WaitForChild("Abilities"):WaitForChild("DeflectAbility")).DeflectAbility end)
 
--- Hook IsAvailable sempre true [5]
+-- Hook IsAvailable: so bypassa cooldown quando spam esta ativo
+local origIsAvailable
 pcall(function()
-    local orig
-    orig = hookfunction(Def.IsAvailable, function(self, ...)
-        return true
+    origIsAvailable = Def.IsAvailable
+    hookfunction(Def.IsAvailable, function(self, ...)
+        if spamOn then return true end
+        return origIsAvailable(self, ...)
     end)
 end)
 
@@ -190,8 +197,6 @@ local ClashState = {
 }
 local TargetHistory = {}
 local lastTarget    = nil
-local ballProcessed = false
-local lastProcessReset = 0
 
 local function resetClash()
     ClashState.Active          = false
@@ -203,13 +208,6 @@ end
 
 local function updateClashDetection(newTargetID, ballPos)
     if newTargetID == lastTarget then return end
-
-    -- [5 bugfix] Quando target muda PARA o jogador local, reseta o ballProcessed imediatamente
-    if newTargetID == lp.UserId then
-        ballProcessed    = false
-        lastProcessReset = 0
-    end
-
     lastTarget = newTargetID
 
     local hrp = getgenv().__deltaV3_rootPart
@@ -236,6 +234,7 @@ local function updateClashDetection(newTargetID, ballPos)
     end
 end
 
+-- [FIX] Burst de clash: totalmente separado do heartbeat, nao afeta spam manual
 local function performClashBurst()
     if ClashState.IsBursting then return end
     ClashState.IsBursting = true
@@ -250,7 +249,7 @@ local function performClashBurst()
 end
 
 -- ============================================================
--- SPAM
+-- SPAM — APENAS manual (hold/toggle via GUI ou tecla)
 -- ============================================================
 local spamOn   = false
 local spamThread = nil
@@ -280,6 +279,8 @@ local function getActiveBurst()
     return 1
 end
 
+-- [FIX] runSpamLoop: so roda quando spamOn=true (manual),
+--       usa clock preciso e nao interfere no auto-parry
 local function runSpamLoop()
     local startT   = os.clock()
     local n        = 0
@@ -316,31 +317,31 @@ local function setSpam(v)
     spamOn = v
     getgenv().__deltaV3_spamActive = v
     if updateSpamGUI then updateSpamGUI() end
+    if spamThread then
+        task.cancel(spamThread)
+        spamThread = nil
+    end
     if v then spamThread = task.spawn(runSpamLoop) end
 end
 
 getgenv().__deltaV3_setSpam = function(v) setSpam(v) end
 
 -- ============================================================
--- CALIBRACAO [6] Maximizada — 60fps/50ms ≈ 120fps/10ms sem calib
+-- CALIBRACAO — Maximizada 60fps/50ms ≈ 120fps/10ms
 -- ============================================================
 getgenv().__deltaV3_applyCalibration = function(fps, ping)
     local pingS     = ping / 1000
     local frameTime = 1 / fps
 
-    -- [6] Referencia: 120fps / 10ms
     local refPing      = 0.010
     local refFrameTime = 1 / 120
 
-    -- Diferenca de ping e de frame que precisa ser compensada
     local extraPing  = math_clamp(pingS - refPing, 0, 0.4)
     local extraFrame = math_clamp(frameTime - refFrameTime, 0, 0.05)
 
-    -- Offset manual para compensar ping + fps mais baixo
     local calibOffset = extraPing * 1.05 + extraFrame * 0.8
     Config.manualPingOffset = math_clamp(calibOffset, 0.01, 0.35)
 
-    -- Alinha o intervalo de spam ao frame boundary
     local rawInterval   = getgenv().__deltaV3_spamIntervalRaw
         or getgenv().__deltaV3_spamInterval
         or Config.spamInterval
@@ -349,7 +350,7 @@ getgenv().__deltaV3_applyCalibration = function(fps, ping)
     local bCount          = (pingS >= 0.050) and 2 or 1
 
     getgenv().__deltaV3_calibratedInterval = alignedInterval
-    getgenv().__deltaV3_pingOffset         = pingS * 0.5  -- antecipa metade do ping no spam
+    getgenv().__deltaV3_pingOffset         = pingS * 0.5
     getgenv().__deltaV3_burstCount         = bCount
     getgenv().__deltaV3_effectiveCps       = math.floor(1 / alignedInterval + 0.5)
     getgenv().__deltaV3_frameTime          = frameTime
@@ -363,7 +364,6 @@ getgenv().__deltaV3_applyCalibration = function(fps, ping)
     end
 end
 
--- Aplica calibracao salva ao iniciar
 if getgenv().__deltaV3_calibrated
     and getgenv().__deltaV3_calibFps ~= nil
     and getgenv().__deltaV3_calibFps ~= ""
@@ -378,7 +378,7 @@ then
 end
 
 -- ============================================================
--- GUI DE SPAM [10] ON/OFF sem texto "spam", -4% tamanho, hold/toggle
+-- GUI DE SPAM — ON/OFF | hold/toggle | -4% tamanho
 -- ============================================================
 task.spawn(function()
     local old = CoreGui:FindFirstChild("ParrySpamToggleGui")
@@ -388,16 +388,14 @@ task.spawn(function()
     screenGui.Name           = "ParrySpamToggleGui"
     screenGui.ResetOnSpawn   = false
     screenGui.IgnoreGuiInset = true
-    screenGui.Enabled        = false
+    screenGui.Enabled        = true
     screenGui.Parent         = CoreGui
 
-    -- [11] Restaura posição salva
     local savedPos = getgenv().__deltaV3_savedSpamGuiPos or {}
     local initX    = savedPos.x or nil
     local initY    = savedPos.y or nil
 
-    -- Tamanho -4% em relação ao original (120x95)
-    local FW, FH = 115, 91  -- 120*0.96=115.2, 95*0.96=91.2
+    local FW, FH = 115, 91
 
     local mainFrame = Instance.new("Frame")
     mainFrame.Size             = UDim2.new(0, FW, 0, FH)
@@ -409,25 +407,22 @@ task.spawn(function()
     stroke.Thickness = 1.5
     stroke.Parent    = mainFrame
 
-    -- Gradiente no fundo da spam GUI [3]
     local spamBg = Instance.new("UIGradient")
     spamBg.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0,   Color3.fromRGB(10, 14, 38)),
-        ColorSequenceKeypoint.new(1,   Color3.fromRGB(22,  8, 36)),
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(10, 14, 38)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(22,  8, 36)),
     })
     spamBg.Rotation = 130
     spamBg.Parent   = mainFrame
 
     mainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 30)
 
-    -- Posiciona o frame
     if initX and initY then
         mainFrame.Position = UDim2.new(0, initX, 0, initY)
     else
         mainFrame.Position = UDim2.new(1, -FW - 10, 0.5, -math.floor(FH/2))
     end
 
-    -- Stroke animado (segue a cor do controle)
     task.spawn(function()
         local t = 0
         while stroke.Parent do
@@ -456,9 +451,8 @@ task.spawn(function()
     titleLabel.Font                   = Enum.Font.GothamBold
     titleLabel.Parent                 = titleBar
 
-    -- [10] Toggle button: altura -4% (era 52 → 50), "ON"/"OFF" sem "SPAM"
     local toggleBtn = Instance.new("TextButton")
-    toggleBtn.Size             = UDim2.new(0.816, 0, 0, 50)   -- -4% de 0.85 e 52
+    toggleBtn.Size             = UDim2.new(0.816, 0, 0, 50)
     toggleBtn.Position         = UDim2.new(0.092, 0, 0, 30)
     toggleBtn.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
     toggleBtn.BorderSizePixel  = 0
@@ -476,7 +470,7 @@ task.spawn(function()
             or  Color3.fromRGB(220, 50, 50)
     end
 
-    -- [10] Comportamento do botao respeita hold/toggle do controle
+    -- [FIX] hold/toggle respeitados — spam so dispara com interacao manual
     toggleBtn.InputBegan:Connect(function(inp)
         if inp.UserInputType ~= Enum.UserInputType.MouseButton1
         and inp.UserInputType ~= Enum.UserInputType.Touch then return end
@@ -495,7 +489,6 @@ task.spawn(function()
         end
     end)
 
-    -- [12] Drag com protecao de tela
     local dragging, dragStart, startPos = false, nil, nil
     local function clampSpamGui()
         local vp = workspace.CurrentCamera.ViewportSize
@@ -526,7 +519,6 @@ task.spawn(function()
             input.Changed:Connect(function()
                 if input.UserInputState == Enum.UserInputState.End then
                     dragging = false
-                    -- [11] Salva posição
                     local ap = mainFrame.AbsolutePosition
                     getgenv().__deltaV3_spamGuiPos = {x=math.round(ap.X), y=math.round(ap.Y)}
                 end
@@ -553,24 +545,24 @@ end)
 -- AURA VISUAL
 -- ============================================================
 local auraOuter = Instance.new("Part")
-auraOuter.Name       = "DeltaAuraOuter"
-auraOuter.Shape      = Enum.PartType.Ball
-auraOuter.Material   = Enum.Material.ForceField
-auraOuter.Anchored   = true
-auraOuter.CanCollide = false
+auraOuter.Name         = "DeltaAuraOuter"
+auraOuter.Shape        = Enum.PartType.Ball
+auraOuter.Material     = Enum.Material.ForceField
+auraOuter.Anchored     = true
+auraOuter.CanCollide   = false
 auraOuter.Transparency = 1
-auraOuter.Color      = Config.AREA_COLOR
-auraOuter.Parent     = WS
+auraOuter.Color        = Config.AREA_COLOR
+auraOuter.Parent       = WS
 
 local auraInner = Instance.new("Part")
-auraInner.Name       = "DeltaAuraInner"
-auraInner.Shape      = Enum.PartType.Ball
-auraInner.Material   = Enum.Material.ForceField
-auraInner.Anchored   = true
-auraInner.CanCollide = false
+auraInner.Name         = "DeltaAuraInner"
+auraInner.Shape        = Enum.PartType.Ball
+auraInner.Material     = Enum.Material.ForceField
+auraInner.Anchored     = true
+auraInner.CanCollide   = false
 auraInner.Transparency = 1
-auraInner.Color      = Config.AREA_COLOR
-auraInner.Parent     = WS
+auraInner.Color        = Config.AREA_COLOR
+auraInner.Parent       = WS
 
 local lastVisualUpdate = 0
 
@@ -603,7 +595,7 @@ local auraConn = RS.RenderStepped:Connect(function()
 end)
 
 -- ============================================================
--- HEARTBEAT — Auto Parry estilo Tek/Phantom [5]
+-- HEARTBEAT — Auto Parry Tek/Phantom [FIX: cooldown correto]
 -- ============================================================
 local pingTimer = 0
 
@@ -614,6 +606,7 @@ local function bind(ch)
     local lastProcessResetL  = 0
     local ballResetAt        = 0
     local lastBallPos        = nil
+    local lastFire           = 0   -- [FIX] cooldown do auto-parry
 
     local conn
     conn = RS.Heartbeat:Connect(function(dt)
@@ -626,7 +619,7 @@ local function bind(ch)
 
         local now = tick()
 
-        -- Ping atualizado a cada 2s
+        -- Ping a cada 2s
         pingTimer = pingTimer + dt
         if pingTimer >= 2 then
             pingTimer = 0
@@ -638,12 +631,15 @@ local function bind(ch)
             resetClash()
         end
 
-        -- Clash spam
+        -- Clash burst: separado, nao bloqueia o resto do loop
         if getgenv().__deltaV3_autoClashOn and ClashState.Active and BallSync.TargetID == lp.UserId then
             performClashBurst()
         end
 
+        -- [FIX] Spam manual: se ativo, auto-parry NAO roda no mesmo frame
+        -- O spam ja esta rodando em runSpamLoop (task.spawn separado)
         if spamOn then return end
+
         if not getgenv().__deltaV3_autoParryOn then return end
 
         -- Reset ballProcessed
@@ -662,11 +658,10 @@ local function bind(ch)
 
         local ballPos = BallSync.RealPosition ~= Vector3.zero and BallSync.RealPosition or b.Position
 
-        -- [5 bugfix] Detecta reset de bola (teleporte grande)
+        -- Detecta reset de bola (teleporte grande)
         if lastBallPos then
             local jump = (ballPos - lastBallPos).Magnitude
             if jump > Config.ballResetThresh then
-                -- Bola resetou: libera o processed apos breve lockout
                 ballProcessedLocal = true
                 lastProcessResetL  = now
                 ballResetAt        = now
@@ -688,18 +683,31 @@ local function bind(ch)
             updateClashDetection(BallSync.TargetID, ballPos)
         end
 
-        -- [5] Target check
+        -- So parry se a bola esta vindo para este jogador
         if BallSync.TargetID ~= lp.UserId then return end
 
-        -- [5] Threshold dinamico Tek/Phantom
-        local timeToReach = dist / math.max(BallSync.Speed, 1)
+        -- Threshold dinamico Tek/Phantom
+        local speed       = math.max(BallSync.Speed, 1)
+        local timeToReach = dist / speed
         local threshold   = math_clamp(
             0.12 + (smoothedPing * 1.05) + Config.manualPingOffset,
             0.05, 0.55
         )
 
-        if timeToReach <= threshold and not ballProcessedLocal then
+        -- [FIX] Cooldown dinamico baseado em timeToReach
+        -- Evita que o auto-parry dispare multiplas vezes no mesmo evento
+        local dynamicCD = math_clamp(
+            timeToReach * Config.parryCDFactor,
+            Config.parryCDMin,
+            Config.parryCDMax
+        )
+
+        if timeToReach <= threshold
+            and not ballProcessedLocal
+            and (now - lastFire) >= dynamicCD   -- [FIX] cooldown aqui
+        then
             sendParry()
+            lastFire           = now
             ballProcessedLocal = true
             lastProcessResetL  = now
         end
@@ -714,6 +722,7 @@ local function bind(ch)
             resetClash()
             ballProcessedLocal = false
             lastBallPos        = nil
+            lastFire           = 0
             auraOuter.Transparency = 1
             auraInner.Transparency = 1
         end
