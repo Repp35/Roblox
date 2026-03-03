@@ -1,7 +1,7 @@
 -- Phantom Ball Auto Parry + Spam [DELTA v5.9 — ALMA + ENGINE CALIBRADA]
--- Auto Parry: lógica ALMA v5.0 (velocidade real, approach check, threshold v5.4)
+-- Auto Parry: lógica original (raio dinâmico, approach check, tImp fixo)
 -- Spam: engine os.clock() ancorada | Quantização frame | Ping offset | Burst
--- Calibração integrada: afeta tanto spam quanto threshold do auto parry
+-- Calibração integrada
 
 local tick       = tick
 local math_clamp = math.clamp
@@ -25,43 +25,31 @@ local Stats   = game:GetService("Stats")
 local CoreGui = game:GetService("CoreGui")
 
 local Config = {
-    -- auto parry
-    parryCDMin    = 0.05,
-    parryCDMax    = 0.3,
-    parryCDFactor = 0.5,
-    clashCDFactor = 0.1,
+    -- auto parry (igual ao original)
+    parryCooldown = 0.3,     -- fixo, igual ao original
+    tImpMax       = 0.35,    -- fixo, igual ao original
+    minSpeed      = 5,
+    radiusWin     = 0.32,
+    radiusOff     = 6,
+    radiusPre     = 8,       -- pre igual ao original
+    minRadius     = 9,
+    maxRadius     = 90,
+    velSmooth     = 0.05,
 
-    velSmooth  = 0.05,
-    minSpeed   = 5,
-
-    -- threshold (estilo v5.4)
-    thresholdBase = 0.12,
-    thresholdMin  = 0.05,
-    thresholdMax  = 0.55,
-
-    pingSmooth     = 0.15,
-    pingMultiplier = 1.1,
-    pingOffset     = 0.02,
-    pingMin        = 0.02,
-    pingMax        = 0.25,
+    clashRadMult = 1.5,
 
     ballResetThresh  = 50,
     ballResetLockout = 0.6,
 
-    processResetNormal = 0.4,
+    processResetNormal = 0.3,
     processResetClash  = 0.05,
-
-    -- aura visual (raio dinâmico só pra visual)
-    minRadius = 9,
-    maxRadius = 90,
-    radiusWin = 0.32,
-    radiusOff = 6,
-    radiusPre = 10,
-    clashRadMult = 1.5,
 
     -- spam
     spamInterval    = 0.00167,
     spamCapPerFrame = 10,
+
+    -- ping
+    pingSmooth     = 0.15,
 
     -- clash
     clashHistorySize  = 8,
@@ -118,11 +106,11 @@ local function getBallCFrame()
     return Cache.Ball and Cache.Ball.CFrame or getParryCFrame()
 end
 
+-- FIX: IsAvailable sempre true (igual ao original), não só durante spam
 pcall(function()
     local orig
     orig = hookfunction(Def.IsAvailable, function(self, ...)
-        if spamOn or clashSpamOn then return true end
-        return orig(self, ...)
+        return true
     end)
 end)
 
@@ -244,7 +232,7 @@ if ballSyncRemote then
 end
 
 -- ============================================================
--- PING
+-- PING (só pra referência, não usado no threshold fixo)
 -- ============================================================
 local smoothedPing = 0.05
 
@@ -255,19 +243,6 @@ local function updatePing()
     if ok and type(raw) == "number" and raw > 0 then
         smoothedPing = smoothedPing * (1 - Config.pingSmooth) + raw * Config.pingSmooth
     end
-end
-
-local function getPingCompensation()
-    if getgenv().__deltaV3_calibrated then
-        return math_clamp(
-            (getgenv().__deltaV3_pingOffset or smoothedPing) * 0.5,
-            Config.pingMin, Config.pingMax
-        )
-    end
-    return math_clamp(
-        smoothedPing * Config.pingMultiplier + Config.pingOffset,
-        Config.pingMin, Config.pingMax
-    )
 end
 
 -- ============================================================
@@ -476,10 +451,6 @@ getgenv().__deltaV3_applyCalibration = function(fps, ping)
     getgenv().__deltaV3_framesPerSpam      = framesPerSpam
     getgenv().__deltaV3_frameTime          = frameTime
     getgenv().__deltaV3_calibrated         = true
-
-    -- Ajusta threshold base com frame time
-    Config.thresholdBase = 0.12 + (frameTime * 0.5)
-    Config.pingOffset    = pingOff * 0.5
 
     if spamOn or clashSpamOn then
         local wasSpam  = spamOn
@@ -717,7 +688,7 @@ local auraConn = RS.RenderStepped:Connect(function()
 end)
 
 -- ============================================================
--- HEARTBEAT PRINCIPAL — Auto Parry v5.9 + fix threshold v5.4
+-- HEARTBEAT PRINCIPAL — Auto Parry (lógica original restaurada)
 -- ============================================================
 local function bind(ch)
     setupCharacter(ch)
@@ -789,7 +760,7 @@ local function bind(ch)
 
         if (now - ballResetAt) < Config.ballResetLockout then return end
 
-        -- Velocidade real
+        -- Velocidade real (igual ao original)
         local av = b.AssemblyLinearVelocity
         if typeof(av) == "Vector3" and av.Magnitude > 0.1 then
             vel            = av
@@ -814,28 +785,27 @@ local function bind(ch)
             updateClashDetection(currentTarget, bp, vel, hrpPos)
         end
 
-        local spd  = vel.Magnitude
-        local tgt  = tgtOn()
-        local app  = vel:Dot(hrpPos - bp) > 0
-        local d    = (bp - hrpPos).Magnitude
+        local spd = vel.Magnitude
 
-        -- ── FIX: threshold estilo v5.4 — sem condição de raio no gatilho ──
-        local ping      = getPingCompensation()
-        local threshold = math_clamp(
-            Config.thresholdBase + ping,
-            Config.thresholdMin, Config.thresholdMax
-        )
-        local timeToReach = spd > 1 and (d / spd) or 1e6
+        -- Raio dinâmico igual ao original
+        local rad = math_clamp(spd * Config.radiusWin + Config.radiusOff, Config.minRadius, Config.maxRadius)
+        local parryRad = rad + Config.radiusPre
+        if ClashState.Active then parryRad = parryRad * Config.clashRadMult end
 
-        local cdFactor  = ClashState.Active and Config.clashCDFactor or Config.parryCDFactor
-        local dynamicCD = math_clamp(timeToReach * cdFactor, Config.parryCDMin, Config.parryCDMax)
+        local d   = (bp - hrpPos).Magnitude
+        local app = vel:Dot(hrpPos - bp) > 0
+        local tgt = tgtOn()
+
+        -- FIX: tImp e cooldown fixos igual ao original
+        local tImp = spd > 1 and (d / spd) or 1e6
 
         local can = tgt
             and app
             and spd > Config.minSpeed
-            and timeToReach <= threshold
+            and d <= parryRad
+            and tImp <= Config.tImpMax  -- 0.35 fixo, igual ao original
 
-        if can and not ballProcessed and (now - lastFire) >= dynamicCD then
+        if can and not ballProcessed and (now - lastFire) >= Config.parryCooldown then
             sendParry()
             lastFire         = now
             ballProcessed    = true
