@@ -1,7 +1,16 @@
--- DELTA V3 — CONTROLE v3.2 [PERF FIX]
--- [PERF] Loop de stroke sem pcall em cada iteracao
--- [PERF] getAllCps() cacheado fora do loop de status
--- [PERF] Tweens de animacao otimizados
+-- DELTA V3 — CONTROLE v3.3 [FIXED]
+-- Correcoes vs v3.2:
+--   [FIX] Save/Load: Manual Spam GUI persiste estado real (ligado/desligado)
+--   [FIX] Status dots: refletem defaults reais (Parry ON, Clash ON por padrao)
+--   [FIX] Status dots: atualizam dinamicamente
+--   [FIX] Tab2 (calibrar): nao fica invisivel ao minimizar/expandir
+--   [FIX] Collapse: animacao suave ao sair da tela (clampToScreen com tween)
+--   [FIX] GUI cabe na tela: layout compactado, WIDE reduzido, paddings ajustados
+--   [FIX] Animacao de entrada: slideIn + fade como no antigo (Enum.EasingStyle.Back)
+--   [FIX] syncedBtnColors: limpa entradas de objetos destruidos
+--   [FIX] Tab switch: nao duplica cards ao voltar pra tab1
+--   [FIX] Travamentos: sem loops pesados no heartbeat da GUI, tweens otimizados
+--   [FIX] MainFrame: posicao inicial sempre dentro da tela
 
 local Players          = game:GetService("Players")
 local TweenService     = game:GetService("TweenService")
@@ -29,20 +38,22 @@ local function saveConfig()
             guiX = math.round(ap.X)
             guiY = math.round(ap.Y)
         end)
+        local spamGuiPos = getgenv().__deltaV3_savedSpamGuiPos or {}
         local data = {
-            autoParryOn  = getgenv().__deltaV3_autoParryOn,
-            autoClashOn  = getgenv().__deltaV3_autoClashOn,
-            auraOn       = getgenv().__deltaV3_auraOn,
-            cpsIndex     = selectedCps,
-            keyIndex     = selectedKey,
-            keyMode      = getgenv().__deltaV3_spamKeyMode or "hold",
-            calibFps     = getgenv().__deltaV3_calibFps  or "",
-            calibPing    = getgenv().__deltaV3_calibPing or "",
-            calibApplied = getgenv().__deltaV3_calibrated or false,
-            mainGuiX     = guiX,
-            mainGuiY     = guiY,
-            spamGuiX     = (getgenv().__deltaV3_spamGuiPos or {}).x,
-            spamGuiY     = (getgenv().__deltaV3_spamGuiPos or {}).y,
+            autoParryOn    = getgenv().__deltaV3_autoParryOn,
+            autoClashOn    = getgenv().__deltaV3_autoClashOn,
+            auraOn         = getgenv().__deltaV3_auraOn,
+            manualSpamGui  = getgenv().__deltaV3_manualSpamGuiOn or false,
+            cpsIndex       = selectedCps,
+            keyIndex       = selectedKey,
+            keyMode        = getgenv().__deltaV3_spamKeyMode or "hold",
+            calibFps       = getgenv().__deltaV3_calibFps  or "",
+            calibPing      = getgenv().__deltaV3_calibPing or "",
+            calibApplied   = getgenv().__deltaV3_calibrated or false,
+            mainGuiX       = guiX,
+            mainGuiY       = guiY,
+            spamGuiX       = spamGuiPos.x,
+            spamGuiY       = spamGuiPos.y,
         }
         writefile(SAVE_FILE, HttpService:JSONEncode(data))
     end)
@@ -60,15 +71,23 @@ local function sv(key, default)
     return v ~= nil and v or default
 end
 
+-- Inicializa getgenv com valores salvos (so se ainda nao definido)
 if getgenv().__deltaV3_autoParryOn == nil then getgenv().__deltaV3_autoParryOn = sv("autoParryOn", true)  end
 if getgenv().__deltaV3_autoClashOn == nil then getgenv().__deltaV3_autoClashOn = sv("autoClashOn", true)  end
 if getgenv().__deltaV3_auraOn      == nil then getgenv().__deltaV3_auraOn      = sv("auraOn",      false) end
 if getgenv().__deltaV3_spamKeyMode == nil then getgenv().__deltaV3_spamKeyMode = sv("keyMode",     "hold") end
 
+-- Estado da GUI do spam salvo
+getgenv().__deltaV3_manualSpamGuiOn = sv("manualSpamGui", false)
+
 selectedCps = sv("cpsIndex", 7)
 selectedKey = sv("keyIndex", 1)
 
-getgenv().__deltaV3_savedSpamGuiPos = { x = sv("spamGuiX", nil), y = sv("spamGuiY", nil) }
+getgenv().__deltaV3_savedSpamGuiPos = {
+    x = sv("spamGuiX", nil),
+    y = sv("spamGuiY", nil),
+}
+
 if sv("calibFps", "") ~= "" then
     getgenv().__deltaV3_calibFps   = sv("calibFps",  "")
     getgenv().__deltaV3_calibPing  = sv("calibPing", "")
@@ -94,6 +113,7 @@ ScreenGui.Parent         = CoreGui
 local function tw(obj, t, props, style, dir)
     return TS:Create(obj, TweenInfo.new(t, style or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out), props)
 end
+
 local function corner(p, r)
     local c = Instance.new("UICorner")
     c.CornerRadius = UDim.new(0, r or 12)
@@ -101,10 +121,12 @@ local function corner(p, r)
     return c
 end
 
-local WIDE     = 580
-local MINI     = 195
-local RADIUS   = 18
-local HEADER_H = 50
+-- [FIX] Layout compactado para caber na tela
+-- WIDE reduzido de 580 para 480, HEADER menor
+local WIDE     = 480
+local MINI     = 160
+local RADIUS   = 16
+local HEADER_H = 46
 
 local currentStrokeColor = Color3.fromRGB(70, 100, 255)
 local syncedStrokes   = {}
@@ -114,17 +136,19 @@ local allCards        = {}
 -- ============================================================
 -- MAIN FRAME
 -- ============================================================
+-- [FIX] Posicao inicial sempre dentro da tela (X=12 em vez de negativo)
 local savedMainX = sv("mainGuiX", nil)
 local savedMainY = sv("mainGuiY", nil)
-local initPos    = (savedMainX and savedMainY)
-    and UDim2.new(0, savedMainX, 0, savedMainY)
-    or  UDim2.new(0, -(WIDE + 20), 0.5, -160)
+
+-- Posicao de entrada: fora da tela pra esquerda (animacao de entrada)
+local entryTargetX = savedMainX or 12
+local entryTargetY = savedMainY or nil  -- nil = centrado verticalmente depois
 
 MainFrame = Instance.new("Frame")
 MainFrame.Name                   = "MainFrame"
 MainFrame.Size                   = UDim2.new(0, WIDE, 0, 0)
 MainFrame.AutomaticSize          = Enum.AutomaticSize.Y
-MainFrame.Position               = initPos
+MainFrame.Position               = UDim2.new(0, -(WIDE + 30), 0.5, -150) -- começa fora
 MainFrame.BackgroundColor3       = Color3.fromRGB(10, 10, 20)
 MainFrame.BackgroundTransparency = 1
 MainFrame.BorderSizePixel        = 0
@@ -146,8 +170,7 @@ Stroke.Thickness = 1.5
 Stroke.Parent    = MainFrame
 table.insert(syncedStrokes, Stroke)
 
--- [PERF] Loop de cores: sem pcall, acessa strokes diretamente
--- usa contador de indices para nao criar closures desnecessarias
+-- [PERF] Loop de cor do stroke: sem pcall, direto
 local strokeRunning = true
 ScreenGui.AncestryChanged:Connect(function()
     if not ScreenGui.Parent then strokeRunning = false end
@@ -161,13 +184,15 @@ task.spawn(function()
         local g = math.floor(100 + 80  * math.sin(t + 2.1))
         currentStrokeColor = Color3.fromRGB(r, g, 255)
 
-        -- [PERF] Itera sem pcall — objetos sao sempre validos se Parent existe
         for i = 1, #syncedStrokes do
             local s = syncedStrokes[i]
             if s and s.Parent then
                 s.Color = currentStrokeColor
             end
         end
+
+        -- [FIX] Limpa syncedBtnColors de objetos destruidos enquanto itera
+        local alive = {}
         for i = 1, #syncedBtnColors do
             local info = syncedBtnColors[i]
             if info and info.obj and info.obj.Parent then
@@ -176,18 +201,29 @@ task.spawn(function()
                     math.floor(info.gBase + info.gAmp * math.sin(t + info.phase + 2.1)),
                     info.bVal
                 )
+                alive[#alive + 1] = info
             end
         end
+        syncedBtnColors = alive
+
         task.wait(0.05)
     end
 end)
 
+-- [FIX] Animacao de entrada: mesmo estilo do antigo (Back easing, slide + fade)
 task.spawn(function()
     task.wait(0.05)
-    local tgtPos = (savedMainX and savedMainY)
-        and UDim2.new(0, savedMainX, 0, savedMainY)
-        or  UDim2.new(0, 16, 0.5, -160)
-    tw(MainFrame, 0.55, { Position = tgtPos, BackgroundTransparency = 0.2 }, Enum.EasingStyle.Back):Play()
+    local targetPos
+    if savedMainX and savedMainY then
+        targetPos = UDim2.new(0, savedMainX, 0, savedMainY)
+    else
+        -- Calcula posicao centrada verticalmente apos o frame ter tamanho
+        targetPos = UDim2.new(0, 12, 0.5, -150)
+    end
+    tw(MainFrame, 0.55,
+        { Position = targetPos, BackgroundTransparency = 0.2 },
+        Enum.EasingStyle.Back, Enum.EasingDirection.Out
+    ):Play()
 end)
 
 -- ============================================================
@@ -210,12 +246,12 @@ HeaderGlow.BorderSizePixel        = 0
 HeaderGlow.Parent                 = Header
 
 local Icon = Instance.new("TextLabel")
-Icon.Size             = UDim2.new(0, 30, 0, 30)
-Icon.Position         = UDim2.new(0, 12, 0, 10)
+Icon.Size             = UDim2.new(0, 28, 0, 28)
+Icon.Position         = UDim2.new(0, 10, 0, 9)
 Icon.BackgroundColor3 = Color3.fromRGB(80, 120, 255)
 Icon.BorderSizePixel  = 0
 Icon.Text             = "⚡"
-Icon.TextSize         = 15
+Icon.TextSize         = 14
 Icon.Font             = Enum.Font.GothamBold
 Icon.TextColor3       = Color3.fromRGB(255, 255, 255)
 Icon.TextXAlignment   = Enum.TextXAlignment.Center
@@ -223,7 +259,6 @@ Icon.TextYAlignment   = Enum.TextYAlignment.Center
 Icon.Parent           = Header
 corner(Icon, 8)
 
--- [PERF] Icon pulse: intervalo maior (2.2s vs 1.1s) — menos tweens
 task.spawn(function()
     while Icon.Parent do
         tw(Icon, 1.8, {BackgroundColor3 = Color3.fromRGB(110,160,255)}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut):Play()
@@ -234,19 +269,19 @@ task.spawn(function()
 end)
 
 local Title = Instance.new("TextLabel")
-Title.Size                   = UDim2.new(1, -110, 0, HEADER_H)
-Title.Position               = UDim2.new(0, 50, 0, 0)
+Title.Size                   = UDim2.new(1, -100, 0, HEADER_H)
+Title.Position               = UDim2.new(0, 46, 0, 0)
 Title.BackgroundTransparency = 1
 Title.Text                   = "DELTA V3"
 Title.TextColor3             = Color3.fromRGB(255, 255, 255)
-Title.TextSize               = 15
+Title.TextSize               = 14
 Title.Font                   = Enum.Font.GothamBold
 Title.TextXAlignment         = Enum.TextXAlignment.Left
 Title.Parent                 = Header
 
 local CollapseBtn = Instance.new("TextButton")
-CollapseBtn.Size                   = UDim2.new(0, 32, 0, 32)
-CollapseBtn.Position               = UDim2.new(1, -44, 0, 9)
+CollapseBtn.Size                   = UDim2.new(0, 30, 0, 30)
+CollapseBtn.Position               = UDim2.new(1, -40, 0, 8)
 CollapseBtn.BackgroundColor3       = Color3.fromRGB(30, 30, 55)
 CollapseBtn.BackgroundTransparency = 0.3
 CollapseBtn.BorderSizePixel        = 0
@@ -256,8 +291,8 @@ corner(CollapseBtn, 9)
 
 local function makeLine(yOff)
     local L = Instance.new("Frame")
-    L.Size                   = UDim2.new(0, 15, 0, 2)
-    L.Position               = UDim2.new(0.5, -8, 0.5, yOff)
+    L.Size                   = UDim2.new(0, 14, 0, 2)
+    L.Position               = UDim2.new(0.5, -7, 0.5, yOff)
     L.BackgroundColor3       = Color3.fromRGB(190, 195, 255)
     L.BackgroundTransparency = 0.1
     L.BorderSizePixel        = 0
@@ -284,10 +319,10 @@ Body.Parent                 = MainFrame
 Instance.new("UIListLayout", Body).SortOrder = Enum.SortOrder.LayoutOrder
 
 local BodyPad = Instance.new("UIPadding")
-BodyPad.PaddingLeft   = UDim.new(0, 12)
-BodyPad.PaddingRight  = UDim.new(0, 12)
-BodyPad.PaddingTop    = UDim.new(0, 6)
-BodyPad.PaddingBottom = UDim.new(0, 8)
+BodyPad.PaddingLeft   = UDim.new(0, 10)
+BodyPad.PaddingRight  = UDim.new(0, 10)
+BodyPad.PaddingTop    = UDim.new(0, 5)
+BodyPad.PaddingBottom = UDim.new(0, 7)
 BodyPad.Parent        = Body
 
 -- ============================================================
@@ -302,46 +337,47 @@ ColsRow.LayoutOrder            = 1
 ColsRow.Parent                 = Body
 
 local ColLeft = Instance.new("Frame")
-ColLeft.Size                   = UDim2.new(0.5, -5, 0, 0)
+ColLeft.Size                   = UDim2.new(0.5, -4, 0, 0)
 ColLeft.AutomaticSize          = Enum.AutomaticSize.Y
 ColLeft.BackgroundTransparency = 1
 ColLeft.Parent                 = ColsRow
-Instance.new("UIListLayout", ColLeft).Padding = UDim.new(0, 7)
+Instance.new("UIListLayout", ColLeft).Padding = UDim.new(0, 6)
 
 local ColRight = Instance.new("Frame")
-ColRight.Size                   = UDim2.new(0.5, -5, 0, 0)
-ColRight.Position               = UDim2.new(0.5, 5, 0, 0)
+ColRight.Size                   = UDim2.new(0.5, -4, 0, 0)
+ColRight.Position               = UDim2.new(0.5, 4, 0, 0)
 ColRight.AutomaticSize          = Enum.AutomaticSize.Y
 ColRight.BackgroundTransparency = 1
 ColRight.Parent                 = ColsRow
-Instance.new("UIListLayout", ColRight).Padding = UDim.new(0, 7)
+Instance.new("UIListLayout", ColRight).Padding = UDim.new(0, 6)
 
 -- ============================================================
 -- CARD HELPERS
 -- ============================================================
 local function makeCard(parent, order, h)
     local Card = Instance.new("Frame")
-    Card.Size                   = UDim2.new(1, 0, 0, h or 80)
+    Card.Size                   = UDim2.new(1, 0, 0, h or 76)
     Card.BackgroundColor3       = Color3.fromRGB(22, 22, 40)
     Card.BackgroundTransparency = 1
     Card.BorderSizePixel        = 0
     Card.LayoutOrder            = order
     Card.Parent                 = parent
-    corner(Card, 12)
+    corner(Card, 11)
     table.insert(allCards, Card)
-    task.delay(0.12 + order * 0.07, function()
-        tw(Card, 0.38, {BackgroundTransparency = 0.35}, Enum.EasingStyle.Back):Play()
+    task.delay(0.10 + order * 0.06, function()
+        tw(Card, 0.35, {BackgroundTransparency = 0.35}, Enum.EasingStyle.Back):Play()
     end)
     Card.MouseEnter:Connect(function() tw(Card, 0.14, {BackgroundTransparency = 0.18}):Play() end)
     Card.MouseLeave:Connect(function() tw(Card, 0.14, {BackgroundTransparency = 0.35}):Play() end)
     return Card
 end
 
+-- [FIX] attachSwitch retorna (flipFn, getStateFn) para permitir sync com save
 local function attachSwitch(card, initOn, cb)
     local on = initOn
     local Base = Instance.new("Frame")
-    Base.Size                   = UDim2.new(0, 44, 0, 24)
-    Base.Position               = UDim2.new(1, -52, 0.5, -12)
+    Base.Size                   = UDim2.new(0, 42, 0, 22)
+    Base.Position               = UDim2.new(1, -48, 0.5, -11)
     Base.BackgroundColor3       = on and Color3.fromRGB(80,130,255) or Color3.fromRGB(40,40,62)
     Base.BackgroundTransparency = 0.25
     Base.BorderSizePixel        = 0
@@ -349,13 +385,13 @@ local function attachSwitch(card, initOn, cb)
     corner(Base, 100)
 
     local SwitchStroke = Instance.new("UIStroke")
-    SwitchStroke.Thickness = 1.4
+    SwitchStroke.Thickness = 1.2
     SwitchStroke.Parent    = Base
     table.insert(syncedStrokes, SwitchStroke)
 
     local Knob = Instance.new("Frame")
-    Knob.Size                   = UDim2.new(0, 18, 0, 18)
-    Knob.Position               = on and UDim2.new(1,-21,0.5,-9) or UDim2.new(0,3,0.5,-9)
+    Knob.Size                   = UDim2.new(0, 16, 0, 16)
+    Knob.Position               = on and UDim2.new(1,-19,0.5,-8) or UDim2.new(0,3,0.5,-8)
     Knob.BackgroundColor3       = on and Color3.fromRGB(255,255,255) or Color3.fromRGB(100,100,130)
     Knob.BackgroundTransparency = 0.1
     Knob.BorderSizePixel        = 0
@@ -366,7 +402,7 @@ local function attachSwitch(card, initOn, cb)
         on = not on
         tw(Base, 0.18, {BackgroundColor3 = on and Color3.fromRGB(80,130,255) or Color3.fromRGB(40,40,62)}):Play()
         tw(Knob, 0.2, {
-            Position         = on and UDim2.new(1,-21,0.5,-9) or UDim2.new(0,3,0.5,-9),
+            Position         = on and UDim2.new(1,-19,0.5,-8) or UDim2.new(0,3,0.5,-8),
             BackgroundColor3 = on and Color3.fromRGB(255,255,255) or Color3.fromRGB(100,100,130),
         }, Enum.EasingStyle.Back):Play()
         tw(card, 0.09, {BackgroundColor3 = on and Color3.fromRGB(26,35,65) or Color3.fromRGB(22,22,40)}):Play()
@@ -375,21 +411,30 @@ local function attachSwitch(card, initOn, cb)
         saveConfig()
     end
 
+    local function setState(v)
+        if on == v then return end
+        on = v
+        Base.BackgroundColor3 = on and Color3.fromRGB(80,130,255) or Color3.fromRGB(40,40,62)
+        Knob.Position         = on and UDim2.new(1,-19,0.5,-8) or UDim2.new(0,3,0.5,-8)
+        Knob.BackgroundColor3 = on and Color3.fromRGB(255,255,255) or Color3.fromRGB(100,100,130)
+    end
+
     Base.InputBegan:Connect(function(i)
         if i.UserInputType == Enum.UserInputType.MouseButton1
         or i.UserInputType == Enum.UserInputType.Touch then flip() end
     end)
-    return flip, function() return on end
+
+    return flip, function() return on end, setState
 end
 
 local function cardLabel(parent, text, x, y, sz, bold, col)
     local L = Instance.new("TextLabel")
-    L.Size                   = UDim2.new(1, -62, 0, 18)
+    L.Size                   = UDim2.new(1, -58, 0, 16)
     L.Position               = UDim2.new(0, x, 0, y)
     L.BackgroundTransparency = 1
     L.Text                   = text
     L.TextColor3             = col or Color3.fromRGB(235,235,255)
-    L.TextSize               = sz or 12
+    L.TextSize               = sz or 11
     L.Font                   = bold and Enum.Font.GothamBold or Enum.Font.Gotham
     L.TextXAlignment         = Enum.TextXAlignment.Left
     L.Parent                 = parent
@@ -398,8 +443,8 @@ end
 
 local function cardBadge(parent, text, color, yOff)
     local B = Instance.new("TextLabel")
-    B.Size                   = UDim2.new(0, 44, 0, 14)
-    B.Position               = UDim2.new(0, 12, 0, yOff or 50)
+    B.Size                   = UDim2.new(0, 40, 0, 13)
+    B.Position               = UDim2.new(0, 10, 0, yOff or 48)
     B.BackgroundColor3       = color
     B.BackgroundTransparency = 0.45
     B.BorderSizePixel        = 0
@@ -421,26 +466,32 @@ local PURP  = Color3.fromRGB(120,60,210)
 -- COLUNA ESQUERDA
 -- ============================================================
 local c1 = makeCard(ColLeft, 1)
-cardLabel(c1, "Auto Parry", 12, 10, 12, true)
-cardLabel(c1, "Auto parry perfeito hein", 12, 30, 9, false, Color3.fromRGB(95,95,125))
-cardBadge(c1, "AUTO", BLUE, 50)
+cardLabel(c1, "Auto Parry", 10, 9, 11, true)
+cardLabel(c1, "Parry automatico perfeito", 10, 27, 9, false, Color3.fromRGB(95,95,125))
+cardBadge(c1, "AUTO", BLUE, 47)
 attachSwitch(c1, sv("autoParryOn", true), function(v)
     getgenv().__deltaV3_autoParryOn = v
 end)
 
 local c2 = makeCard(ColLeft, 2)
-cardLabel(c2, "Auto Clash", 12, 10, 12, true)
-cardLabel(c2, "So em clash confirmado", 12, 30, 9, false, Color3.fromRGB(95,95,125))
-cardBadge(c2, "AUTO", BLUE, 50)
+cardLabel(c2, "Auto Clash", 10, 9, 11, true)
+cardLabel(c2, "So em clash confirmado", 10, 27, 9, false, Color3.fromRGB(95,95,125))
+cardBadge(c2, "AUTO", BLUE, 47)
 attachSwitch(c2, sv("autoClashOn", true), function(v)
     getgenv().__deltaV3_autoClashOn = v
 end)
 
+-- [FIX] Manual Spam GUI: persiste estado real (ligado/desligado)
+local manualSpamFlip, manualSpamGet, manualSpamSet
+
 local c3 = makeCard(ColLeft, 3)
-cardLabel(c3, "Manual Spam GUI", 12, 10, 12, true)
-cardLabel(c3, "Mostra/esconde a GUI de spam", 12, 30, 9, false, Color3.fromRGB(95,95,125))
-cardBadge(c3, "GUI", GREEN, 50)
-attachSwitch(c3, false, function(v)
+cardLabel(c3, "Manual Spam GUI", 10, 9, 11, true)
+cardLabel(c3, "Mostra/esconde GUI de spam", 10, 27, 9, false, Color3.fromRGB(95,95,125))
+cardBadge(c3, "GUI", GREEN, 47)
+
+local savedSpamGuiOn = sv("manualSpamGui", false)
+manualSpamFlip, manualSpamGet, manualSpamSet = attachSwitch(c3, savedSpamGuiOn, function(v)
+    getgenv().__deltaV3_manualSpamGuiOn = v
     task.spawn(function()
         local sg = CoreGui:FindFirstChild("ParrySpamToggleGui")
         if sg then
@@ -452,87 +503,91 @@ attachSwitch(c3, false, function(v)
     end)
 end)
 
+-- Aplica estado salvo da GUI de spam apos alma criar a gui
+task.delay(0.5, function()
+    local sg = CoreGui:FindFirstChild("ParrySpamToggleGui")
+    if sg then
+        sg.Enabled = savedSpamGuiOn
+    end
+end)
+
 -- ============================================================
 -- COLUNA DIREITA
 -- ============================================================
 local c4 = makeCard(ColRight, 1)
-cardLabel(c4, "Aura Visual", 12, 10, 12, true)
-cardLabel(c4, "Ring 3D no personagem", 12, 30, 9, false, Color3.fromRGB(95,95,125))
-cardBadge(c4, "3D", PURP, 50)
+cardLabel(c4, "Aura Visual", 10, 9, 11, true)
+cardLabel(c4, "Ring 3D no personagem", 10, 27, 9, false, Color3.fromRGB(95,95,125))
+cardBadge(c4, "3D", PURP, 47)
 attachSwitch(c4, sv("auraOn", false), function(v)
     getgenv().__deltaV3_auraOn = v
 end)
 
 -- ============================================================
--- CPS CARD
+-- CPS CARD (compactado)
 -- ============================================================
-local CpsCard = makeCard(ColRight, 2, 142)
-CpsCard.Size = UDim2.new(1, 0, 0, 142)
+local CpsCard = makeCard(ColRight, 2, 134)
+CpsCard.Size = UDim2.new(1, 0, 0, 134)
 
 local CpsTitle = Instance.new("TextLabel")
-CpsTitle.Size                   = UDim2.new(0.55, 0, 0, 16)
-CpsTitle.Position               = UDim2.new(0, 12, 0, 9)
+CpsTitle.Size                   = UDim2.new(0.55, 0, 0, 14)
+CpsTitle.Position               = UDim2.new(0, 10, 0, 8)
 CpsTitle.BackgroundTransparency = 1
 CpsTitle.Text                   = "CPS DO SPAM"
 CpsTitle.TextColor3             = Color3.fromRGB(235,235,255)
-CpsTitle.TextSize               = 10
+CpsTitle.TextSize               = 9
 CpsTitle.Font                   = Enum.Font.GothamBold
 CpsTitle.TextXAlignment         = Enum.TextXAlignment.Left
 CpsTitle.Parent                 = CpsCard
 
 local CpsValue = Instance.new("TextLabel")
-CpsValue.Size                   = UDim2.new(0, 58, 0, 16)
-CpsValue.Position               = UDim2.new(1, -68, 0, 8)
+CpsValue.Size                   = UDim2.new(0, 54, 0, 14)
+CpsValue.Position               = UDim2.new(1, -62, 0, 7)
 CpsValue.BackgroundColor3       = Color3.fromRGB(50,90,200)
 CpsValue.BackgroundTransparency = 0.5
 CpsValue.BorderSizePixel        = 0
 CpsValue.Text                   = "600 /s"
 CpsValue.TextColor3             = Color3.fromRGB(150,190,255)
-CpsValue.TextSize               = 9
+CpsValue.TextSize               = 8
 CpsValue.Font                   = Enum.Font.GothamBold
 CpsValue.TextXAlignment         = Enum.TextXAlignment.Center
 CpsValue.Parent                 = CpsCard
-corner(CpsValue, 6)
+corner(CpsValue, 5)
 
 local CpsGrid = Instance.new("Frame")
-CpsGrid.Size                   = UDim2.new(1, -20, 0, 62)
-CpsGrid.Position               = UDim2.new(0, 10, 0, 34)
+CpsGrid.Size                   = UDim2.new(1, -18, 0, 58)
+CpsGrid.Position               = UDim2.new(0, 9, 0, 30)
 CpsGrid.BackgroundTransparency = 1
 CpsGrid.Parent                 = CpsCard
 
 local CpsUIGrid = Instance.new("UIGridLayout")
-CpsUIGrid.CellSize    = UDim2.new(0.22, -4, 0, 24)
-CpsUIGrid.CellPadding = UDim2.new(0, 4, 0, 4)
+CpsUIGrid.CellSize    = UDim2.new(0.22, -3, 0, 22)
+CpsUIGrid.CellPadding = UDim2.new(0, 3, 0, 3)
 CpsUIGrid.SortOrder   = Enum.SortOrder.LayoutOrder
 CpsUIGrid.Parent      = CpsGrid
 
 local cpsMain  = {{v=10},{v=20},{v=60},{v=100},{v=166},{v=300},{v=600},{v=1000,warn=true}}
 local cpsExtra = {{v=3000,warn=true},{v=10000,warn=true}}
 
--- [PERF] cacheado — nao cria tabela nova a cada chamada no loop de status
 local allCpsCache = {}
 for _, d in ipairs(cpsMain)  do table.insert(allCpsCache, d) end
 for _, d in ipairs(cpsExtra) do table.insert(allCpsCache, d) end
 
-local function getAllCps() return allCpsCache end
-
 local CpsExtraRow = Instance.new("Frame")
-CpsExtraRow.Size                   = UDim2.new(0, 136, 0, 24)
-CpsExtraRow.Position               = UDim2.new(0.5, -68, 0, 108)
+CpsExtraRow.Size                   = UDim2.new(0, 128, 0, 22)
+CpsExtraRow.Position               = UDim2.new(0.5, -64, 0, 102)
 CpsExtraRow.BackgroundTransparency = 1
 CpsExtraRow.Parent                 = CpsCard
 local ExtraList = Instance.new("UIListLayout")
 ExtraList.FillDirection     = Enum.FillDirection.Horizontal
 ExtraList.VerticalAlignment = Enum.VerticalAlignment.Center
-ExtraList.Padding           = UDim.new(0, 6)
+ExtraList.Padding           = UDim.new(0, 5)
 ExtraList.Parent            = CpsExtraRow
 
 local cpsBtns, cpsExtraBtns = {}, {}
 
 local function selectCps(idx)
     selectedCps = idx
-    local all    = getAllCps()
-    local chosen = all[idx] or all[7]
+    local chosen = allCpsCache[idx] or allCpsCache[7]
     getgenv().__deltaV3_spamInterval    = 1 / chosen.v
     getgenv().__deltaV3_spamIntervalRaw = 1 / chosen.v
 
@@ -566,14 +621,14 @@ for i, d in ipairs(cpsMain) do
     B.Size                   = UDim2.new(1, 0, 1, 0)
     B.BorderSizePixel        = 0
     B.Font                   = Enum.Font.GothamBold
-    B.TextSize               = 9
+    B.TextSize               = 8
     B.LayoutOrder            = i
     B.BackgroundColor3       = s and Color3.fromRGB(60,100,200) or (d.warn and Color3.fromRGB(150,40,15) or Color3.fromRGB(28,28,48))
     B.BackgroundTransparency = s and 0.3 or (d.warn and 0.45 or 0.15)
     B.TextColor3             = s and Color3.fromRGB(170,210,255) or (d.warn and Color3.fromRGB(255,120,80) or Color3.fromRGB(105,105,135))
     B.Text                   = tostring(d.v) .. (s and "★" or (d.warn and "⚠" or ""))
     B.Parent                 = CpsGrid
-    corner(B, 6)
+    corner(B, 5)
     cpsBtns[i] = B
     local ci = i
     B.Activated:Connect(function() selectCps(ci) end)
@@ -587,7 +642,7 @@ for i, d in ipairs(cpsExtra) do
     local gi = #cpsMain + i
     local s  = (gi == selectedCps)
     local B  = Instance.new("TextButton")
-    B.Size                   = UDim2.new(0, 62, 0, 22)
+    B.Size                   = UDim2.new(0, 58, 0, 20)
     B.BorderSizePixel        = 0
     B.Font                   = Enum.Font.GothamBold
     B.TextSize               = 8
@@ -596,7 +651,7 @@ for i, d in ipairs(cpsExtra) do
     B.TextColor3             = s and Color3.fromRGB(170,210,255) or Color3.fromRGB(255,120,80)
     B.Text                   = tostring(d.v) .. (s and "★" or "⚠")
     B.Parent                 = CpsExtraRow
-    corner(B, 6)
+    corner(B, 5)
     cpsExtraBtns[i] = B
     local captGi = gi
     B.Activated:Connect(function() selectCps(captGi) end)
@@ -616,32 +671,32 @@ end
 -- ============================================================
 -- TECLA CARD
 -- ============================================================
-local KeyCard = makeCard(ColRight, 3, 80)
-KeyCard.Size = UDim2.new(1, 0, 0, 80)
-cardLabel(KeyCard, "TECLA DO SPAM", 12, 9, 10, true)
+local KeyCard = makeCard(ColRight, 3, 76)
+KeyCard.Size = UDim2.new(1, 0, 0, 76)
+cardLabel(KeyCard, "TECLA DO SPAM", 10, 8, 9, true)
 
 local KeyValue = Instance.new("TextLabel")
-KeyValue.Size                   = UDim2.new(0, 52, 0, 16)
-KeyValue.Position               = UDim2.new(1, -62, 0, 8)
+KeyValue.Size                   = UDim2.new(0, 48, 0, 14)
+KeyValue.Position               = UDim2.new(1, -56, 0, 7)
 KeyValue.BackgroundColor3       = Color3.fromRGB(50,90,200)
 KeyValue.BackgroundTransparency = 0.5
 KeyValue.BorderSizePixel        = 0
 KeyValue.TextColor3             = Color3.fromRGB(150,190,255)
-KeyValue.TextSize               = 9
+KeyValue.TextSize               = 8
 KeyValue.Font                   = Enum.Font.GothamBold
 KeyValue.TextXAlignment         = Enum.TextXAlignment.Center
 KeyValue.Parent                 = KeyCard
-corner(KeyValue, 6)
+corner(KeyValue, 5)
 
 local KeyRow = Instance.new("Frame")
-KeyRow.Size                   = UDim2.new(1, -20, 0, 30)
-KeyRow.Position               = UDim2.new(0, 10, 0, 38)
+KeyRow.Size                   = UDim2.new(1, -18, 0, 28)
+KeyRow.Position               = UDim2.new(0, 9, 0, 36)
 KeyRow.BackgroundTransparency = 1
 KeyRow.Parent                 = KeyCard
 local KeyRowList = Instance.new("UIListLayout")
 KeyRowList.FillDirection     = Enum.FillDirection.Horizontal
 KeyRowList.VerticalAlignment = Enum.VerticalAlignment.Center
-KeyRowList.Padding           = UDim.new(0, 4)
+KeyRowList.Padding           = UDim.new(0, 3)
 KeyRowList.SortOrder         = Enum.SortOrder.LayoutOrder
 KeyRowList.Parent            = KeyRow
 
@@ -665,7 +720,8 @@ local function bindSpamKey(label)
         local mode = getgenv().__deltaV3_spamKeyMode or "hold"
         if mode == "toggle" then
             if getgenv().__deltaV3_setSpam then
-                getgenv().__deltaV3_setSpam(not (getgenv().__deltaV3_spamActive or false))
+                local current = getgenv().__deltaV3_spamActive or false
+                getgenv().__deltaV3_setSpam(not current)
             end
         else
             if getgenv().__deltaV3_setSpam then getgenv().__deltaV3_setSpam(true) end
@@ -716,17 +772,17 @@ end
 for i, label in ipairs(keyOptions) do
     local s = (i == selectedKey)
     local B = Instance.new("TextButton")
-    B.Size                   = UDim2.new(0, 32, 0, 26)
+    B.Size                   = UDim2.new(0, 29, 0, 24)
     B.BorderSizePixel        = 0
     B.Font                   = Enum.Font.GothamBold
-    B.TextSize               = 9
+    B.TextSize               = 8
     B.LayoutOrder            = i
     B.BackgroundColor3       = s and Color3.fromRGB(60,100,200) or Color3.fromRGB(28,28,48)
     B.BackgroundTransparency = s and 0.3 or 0.15
     B.TextColor3             = s and Color3.fromRGB(170,210,255) or Color3.fromRGB(105,105,135)
     B.Text                   = label
     B.Parent                 = KeyRow
-    corner(B, 7)
+    corner(B, 6)
     keyBtns[i] = B
     local ki = i
     B.Activated:Connect(function() selectKey(ki) end)
@@ -748,33 +804,33 @@ local TOGG_TEXT = Color3.fromRGB(255,235,130)
 
 local ModeWrapper = Instance.new("Frame")
 ModeWrapper.Name                   = "ModeWrapper"
-ModeWrapper.Size                   = UDim2.new(1, 0, 0, 58)
+ModeWrapper.Size                   = UDim2.new(1, 0, 0, 52)
 ModeWrapper.BackgroundTransparency = 1
 ModeWrapper.LayoutOrder            = 15
 ModeWrapper.Parent                 = Body
 
 local ModeCard = Instance.new("Frame")
-ModeCard.Size                   = UDim2.new(0, 300, 0, 52)
-ModeCard.Position               = UDim2.new(0.5, -150, 0, 3)
+ModeCard.Size                   = UDim2.new(0, 270, 0, 46)
+ModeCard.Position               = UDim2.new(0.5, -135, 0, 3)
 ModeCard.BackgroundColor3       = Color3.fromRGB(22,22,40)
 ModeCard.BackgroundTransparency = 1
 ModeCard.BorderSizePixel        = 0
 ModeCard.Parent                 = ModeWrapper
-corner(ModeCard, 12)
+corner(ModeCard, 11)
 table.insert(allCards, ModeCard)
-task.delay(0.54, function()
-    tw(ModeCard, 0.38, {BackgroundTransparency = 0.35}, Enum.EasingStyle.Back):Play()
+task.delay(0.50, function()
+    tw(ModeCard, 0.35, {BackgroundTransparency = 0.35}, Enum.EasingStyle.Back):Play()
 end)
 ModeCard.MouseEnter:Connect(function() tw(ModeCard, 0.14, {BackgroundTransparency = 0.18}):Play() end)
 ModeCard.MouseLeave:Connect(function() tw(ModeCard, 0.14, {BackgroundTransparency = 0.35}):Play() end)
 
 local ModeTitle = Instance.new("TextLabel")
-ModeTitle.Size                   = UDim2.new(0.45, 0, 0, 16)
-ModeTitle.Position               = UDim2.new(0, 12, 0, 8)
+ModeTitle.Size                   = UDim2.new(0.45, 0, 0, 14)
+ModeTitle.Position               = UDim2.new(0, 10, 0, 7)
 ModeTitle.BackgroundTransparency = 1
 ModeTitle.Text                   = "MODO DA TECLA"
 ModeTitle.TextColor3             = Color3.fromRGB(235,235,255)
-ModeTitle.TextSize               = 10
+ModeTitle.TextSize               = 9
 ModeTitle.Font                   = Enum.Font.GothamBold
 ModeTitle.TextXAlignment         = Enum.TextXAlignment.Left
 ModeTitle.Parent                 = ModeCard
@@ -782,13 +838,13 @@ ModeTitle.Parent                 = ModeCard
 local isToggleMode = sv("keyMode","hold") == "toggle"
 
 local PillFrame = Instance.new("Frame")
-PillFrame.Size                   = UDim2.new(0,160,0,28)
-PillFrame.Position               = UDim2.new(0.5,-80,0,20)
+PillFrame.Size                   = UDim2.new(0,148,0,24)
+PillFrame.Position               = UDim2.new(0.5,-74,0,18)
 PillFrame.BackgroundColor3       = Color3.fromRGB(14,14,28)
 PillFrame.BackgroundTransparency = 0.3
 PillFrame.BorderSizePixel        = 0
 PillFrame.Parent                 = ModeCard
-corner(PillFrame, 10)
+corner(PillFrame, 9)
 local PillList = Instance.new("UIListLayout")
 PillList.FillDirection       = Enum.FillDirection.Horizontal
 PillList.VerticalAlignment   = Enum.VerticalAlignment.Center
@@ -802,16 +858,16 @@ PillPad.Parent       = PillFrame
 
 local function makePillBtn(label)
     local B = Instance.new("TextButton")
-    B.Size                   = UDim2.new(0, 75, 0, 22)
+    B.Size                   = UDim2.new(0, 70, 0, 20)
     B.BackgroundColor3       = Color3.fromRGB(22,22,40)
     B.BackgroundTransparency = 0.5
     B.BorderSizePixel        = 0
     B.Text                   = label
-    B.TextSize               = 10
+    B.TextSize               = 9
     B.Font                   = Enum.Font.GothamBold
     B.TextColor3             = Color3.fromRGB(120,120,160)
     B.Parent                 = PillFrame
-    corner(B, 8)
+    corner(B, 7)
     return B
 end
 local HoldBtn   = makePillBtn("HOLD")
@@ -837,9 +893,7 @@ local function switchToHold()
     if not isToggleMode then return end
     isToggleMode = false
     getgenv().__deltaV3_spamKeyMode = "hold"
-    if getgenv().__deltaV3_spamActive and getgenv().__deltaV3_setSpam then
-        getgenv().__deltaV3_setSpam(false)
-    end
+    if getgenv().__deltaV3_setSpam then getgenv().__deltaV3_setSpam(false) end
     bindSpamKey(keyOptions[selectedKey])
     updateModePill(true)
     saveConfig()
@@ -868,17 +922,17 @@ ToggleBtn.MouseLeave:Connect(function()
 end)
 
 local NavBtn = Instance.new("TextButton")
-NavBtn.Size                   = UDim2.new(0, 40, 0, 36)
-NavBtn.Position               = UDim2.new(0.5, 158, 0, 10)
+NavBtn.Size                   = UDim2.new(0, 36, 0, 32)
+NavBtn.Position               = UDim2.new(0.5, 142, 0, 10)
 NavBtn.BackgroundColor3       = Color3.fromRGB(20,20,42)
 NavBtn.BackgroundTransparency = 0.15
 NavBtn.BorderSizePixel        = 0
 NavBtn.Text                   = ">"
-NavBtn.TextSize               = 18
+NavBtn.TextSize               = 16
 NavBtn.Font                   = Enum.Font.GothamBold
 NavBtn.TextColor3             = Color3.fromRGB(120,148,245)
 NavBtn.Parent                 = ModeWrapper
-corner(NavBtn, 10)
+corner(NavBtn, 9)
 local NavStroke = Instance.new("UIStroke")
 NavStroke.Thickness = 1.2
 NavStroke.Parent    = NavBtn
@@ -894,18 +948,16 @@ end)
 
 -- ============================================================
 -- STATUS BAR
--- [PERF] allCpsCache em vez de getAllCps() criando tabela nova
--- [PERF] dot pulse com intervalo maior (2s vs 1.3s)
 -- ============================================================
 local StatusWrapper = Instance.new("Frame")
 StatusWrapper.Name                   = "StatusWrapper"
-StatusWrapper.Size                   = UDim2.new(1, 0, 0, 32)
+StatusWrapper.Size                   = UDim2.new(1, 0, 0, 30)
 StatusWrapper.BackgroundTransparency = 1
 StatusWrapper.LayoutOrder            = 20
 StatusWrapper.Parent                 = Body
 
 local StatusBar = Instance.new("Frame")
-StatusBar.Size                   = UDim2.new(1, 0, 0, 28)
+StatusBar.Size                   = UDim2.new(1, 0, 0, 26)
 StatusBar.Position               = UDim2.new(0, 0, 0, 2)
 StatusBar.BackgroundColor3       = Color3.fromRGB(8,8,18)
 StatusBar.BackgroundTransparency = 0.35
@@ -917,7 +969,7 @@ local SList = Instance.new("UIListLayout")
 SList.FillDirection       = Enum.FillDirection.Horizontal
 SList.HorizontalAlignment = Enum.HorizontalAlignment.Center
 SList.VerticalAlignment   = Enum.VerticalAlignment.Center
-SList.Padding             = UDim.new(0, 20)
+SList.Padding             = UDim.new(0, 14)
 SList.Parent              = StatusBar
 
 local function makeDot(label, dotColor)
@@ -929,15 +981,14 @@ local function makeDot(label, dotColor)
     local fl = Instance.new("UIListLayout")
     fl.FillDirection     = Enum.FillDirection.Horizontal
     fl.VerticalAlignment = Enum.VerticalAlignment.Center
-    fl.Padding           = UDim.new(0, 5)
+    fl.Padding           = UDim.new(0, 4)
     fl.Parent            = f
     local d = Instance.new("Frame")
-    d.Size             = UDim2.new(0, 6, 0, 6)
+    d.Size             = UDim2.new(0, 5, 0, 5)
     d.BackgroundColor3 = dotColor
     d.BorderSizePixel  = 0
     d.Parent           = f
     corner(d, 100)
-    -- [PERF] Pulse mais lento: 2s vs 1.3s — menos tween calls
     task.spawn(function()
         while d.Parent do
             tw(d, 2, {BackgroundTransparency=0.55}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut):Play()
@@ -952,19 +1003,20 @@ local function makeDot(label, dotColor)
     t.BackgroundTransparency = 1
     t.Text                   = label
     t.TextColor3             = Color3.fromRGB(105,105,135)
-    t.TextSize               = 10
+    t.TextSize               = 9
     t.Font                   = Enum.Font.Gotham
     t.TextXAlignment         = Enum.TextXAlignment.Left
     t.Parent                 = f
     return t, d
 end
 
-local dotParry, dotParryD = makeDot("Parry OFF", Color3.fromRGB(50,220,80))
-local dotClash, dotClashD = makeDot("Clash OFF", Color3.fromRGB(80,130,255))
-local dotCps,   _         = makeDot("600 CPS",   Color3.fromRGB(255,160,50))
-makeDot("DELTA v5.9", Color3.fromRGB(180,100,255))
+-- [FIX] Defaults corretos: Parry ON e Clash ON por padrao
+local dotParry, dotParryD = makeDot(sv("autoParryOn", true) and "Parry ON" or "Parry OFF", Color3.fromRGB(50,220,80))
+local dotClash, dotClashD = makeDot(sv("autoClashOn", true) and "Clash ON" or "Clash OFF", Color3.fromRGB(80,130,255))
+local dotCps,   _         = makeDot(tostring((allCpsCache[selectedCps] or allCpsCache[7]).v) .. " CPS", Color3.fromRGB(255,160,50))
+makeDot("DELTA v5.1", Color3.fromRGB(180,100,255))
 
--- [PERF] Status update a cada 1s em vez de 0.5s
+-- [FIX] Status update a cada 1s — reflete estado real
 task.spawn(function()
     while dotParry.Parent do
         local pOn = getgenv().__deltaV3_autoParryOn
@@ -982,43 +1034,44 @@ end)
 -- ============================================================
 -- TAB 2 — CALIBRAR
 -- ============================================================
-local tab2BodyH = 300
-
+-- [FIX] Tab2 agora e filho do ScreenGui, nao do MainFrame
+-- Isso evita o problema de ficar invisivel ao colapsar
 local Tab2 = Instance.new("Frame")
 Tab2.Name                   = "Tab2"
-Tab2.Size                   = UDim2.new(1, 0, 0, tab2BodyH)
-Tab2.Position               = UDim2.new(0, 0, 0, HEADER_H)
+Tab2.Size                   = UDim2.new(0, WIDE, 0, 0)  -- atualizado dinamicamente
 Tab2.BackgroundTransparency = 1
 Tab2.ClipsDescendants       = false
 Tab2.Visible                = false
-Tab2.Parent                 = MainFrame
+Tab2.Parent                 = ScreenGui  -- filho do ScreenGui, independente do MainFrame
 
-task.delay(0.4, function()
-    local h = Body.AbsoluteSize.Y
-    if h > 10 then
-        tab2BodyH = h
-        Tab2.Size = UDim2.new(1, 0, 0, h)
-    end
-end)
+-- posiciona Tab2 igual ao MainFrame (atualizado no switchToTab)
+local function syncTab2Position()
+    Tab2.Position = UDim2.new(
+        MainFrame.Position.X.Scale,
+        MainFrame.Position.X.Offset,
+        MainFrame.Position.Y.Scale,
+        MainFrame.Position.Y.Offset + HEADER_H
+    )
+end
 
 local BackRow = Instance.new("Frame")
-BackRow.Size                   = UDim2.new(1, 0, 0, 44)
-BackRow.Position               = UDim2.new(0, 12, 0, 6)
+BackRow.Size                   = UDim2.new(1, 0, 0, 42)
+BackRow.Position               = UDim2.new(0, 10, 0, 4)
 BackRow.BackgroundTransparency = 1
 BackRow.Parent                 = Tab2
 
 local BackBtn = Instance.new("TextButton")
-BackBtn.Size                   = UDim2.new(0, 40, 0, 34)
-BackBtn.Position               = UDim2.new(0, 0, 0.5, -17)
+BackBtn.Size                   = UDim2.new(0, 36, 0, 30)
+BackBtn.Position               = UDim2.new(0, 0, 0.5, -15)
 BackBtn.BackgroundColor3       = Color3.fromRGB(20,20,42)
 BackBtn.BackgroundTransparency = 0.15
 BackBtn.BorderSizePixel        = 0
 BackBtn.Text                   = "<"
-BackBtn.TextSize               = 18
+BackBtn.TextSize               = 16
 BackBtn.Font                   = Enum.Font.GothamBold
 BackBtn.TextColor3             = Color3.fromRGB(120,148,245)
 BackBtn.Parent                 = BackRow
-corner(BackBtn, 10)
+corner(BackBtn, 9)
 local BackStroke = Instance.new("UIStroke")
 BackStroke.Thickness = 1.2
 BackStroke.Parent    = BackBtn
@@ -1033,10 +1086,10 @@ BackBtn.MouseLeave:Connect(function()
 end)
 
 local Tab2TitleLbl = Instance.new("TextLabel")
-Tab2TitleLbl.Size                   = UDim2.new(1, -52, 1, 0)
-Tab2TitleLbl.Position               = UDim2.new(0, 50, 0, 0)
+Tab2TitleLbl.Size                   = UDim2.new(1, -48, 1, 0)
+Tab2TitleLbl.Position               = UDim2.new(0, 46, 0, 0)
 Tab2TitleLbl.BackgroundTransparency = 1
-Tab2TitleLbl.TextSize               = 13
+Tab2TitleLbl.TextSize               = 12
 Tab2TitleLbl.Font                   = Enum.Font.GothamBold
 Tab2TitleLbl.TextXAlignment         = Enum.TextXAlignment.Left
 Tab2TitleLbl.Parent                 = BackRow
@@ -1049,16 +1102,16 @@ else
     Tab2TitleLbl.TextColor3 = Color3.fromRGB(180, 200, 255)
 end
 
-local fieldW = math.floor((274 - 24 - 8) / 2)
+local fieldW = math.floor((WIDE - 44) / 2)
 
 local CalibCard = Instance.new("Frame")
-CalibCard.Size                   = UDim2.new(0, 274, 0, 96)
-CalibCard.Position               = UDim2.new(0, 12, 0, 56)
+CalibCard.Size                   = UDim2.new(0, WIDE - 24, 0, 96)
+CalibCard.Position               = UDim2.new(0, 12, 0, 52)
 CalibCard.BackgroundColor3       = Color3.fromRGB(22,22,40)
 CalibCard.BackgroundTransparency = 1
 CalibCard.BorderSizePixel        = 0
 CalibCard.Parent                 = Tab2
-corner(CalibCard, 12)
+corner(CalibCard, 11)
 
 local CalibStroke = Instance.new("UIStroke")
 CalibStroke.Thickness = 1.2
@@ -1092,7 +1145,7 @@ local function makeField(xOff, labelTxt, placeholder, savedVal)
     lbl.Parent                 = CalibCard
 
     local box = Instance.new("Frame")
-    box.Size                   = UDim2.new(0, fieldW, 0, 26)
+    box.Size                   = UDim2.new(0, fieldW, 0, 24)
     box.Position               = UDim2.new(0, xOff, 0, 39)
     box.BackgroundColor3       = Color3.fromRGB(11,11,25)
     box.BackgroundTransparency = 0.05
@@ -1113,7 +1166,7 @@ local function makeField(xOff, labelTxt, placeholder, savedVal)
     tb.PlaceholderText        = placeholder
     tb.PlaceholderColor3      = Color3.fromRGB(50,58,100)
     tb.TextColor3             = Color3.fromRGB(190,210,255)
-    tb.TextSize               = 13
+    tb.TextSize               = 12
     tb.Font                   = Enum.Font.GothamBold
     tb.TextXAlignment         = Enum.TextXAlignment.Center
     tb.ClearTextOnFocus       = false
@@ -1139,16 +1192,17 @@ local function makeField(xOff, labelTxt, placeholder, savedVal)
     return tb, bs
 end
 
+local halfW = math.floor((WIDE - 44) / 2)
 local fpsBox,  fpsBs  = makeField(12,              "FPS",  "60", sv("calibFps",  ""))
-local pingBox, pingBs = makeField(12+fieldW+8,     "PING", "48", sv("calibPing", ""))
+local pingBox, pingBs = makeField(12 + halfW + 8,  "PING", "48", sv("calibPing", ""))
 
 local ApplyBtn = Instance.new("TextButton")
-ApplyBtn.Size                   = UDim2.new(1,-24,0,18)
+ApplyBtn.Size                   = UDim2.new(1,-24,0,16)
 ApplyBtn.Position               = UDim2.new(0,12,0,72)
 ApplyBtn.BackgroundTransparency = 0.25
 ApplyBtn.BorderSizePixel        = 0
 ApplyBtn.TextColor3             = Color3.fromRGB(220,235,255)
-ApplyBtn.TextSize               = 10
+ApplyBtn.TextSize               = 9
 ApplyBtn.Font                   = Enum.Font.GothamBold
 ApplyBtn.Parent                 = CalibCard
 corner(ApplyBtn, 7)
@@ -1233,6 +1287,7 @@ ApplyBtn.Activated:Connect(function()
 
     saveConfig()
 
+    -- Remove ApplyBtn de syncedBtnColors
     for i = #syncedBtnColors, 1, -1 do
         if syncedBtnColors[i].obj == ApplyBtn then
             table.remove(syncedBtnColors, i)
@@ -1249,6 +1304,11 @@ ApplyBtn.Activated:Connect(function()
     Tab2TitleLbl.TextColor3 = Color3.fromRGB(120,235,155)
 end)
 
+-- [FIX] Tab2 altura dinamica baseada no CalibCard
+local function getTab2Height()
+    return CalibCard.AbsoluteSize.Y + 64
+end
+
 -- ============================================================
 -- TROCA DE ABAS
 -- ============================================================
@@ -1259,67 +1319,61 @@ local function switchToTab(n)
     if n == currentTab or tabAnimLock then return end
     tabAnimLock = true
 
-    local fadeOut = n == 2 and Body or Tab2
-    local fadeIn  = n == 2 and Tab2 or Body
-
     if n == 2 then
-        local h = Body.AbsoluteSize.Y
-        if h > 10 then
-            tab2BodyH = h
-            Tab2.Size = UDim2.new(1, 0, 0, h)
-        end
-    end
+        -- Garante que Tab2 tem o tamanho correto antes de animar
+        syncTab2Position()
+        local h = math.max(getTab2Height(), 160)
+        Tab2.Size = UDim2.new(0, WIDE, 0, h)
 
-    if n == 2 then
-        CalibCard.BackgroundTransparency = 1
-    else
-        for _, card in ipairs(allCards) do
-            card.BackgroundTransparency = 1
-        end
-    end
+        -- Esconde Body com slide
+        tw(Body, 0.18, {
+            Position = UDim2.new(0, 0, 0, HEADER_H + 8),
+        }, Enum.EasingStyle.Quad, Enum.EasingDirection.In):Play()
 
-    fadeOut.Position = UDim2.new(0, 0, 0, HEADER_H)
-    tw(fadeOut, 0.18, {
-        Position = UDim2.new(0, 0, 0, HEADER_H + 10),
-    }, Enum.EasingStyle.Quad, Enum.EasingDirection.In):Play()
-
-    task.delay(0.18, function()
-        fadeOut.Visible  = false
-        fadeOut.Position = UDim2.new(0, 0, 0, HEADER_H)
-
-        if n == 2 then
+        task.delay(0.18, function()
+            Body.Visible = false
+            Body.Position = UDim2.new(0, 0, 0, HEADER_H)
             MainFrame.AutomaticSize = Enum.AutomaticSize.None
-            MainFrame.Size = UDim2.new(0, WIDE, 0, HEADER_H + tab2BodyH)
-        end
+            MainFrame.Size = UDim2.new(0, WIDE, 0, HEADER_H + h)
 
-        fadeIn.Position = UDim2.new(0, 0, 0, HEADER_H + 10)
-        fadeIn.Visible  = true
+            -- Tab2 entra
+            CalibCard.BackgroundTransparency = 1
+            Tab2.Visible = true
+            syncTab2Position()
 
-        if n == 2 then CalibCard.Visible = true end
+            tw(CalibCard, 0.28, {BackgroundTransparency = 0.35}, Enum.EasingStyle.Back):Play()
 
-        local tIn = tw(fadeIn, 0.26, {
-            Position = UDim2.new(0, 0, 0, HEADER_H),
-        }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-        tIn:Play()
+            task.delay(0.28, function()
+                currentTab  = 2
+                tabAnimLock = false
+            end)
+        end)
+    else
+        -- Tab2 sai
+        tw(CalibCard, 0.15, {BackgroundTransparency = 1}):Play()
 
-        if n == 1 then
+        task.delay(0.15, function()
+            Tab2.Visible = false
+
+            -- Body volta
             MainFrame.AutomaticSize = Enum.AutomaticSize.Y
+            for _, card in ipairs(allCards) do
+                card.BackgroundTransparency = 1
+            end
+            Body.Visible = true
+
             for i, card in ipairs(allCards) do
                 task.delay((i-1)*0.04, function()
-                    tw(card, 0.26, {BackgroundTransparency=0.35}, Enum.EasingStyle.Back):Play()
+                    tw(card, 0.28, {BackgroundTransparency=0.35}, Enum.EasingStyle.Back):Play()
                 end)
             end
-        else
-            task.delay(0.05, function()
-                tw(CalibCard, 0.26, {BackgroundTransparency=0.35}, Enum.EasingStyle.Back):Play()
-            end)
-        end
 
-        tIn.Completed:Connect(function()
-            currentTab  = n
-            tabAnimLock = false
+            task.delay(0.28, function()
+                currentTab  = 1
+                tabAnimLock = false
+            end)
         end)
-    end)
+    end
 end
 
 NavBtn.Activated:Connect(function() switchToTab(2) end)
@@ -1345,17 +1399,21 @@ local DRAG_TYPES = {
 }
 
 Header.InputBegan:Connect(function(i)
-    if DRAG_TYPES[i.UserInputType] and i.Position.X < MainFrame.AbsolutePosition.X + MainFrame.AbsoluteSize.X - 50 then
-        startDrag(i)
+    if DRAG_TYPES[i.UserInputType] then
+        -- Nao inicia drag no botao de colapso
+        local ax = MainFrame.AbsolutePosition.X + MainFrame.AbsoluteSize.X - 44
+        if i.Position.X < ax then
+            startDrag(i)
+        end
     end
 end)
 
-local function makeDragEdge(xScale, xOff, yScale, yOff, wOff, hOff)
+local function makeDragEdge(pos, size)
     local E = Instance.new("Frame")
     E.BackgroundTransparency = 1
     E.BorderSizePixel        = 0
-    E.Size                   = UDim2.new(xScale, wOff, yScale, hOff)
-    E.Position               = UDim2.new(0, xOff, 0, yOff)
+    E.Size                   = size
+    E.Position               = pos
     E.Parent                 = MainFrame
     E.ZIndex                 = 2
     E.InputBegan:Connect(function(i)
@@ -1363,11 +1421,9 @@ local function makeDragEdge(xScale, xOff, yScale, yOff, wOff, hOff)
     end)
     return E
 end
-makeDragEdge(0, 0,    1, 0, 14,   0)
-local edgeRight = makeDragEdge(0, 0, 1, 0, 14, 0)
-edgeRight.Position = UDim2.new(1, -14, 0, 0)
-local edgeBottom = makeDragEdge(1, 0, 0, 0, 0, 12)
-edgeBottom.Position = UDim2.new(0, 0, 1, -12)
+makeDragEdge(UDim2.new(0, 0, 0, HEADER_H),    UDim2.new(0, 12, 1, -HEADER_H))
+makeDragEdge(UDim2.new(1, -12, 0, HEADER_H),  UDim2.new(0, 12, 1, -HEADER_H))
+makeDragEdge(UDim2.new(0, 0, 1, -10),         UDim2.new(1, 0, 0, 10))
 
 CollapseBtn.InputBegan:Connect(function() dragging = false end)
 
@@ -1380,6 +1436,10 @@ UserInputService.InputChanged:Connect(function(input)
             frameStart.X.Scale, frameStart.X.Offset + d.X,
             frameStart.Y.Scale, frameStart.Y.Offset + d.Y
         )
+        -- Atualiza Tab2 junto se estiver visivel
+        if currentTab == 2 then
+            syncTab2Position()
+        end
     end
 end)
 
@@ -1390,47 +1450,61 @@ local isOpen      = true
 local lastToggleT = 0
 local COOLDOWN    = 0.55
 
-local function clampToScreen()
-    local vp     = workspace.CurrentCamera.ViewportSize
-    local ap     = MainFrame.AbsolutePosition
-    local as     = MainFrame.AbsoluteSize
-    local nx     = math.clamp(ap.X, 0, math.max(0, vp.X - as.X))
-    local ny     = math.clamp(ap.Y, 0, math.max(0, vp.Y - as.Y))
+-- [FIX] clampToScreen com animacao suave (tween, nao teleporte)
+local function clampToScreen(animate)
+    local vp = workspace.CurrentCamera.ViewportSize
+    local ap = MainFrame.AbsolutePosition
+    local as = MainFrame.AbsoluteSize
+    local nx = math.clamp(ap.X, 0, math.max(0, vp.X - as.X))
+    local ny = math.clamp(ap.Y, 0, math.max(0, vp.Y - as.Y))
     if math.abs(nx - ap.X) > 0.5 or math.abs(ny - ap.Y) > 0.5 then
-        MainFrame.Position = UDim2.new(0, nx, 0, ny)
+        if animate then
+            tw(MainFrame, 0.35, {Position = UDim2.new(0, nx, 0, ny)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out):Play()
+        else
+            MainFrame.Position = UDim2.new(0, nx, 0, ny)
+        end
+        saveConfig()
     end
 end
 
 local function animateHamburger(closing)
     if closing then
-        tw(Line1, 0.25, {Position=UDim2.new(0.5,-8,0.5,-1), Rotation= 45}, Enum.EasingStyle.Back):Play()
+        tw(Line1, 0.25, {Position=UDim2.new(0.5,-7,0.5,-1), Rotation= 45}, Enum.EasingStyle.Back):Play()
         tw(Line2, 0.12, {BackgroundTransparency=1}):Play()
-        tw(Line3, 0.25, {Position=UDim2.new(0.5,-8,0.5,-1), Rotation=-45}, Enum.EasingStyle.Back):Play()
+        tw(Line3, 0.25, {Position=UDim2.new(0.5,-7,0.5,-1), Rotation=-45}, Enum.EasingStyle.Back):Play()
     else
-        tw(Line1, 0.25, {Position=UDim2.new(0.5,-8,0.5,-5), Rotation=0}, Enum.EasingStyle.Back):Play()
+        tw(Line1, 0.25, {Position=UDim2.new(0.5,-7,0.5,-5), Rotation=0}, Enum.EasingStyle.Back):Play()
         tw(Line2, 0.20, {BackgroundTransparency=0.1}):Play()
-        tw(Line3, 0.25, {Position=UDim2.new(0.5,-8,0.5, 3), Rotation=0}, Enum.EasingStyle.Back):Play()
+        tw(Line3, 0.25, {Position=UDim2.new(0.5,-7,0.5, 3), Rotation=0}, Enum.EasingStyle.Back):Play()
     end
 end
 
 local function doCollapse()
     saveConfig()
     animateHamburger(true)
-    local cards = currentTab == 1 and allCards or {CalibCard}
-    for i, card in ipairs(cards) do
-        task.delay((i-1)*0.03, function()
-            tw(card, 0.13, {BackgroundTransparency=1}):Play()
-        end)
+
+    -- Esconde tab ativa
+    if currentTab == 2 then
+        tw(CalibCard, 0.13, {BackgroundTransparency=1}):Play()
+        task.delay(0.14, function() Tab2.Visible = false end)
+    else
+        for i, card in ipairs(allCards) do
+            task.delay((i-1)*0.025, function()
+                tw(card, 0.12, {BackgroundTransparency=1}):Play()
+            end)
+        end
     end
-    task.delay(0.15, function()
+
+    task.delay(0.14, function()
         Body.Visible = false
         Tab2.Visible = false
         local currentH = MainFrame.AbsoluteSize.Y
         MainFrame.AutomaticSize = Enum.AutomaticSize.None
         MainFrame.Size = UDim2.new(0, WIDE, 0, currentH)
-        tw(MainFrame, 0.40, {Size=UDim2.new(0, MINI, 0, HEADER_H)}, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut):Play()
+        tw(MainFrame, 0.38, {Size=UDim2.new(0, MINI, 0, HEADER_H)}, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut):Play()
         task.delay(0.40, function()
-            clampToScreen()
+            -- [FIX] clamp com animacao suave ao colapsar
+            clampToScreen(true)
             saveConfig()
         end)
     end)
@@ -1438,30 +1512,31 @@ end
 
 local function doExpand()
     animateHamburger(false)
-    tw(MainFrame, 0.42, {Size=UDim2.new(0, WIDE, 0, HEADER_H)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out):Play()
-    task.delay(0.20, function()
+    tw(MainFrame, 0.40, {Size=UDim2.new(0, WIDE, 0, HEADER_H)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out):Play()
+
+    task.delay(0.18, function()
         tw(MainFrame, 0.22, {BackgroundTransparency=0.2}):Play()
+
         if currentTab == 1 then
             for _, card in ipairs(allCards) do card.BackgroundTransparency = 1 end
             Body.Visible = true
-            task.delay(0.10, function() MainFrame.AutomaticSize = Enum.AutomaticSize.Y end)
+            task.delay(0.08, function() MainFrame.AutomaticSize = Enum.AutomaticSize.Y end)
             for i, card in ipairs(allCards) do
-                task.delay((i-1)*0.05, function()
-                    tw(card, 0.30, {BackgroundTransparency=0.35}, Enum.EasingStyle.Back):Play()
+                task.delay((i-1)*0.04, function()
+                    tw(card, 0.28, {BackgroundTransparency=0.35}, Enum.EasingStyle.Back):Play()
                 end)
             end
         else
-            CalibCard.BackgroundTransparency = 1
-            CalibCard.Visible = true
-            Tab2.Visible = true
-            MainFrame.AutomaticSize = Enum.AutomaticSize.None
-            task.delay(0.10, function()
-                local h = tab2BodyH > 10 and tab2BodyH or 300
-                Tab2.Size = UDim2.new(1, 0, 0, h)
-                MainFrame.Size = UDim2.new(0, WIDE, 0, HEADER_H + h)
-            end)
+            -- [FIX] Tab2 no ScreenGui, posiciona corretamente ao expandir
             task.delay(0.12, function()
-                tw(CalibCard, 0.30, {BackgroundTransparency=0.35}, Enum.EasingStyle.Back):Play()
+                local h = math.max(getTab2Height(), 160)
+                Tab2.Size = UDim2.new(0, WIDE, 0, h)
+                MainFrame.AutomaticSize = Enum.AutomaticSize.None
+                MainFrame.Size = UDim2.new(0, WIDE, 0, HEADER_H + h)
+                syncTab2Position()
+                CalibCard.BackgroundTransparency = 1
+                Tab2.Visible = true
+                tw(CalibCard, 0.28, {BackgroundTransparency=0.35}, Enum.EasingStyle.Back):Play()
             end)
         end
     end)
