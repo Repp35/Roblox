@@ -1,6 +1,6 @@
--- DELTA V3 — CONTROLE (GUI) v3.1
--- Tab2 mesmo tamanho Tab1 | CalibCard card-size top-left
--- Contornos animados | Animacao de troca | ApplyBtn animado
+-- DELTA V3 — CONTROLE v3.2
+-- Mudancas: padding menor, stroke nos switches, gradiente, hitbox drag, bug tab2,
+--           CPS 3000/10000, save completo, protecao tela
 
 local Players          = game:GetService("Players")
 local TweenService     = game:GetService("TweenService")
@@ -8,29 +8,40 @@ local UserInputService = game:GetService("UserInputService")
 local CoreGui          = game:GetService("CoreGui")
 local HttpService      = game:GetService("HttpService")
 
-local TS       = TweenService
-local lp       = Players.LocalPlayer
-local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+local TS = TweenService
+local lp = Players.LocalPlayer
+
+local MainFrame  -- forward ref
 
 -- ============================================================
--- SAVE/LOAD
+-- SAVE / LOAD
 -- ============================================================
-local SAVE_FILE = "delta_v3_config.json"
-
+local SAVE_FILE   = "delta_v3_config.json"
 local selectedCps = 7
 local selectedKey = 1
 
 local function saveConfig()
     pcall(function()
+        local guiX, guiY
+        pcall(function()
+            local ap = MainFrame.AbsolutePosition
+            guiX = math.round(ap.X)
+            guiY = math.round(ap.Y)
+        end)
         local data = {
-            autoParryOn = getgenv().__deltaV3_autoParryOn,
-            autoClashOn = getgenv().__deltaV3_autoClashOn,
-            auraOn      = getgenv().__deltaV3_auraOn,
-            cpsIndex    = selectedCps,
-            keyIndex    = selectedKey,
-            keyMode     = getgenv().__deltaV3_spamKeyMode or "hold",
-            calibFps    = getgenv().__deltaV3_calibFps  or "",
-            calibPing   = getgenv().__deltaV3_calibPing or "",
+            autoParryOn  = getgenv().__deltaV3_autoParryOn,
+            autoClashOn  = getgenv().__deltaV3_autoClashOn,
+            auraOn       = getgenv().__deltaV3_auraOn,
+            cpsIndex     = selectedCps,
+            keyIndex     = selectedKey,
+            keyMode      = getgenv().__deltaV3_spamKeyMode or "hold",
+            calibFps     = getgenv().__deltaV3_calibFps  or "",
+            calibPing    = getgenv().__deltaV3_calibPing or "",
+            calibApplied = getgenv().__deltaV3_calibrated or false,
+            mainGuiX     = guiX,
+            mainGuiY     = guiY,
+            spamGuiX     = (getgenv().__deltaV3_spamGuiPos or {}).x,
+            spamGuiY     = (getgenv().__deltaV3_spamGuiPos or {}).y,
         }
         writefile(SAVE_FILE, HttpService:JSONEncode(data))
     end)
@@ -48,23 +59,34 @@ local function sv(key, default)
     return v ~= nil and v or default
 end
 
-if getgenv().__deltaV3_autoParryOn == nil then getgenv().__deltaV3_autoParryOn = sv("autoParryOn", true)   end
-if getgenv().__deltaV3_autoClashOn == nil then getgenv().__deltaV3_autoClashOn = sv("autoClashOn", true)   end
-if getgenv().__deltaV3_auraOn      == nil then getgenv().__deltaV3_auraOn      = sv("auraOn",      false)  end
+if getgenv().__deltaV3_autoParryOn == nil then getgenv().__deltaV3_autoParryOn = sv("autoParryOn", true)  end
+if getgenv().__deltaV3_autoClashOn == nil then getgenv().__deltaV3_autoClashOn = sv("autoClashOn", true)  end
+if getgenv().__deltaV3_auraOn      == nil then getgenv().__deltaV3_auraOn      = sv("auraOn",      false) end
 if getgenv().__deltaV3_spamKeyMode == nil then getgenv().__deltaV3_spamKeyMode = sv("keyMode",     "hold") end
 
 selectedCps = sv("cpsIndex", 7)
 selectedKey = sv("keyIndex", 1)
 
+-- Restaura calibracao salva
+getgenv().__deltaV3_savedSpamGuiPos = { x = sv("spamGuiX", nil), y = sv("spamGuiY", nil) }
+if sv("calibFps", "") ~= "" then
+    getgenv().__deltaV3_calibFps   = sv("calibFps",  "")
+    getgenv().__deltaV3_calibPing  = sv("calibPing", "")
+    getgenv().__deltaV3_calibrated = sv("calibApplied", false)
+end
+
+-- ============================================================
+-- LIMPA ANTIGA
+-- ============================================================
 local old = CoreGui:FindFirstChild("DeltaV3Gui")
 if old then old:Destroy() end
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name             = "DeltaV3Gui"
-ScreenGui.ResetOnSpawn     = false
-ScreenGui.IgnoreGuiInset   = true
-ScreenGui.ZIndexBehavior   = Enum.ZIndexBehavior.Sibling
-ScreenGui.Parent           = CoreGui
+ScreenGui.Name           = "DeltaV3Gui"
+ScreenGui.ResetOnSpawn   = false
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent         = CoreGui
 
 -- ============================================================
 -- HELPERS
@@ -72,7 +94,6 @@ ScreenGui.Parent           = CoreGui
 local function tw(obj, t, props, style, dir)
     return TS:Create(obj, TweenInfo.new(t, style or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out), props)
 end
-
 local function corner(p, r)
     local c = Instance.new("UICorner")
     c.CornerRadius = UDim.new(0, r or 12)
@@ -80,21 +101,30 @@ local function corner(p, r)
     return c
 end
 
-local WIDE   = 580
-local MINI   = 195
-local RADIUS = 18
+local WIDE     = 580
+local MINI     = 195
+local RADIUS   = 18
+local HEADER_H = 50
 
--- cor do stroke principal (atualizada pelo loop)
 local currentStrokeColor = Color3.fromRGB(70, 100, 255)
+local syncedStrokes   = {}
+local syncedBtnColors = {}
+local allCards        = {}
 
 -- ============================================================
 -- MAIN FRAME
 -- ============================================================
-local MainFrame = Instance.new("Frame")
+local savedMainX = sv("mainGuiX", nil)
+local savedMainY = sv("mainGuiY", nil)
+local initPos    = (savedMainX and savedMainY)
+    and UDim2.new(0, savedMainX, 0, savedMainY)
+    or  UDim2.new(0, -(WIDE + 20), 0.5, -160)
+
+MainFrame = Instance.new("Frame")
 MainFrame.Name                   = "MainFrame"
 MainFrame.Size                   = UDim2.new(0, WIDE, 0, 0)
 MainFrame.AutomaticSize          = Enum.AutomaticSize.Y
-MainFrame.Position               = UDim2.new(0, -(WIDE + 20), 0.5, -160)
+MainFrame.Position               = initPos
 MainFrame.BackgroundColor3       = Color3.fromRGB(10, 10, 20)
 MainFrame.BackgroundTransparency = 1
 MainFrame.BorderSizePixel        = 0
@@ -102,32 +132,36 @@ MainFrame.ClipsDescendants       = false
 MainFrame.Parent                 = ScreenGui
 corner(MainFrame, RADIUS)
 
+-- [3] Gradiente azul -> roxo suave
+local BgGrad = Instance.new("UIGradient")
+BgGrad.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0,   Color3.fromRGB(8,  12, 34)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(10, 10, 22)),
+    ColorSequenceKeypoint.new(1,   Color3.fromRGB(20,  8, 36)),
+})
+BgGrad.Rotation = 140
+BgGrad.Parent   = MainFrame
+
 local Stroke = Instance.new("UIStroke")
 Stroke.Thickness = 1.5
 Stroke.Parent    = MainFrame
+table.insert(syncedStrokes, Stroke)
 
--- lista de strokes que seguem a cor principal
-local syncedStrokes = { Stroke }
--- lista de botoes que seguem a cor principal (background)
-local syncedBtnColors = {}
-
+-- Loop animado de cores
 local strokeRunning = true
 ScreenGui.AncestryChanged:Connect(function()
     if not ScreenGui.Parent then strokeRunning = false end
 end)
-
 task.spawn(function()
     local t = 0
     while strokeRunning and Stroke.Parent do
         t = t + 0.025
         local r = math.floor(70  + 70  * math.sin(t))
         local g = math.floor(100 + 80  * math.sin(t + 2.1))
-        local b = 255
-        currentStrokeColor = Color3.fromRGB(r, g, b)
+        currentStrokeColor = Color3.fromRGB(r, g, 255)
         for _, s in ipairs(syncedStrokes) do
             pcall(function() s.Color = currentStrokeColor end)
         end
-        -- botoes sincronizados (ApplyBtn)
         for _, info in ipairs(syncedBtnColors) do
             pcall(function()
                 info.obj.BackgroundColor3 = Color3.fromRGB(
@@ -141,19 +175,18 @@ task.spawn(function()
     end
 end)
 
+-- Animacao de entrada
 task.spawn(function()
     task.wait(0.05)
-    tw(MainFrame, 0.55, {
-        Position               = UDim2.new(0, 16, 0.5, -160),
-        BackgroundTransparency = 0.2,
-    }, Enum.EasingStyle.Back):Play()
+    local tgtPos = (savedMainX and savedMainY)
+        and UDim2.new(0, savedMainX, 0, savedMainY)
+        or  UDim2.new(0, 16, 0.5, -160)
+    tw(MainFrame, 0.55, { Position = tgtPos, BackgroundTransparency = 0.2 }, Enum.EasingStyle.Back):Play()
 end)
 
 -- ============================================================
 -- HEADER
 -- ============================================================
-local HEADER_H = 50
-
 local Header = Instance.new("Frame")
 Header.Name                   = "Header"
 Header.Size                   = UDim2.new(1, 0, 0, HEADER_H)
@@ -225,13 +258,12 @@ local function makeLine(yOff)
     corner(L, 2)
     return L
 end
-
 local Line1 = makeLine(-5)
 local Line2 = makeLine(-1)
 local Line3 = makeLine(3)
 
 -- ============================================================
--- BODY (Tab 1)
+-- BODY
 -- ============================================================
 local Body = Instance.new("Frame")
 Body.Name                   = "Body"
@@ -242,16 +274,13 @@ Body.BackgroundTransparency = 1
 Body.ClipsDescendants       = false
 Body.Parent                 = MainFrame
 
-local BodyList = Instance.new("UIListLayout")
-BodyList.SortOrder = Enum.SortOrder.LayoutOrder
-BodyList.Padding   = UDim.new(0, 0)
-BodyList.Parent    = Body
+Instance.new("UIListLayout", Body).SortOrder = Enum.SortOrder.LayoutOrder
 
 local BodyPad = Instance.new("UIPadding")
 BodyPad.PaddingLeft   = UDim.new(0, 12)
 BodyPad.PaddingRight  = UDim.new(0, 12)
 BodyPad.PaddingTop    = UDim.new(0, 6)
-BodyPad.PaddingBottom = UDim.new(0, 18)
+BodyPad.PaddingBottom = UDim.new(0, 8)  -- [1] era 18
 BodyPad.Parent        = Body
 
 -- ============================================================
@@ -283,8 +312,6 @@ Instance.new("UIListLayout", ColRight).Padding = UDim.new(0, 7)
 -- ============================================================
 -- CARD HELPERS
 -- ============================================================
-local allCards = {}
-
 local function makeCard(parent, order, h)
     local Card = Instance.new("Frame")
     Card.Size                   = UDim2.new(1, 0, 0, h or 80)
@@ -303,6 +330,7 @@ local function makeCard(parent, order, h)
     return Card
 end
 
+-- [2] Switch com UIStroke colorido sincronizado
 local function attachSwitch(card, initOn, cb)
     local on = initOn
     local Base = Instance.new("Frame")
@@ -314,13 +342,18 @@ local function attachSwitch(card, initOn, cb)
     Base.Parent                 = card
     corner(Base, 100)
 
+    local SwitchStroke = Instance.new("UIStroke")
+    SwitchStroke.Thickness = 1.4
+    SwitchStroke.Parent    = Base
+    table.insert(syncedStrokes, SwitchStroke)
+
     local Knob = Instance.new("Frame")
-    Knob.Size             = UDim2.new(0, 18, 0, 18)
-    Knob.Position         = on and UDim2.new(1,-21,0.5,-9) or UDim2.new(0,3,0.5,-9)
-    Knob.BackgroundColor3 = on and Color3.fromRGB(255,255,255) or Color3.fromRGB(100,100,130)
+    Knob.Size                   = UDim2.new(0, 18, 0, 18)
+    Knob.Position               = on and UDim2.new(1,-21,0.5,-9) or UDim2.new(0,3,0.5,-9)
+    Knob.BackgroundColor3       = on and Color3.fromRGB(255,255,255) or Color3.fromRGB(100,100,130)
     Knob.BackgroundTransparency = 0.1
-    Knob.BorderSizePixel  = 0
-    Knob.Parent           = Base
+    Knob.BorderSizePixel        = 0
+    Knob.Parent                 = Base
     corner(Knob, 100)
 
     local function flip()
@@ -385,28 +418,28 @@ local c1 = makeCard(ColLeft, 1)
 cardLabel(c1, "Auto Parry", 12, 10, 12, true)
 cardLabel(c1, "Auto parry perfeito hein", 12, 30, 9, false, Color3.fromRGB(95,95,125))
 cardBadge(c1, "AUTO", BLUE, 50)
-attachSwitch(c1, sv("autoParryOn", true), function(isOn)
-    getgenv().__deltaV3_autoParryOn = isOn
+attachSwitch(c1, sv("autoParryOn", true), function(v)
+    getgenv().__deltaV3_autoParryOn = v
 end)
 
 local c2 = makeCard(ColLeft, 2)
 cardLabel(c2, "Auto Clash", 12, 10, 12, true)
 cardLabel(c2, "So em clash confirmado", 12, 30, 9, false, Color3.fromRGB(95,95,125))
 cardBadge(c2, "AUTO", BLUE, 50)
-attachSwitch(c2, sv("autoClashOn", true), function(isOn)
-    getgenv().__deltaV3_autoClashOn = isOn
+attachSwitch(c2, sv("autoClashOn", true), function(v)
+    getgenv().__deltaV3_autoClashOn = v
 end)
 
 local c3 = makeCard(ColLeft, 3)
 cardLabel(c3, "Manual Spam GUI", 12, 10, 12, true)
 cardLabel(c3, "Mostra/esconde a GUI de spam", 12, 30, 9, false, Color3.fromRGB(95,95,125))
 cardBadge(c3, "GUI", GREEN, 50)
-attachSwitch(c3, false, function(isOn)
+attachSwitch(c3, false, function(v)
     task.spawn(function()
-        local spamGui = CoreGui:FindFirstChild("ParrySpamToggleGui")
-        if spamGui then
-            spamGui.Enabled = isOn
-            if not isOn and getgenv().__deltaV3_setSpam then
+        local sg = CoreGui:FindFirstChild("ParrySpamToggleGui")
+        if sg then
+            sg.Enabled = v
+            if not v and getgenv().__deltaV3_setSpam then
                 getgenv().__deltaV3_setSpam(false)
             end
         end
@@ -420,13 +453,15 @@ local c4 = makeCard(ColRight, 1)
 cardLabel(c4, "Aura Visual", 12, 10, 12, true)
 cardLabel(c4, "Ring 3D no personagem", 12, 30, 9, false, Color3.fromRGB(95,95,125))
 cardBadge(c4, "3D", PURP, 50)
-attachSwitch(c4, sv("auraOn", false), function(isOn)
-    getgenv().__deltaV3_auraOn = isOn
+attachSwitch(c4, sv("auraOn", false), function(v)
+    getgenv().__deltaV3_auraOn = v
 end)
 
--- CPS card
-local CpsCard = makeCard(ColRight, 2, 108)
-CpsCard.Size = UDim2.new(1, 0, 0, 108)
+-- ============================================================
+-- CPS CARD [8] 3000 e 10000 abaixo dos outros
+-- ============================================================
+local CpsCard = makeCard(ColRight, 2, 142)
+CpsCard.Size = UDim2.new(1, 0, 0, 142)
 
 local CpsTitle = Instance.new("TextLabel")
 CpsTitle.Size                   = UDim2.new(0.55, 0, 0, 16)
@@ -465,56 +500,118 @@ CpsUIGrid.CellPadding = UDim2.new(0, 4, 0, 4)
 CpsUIGrid.SortOrder   = Enum.SortOrder.LayoutOrder
 CpsUIGrid.Parent      = CpsGrid
 
-local cpsData = {
-    {v=10},  {v=20},  {v=60},  {v=100},
-    {v=166}, {v=300}, {v=600}, {v=1000, warn=true},
-}
-local cpsBtns = {}
+local cpsMain  = {{v=10},{v=20},{v=60},{v=100},{v=166},{v=300},{v=600},{v=1000,warn=true}}
+local cpsExtra = {{v=3000,warn=true},{v=10000,warn=true}}
+
+local function getAllCps()
+    local a = {}
+    for _,d in ipairs(cpsMain)  do table.insert(a,d) end
+    for _,d in ipairs(cpsExtra) do table.insert(a,d) end
+    return a
+end
+
+-- Linha extra centralizada
+local CpsExtraRow = Instance.new("Frame")
+CpsExtraRow.Size                   = UDim2.new(0, 136, 0, 24)
+CpsExtraRow.Position               = UDim2.new(0.5, -68, 0, 108)
+CpsExtraRow.BackgroundTransparency = 1
+CpsExtraRow.Parent                 = CpsCard
+local ExtraList = Instance.new("UIListLayout")
+ExtraList.FillDirection     = Enum.FillDirection.Horizontal
+ExtraList.VerticalAlignment = Enum.VerticalAlignment.Center
+ExtraList.Padding           = UDim.new(0, 6)
+ExtraList.Parent            = CpsExtraRow
+
+local cpsBtns, cpsExtraBtns = {}, {}
 
 local function selectCps(idx)
     selectedCps = idx
-    local chosen = cpsData[idx]
-    getgenv().__deltaV3_spamInterval = 1 / chosen.v
-    for i, d in ipairs(cpsData) do
-        local sel = i == idx
+    local all    = getAllCps()
+    local chosen = all[idx] or all[7]
+    getgenv().__deltaV3_spamInterval    = 1 / chosen.v
+    getgenv().__deltaV3_spamIntervalRaw = 1 / chosen.v
+
+    for i, d in ipairs(cpsMain) do
+        local s = (i == idx)
         tw(cpsBtns[i], 0.16, {
-            BackgroundColor3       = sel and Color3.fromRGB(60,100,200) or (d.warn and Color3.fromRGB(150,40,15) or Color3.fromRGB(28,28,48)),
-            BackgroundTransparency = sel and 0.3 or (d.warn and 0.45 or 0.15),
+            BackgroundColor3       = s and Color3.fromRGB(60,100,200) or (d.warn and Color3.fromRGB(150,40,15) or Color3.fromRGB(28,28,48)),
+            BackgroundTransparency = s and 0.3 or (d.warn and 0.45 or 0.15),
         }):Play()
-        cpsBtns[i].TextColor3 = sel and Color3.fromRGB(170,210,255) or (d.warn and Color3.fromRGB(255,120,80) or Color3.fromRGB(105,105,135))
-        cpsBtns[i].Text = tostring(d.v) .. (sel and "★" or (d.warn and "⚠" or ""))
+        cpsBtns[i].TextColor3 = s and Color3.fromRGB(170,210,255) or (d.warn and Color3.fromRGB(255,120,80) or Color3.fromRGB(105,105,135))
+        cpsBtns[i].Text = tostring(d.v) .. (s and "★" or (d.warn and "⚠" or ""))
+    end
+    for i, d in ipairs(cpsExtra) do
+        local gi = #cpsMain + i
+        local s  = (gi == idx)
+        tw(cpsExtraBtns[i], 0.16, {
+            BackgroundColor3       = s and Color3.fromRGB(60,100,200) or Color3.fromRGB(150,40,15),
+            BackgroundTransparency = s and 0.3 or 0.45,
+        }):Play()
+        cpsExtraBtns[i].TextColor3 = s and Color3.fromRGB(170,210,255) or Color3.fromRGB(255,120,80)
+        cpsExtraBtns[i].Text = tostring(d.v) .. (s and "★" or "⚠")
     end
     CpsValue.Text = tostring(chosen.v) .. " /s"
     tw(CpsValue, 0.14, {BackgroundColor3 = chosen.warn and Color3.fromRGB(150,50,15) or Color3.fromRGB(50,90,200)}):Play()
     saveConfig()
 end
 
-for i, d in ipairs(cpsData) do
-    local sel = i == selectedCps
-    local Btn = Instance.new("TextButton")
-    Btn.Size                   = UDim2.new(1, 0, 1, 0)
-    Btn.BorderSizePixel        = 0
-    Btn.Font                   = Enum.Font.GothamBold
-    Btn.TextSize               = 9
-    Btn.LayoutOrder            = i
-    Btn.BackgroundColor3       = sel and Color3.fromRGB(60,100,200) or (d.warn and Color3.fromRGB(150,40,15) or Color3.fromRGB(28,28,48))
-    Btn.BackgroundTransparency = sel and 0.3 or (d.warn and 0.45 or 0.15)
-    Btn.TextColor3             = sel and Color3.fromRGB(170,210,255) or (d.warn and Color3.fromRGB(255,120,80) or Color3.fromRGB(105,105,135))
-    Btn.Text                   = tostring(d.v) .. (sel and "★" or (d.warn and "⚠" or ""))
-    Btn.Parent                 = CpsGrid
-    corner(Btn, 6)
-    cpsBtns[i] = Btn
-    Btn.Activated:Connect(function() selectCps(i) end)
-    Btn.MouseEnter:Connect(function() tw(Btn, 0.1, {BackgroundTransparency = 0.05}):Play() end)
-    Btn.MouseLeave:Connect(function()
-        tw(Btn, 0.1, {BackgroundTransparency = (i == selectedCps) and 0.3 or (d.warn and 0.45 or 0.15)}):Play()
+for i, d in ipairs(cpsMain) do
+    local s = (i == selectedCps)
+    local B = Instance.new("TextButton")
+    B.Size                   = UDim2.new(1, 0, 1, 0)
+    B.BorderSizePixel        = 0
+    B.Font                   = Enum.Font.GothamBold
+    B.TextSize               = 9
+    B.LayoutOrder            = i
+    B.BackgroundColor3       = s and Color3.fromRGB(60,100,200) or (d.warn and Color3.fromRGB(150,40,15) or Color3.fromRGB(28,28,48))
+    B.BackgroundTransparency = s and 0.3 or (d.warn and 0.45 or 0.15)
+    B.TextColor3             = s and Color3.fromRGB(170,210,255) or (d.warn and Color3.fromRGB(255,120,80) or Color3.fromRGB(105,105,135))
+    B.Text                   = tostring(d.v) .. (s and "★" or (d.warn and "⚠" or ""))
+    B.Parent                 = CpsGrid
+    corner(B, 6)
+    cpsBtns[i] = B
+    local ci = i
+    B.Activated:Connect(function() selectCps(ci) end)
+    B.MouseEnter:Connect(function() tw(B, 0.1, {BackgroundTransparency = 0.05}):Play() end)
+    B.MouseLeave:Connect(function()
+        tw(B, 0.1, {BackgroundTransparency = (ci == selectedCps) and 0.3 or (d.warn and 0.45 or 0.15)}):Play()
     end)
 end
 
-getgenv().__deltaV3_spamInterval = 1 / cpsData[selectedCps].v
-CpsValue.Text = tostring(cpsData[selectedCps].v) .. " /s"
+for i, d in ipairs(cpsExtra) do
+    local gi = #cpsMain + i
+    local s  = (gi == selectedCps)
+    local B  = Instance.new("TextButton")
+    B.Size                   = UDim2.new(0, 62, 0, 22)
+    B.BorderSizePixel        = 0
+    B.Font                   = Enum.Font.GothamBold
+    B.TextSize               = 8
+    B.BackgroundColor3       = s and Color3.fromRGB(60,100,200) or Color3.fromRGB(150,40,15)
+    B.BackgroundTransparency = s and 0.3 or 0.45
+    B.TextColor3             = s and Color3.fromRGB(170,210,255) or Color3.fromRGB(255,120,80)
+    B.Text                   = tostring(d.v) .. (s and "★" or "⚠")
+    B.Parent                 = CpsExtraRow
+    corner(B, 6)
+    cpsExtraBtns[i] = B
+    local captGi = gi
+    B.Activated:Connect(function() selectCps(captGi) end)
+    B.MouseEnter:Connect(function() tw(B, 0.1, {BackgroundTransparency = 0.05}):Play() end)
+    B.MouseLeave:Connect(function()
+        tw(B, 0.1, {BackgroundTransparency = (captGi == selectedCps) and 0.3 or 0.45}):Play()
+    end)
+end
 
--- TECLA card
+do
+    local all    = getAllCps()
+    local chosen = all[selectedCps] or all[7]
+    getgenv().__deltaV3_spamInterval    = 1 / chosen.v
+    getgenv().__deltaV3_spamIntervalRaw = 1 / chosen.v
+    CpsValue.Text = tostring(chosen.v) .. " /s"
+end
+
+-- ============================================================
+-- TECLA CARD
+-- ============================================================
 local KeyCard = makeCard(ColRight, 3, 80)
 KeyCard.Size = UDim2.new(1, 0, 0, 80)
 cardLabel(KeyCard, "TECLA DO SPAM", 12, 9, 10, true)
@@ -537,7 +634,6 @@ KeyRow.Size                   = UDim2.new(1, -20, 0, 30)
 KeyRow.Position               = UDim2.new(0, 10, 0, 38)
 KeyRow.BackgroundTransparency = 1
 KeyRow.Parent                 = KeyCard
-
 local KeyRowList = Instance.new("UIListLayout")
 KeyRowList.FillDirection     = Enum.FillDirection.Horizontal
 KeyRowList.VerticalAlignment = Enum.VerticalAlignment.Center
@@ -546,12 +642,11 @@ KeyRowList.SortOrder         = Enum.SortOrder.LayoutOrder
 KeyRowList.Parent            = KeyRow
 
 local keyOptions = {"1","MB1","MB2","F","G","Q","E"}
-local keyMap     = {
+local keyMap = {
     ["1"] = Enum.KeyCode.One,
     F = Enum.KeyCode.F, G = Enum.KeyCode.G,
     Q = Enum.KeyCode.Q, E = Enum.KeyCode.E,
 }
-
 local keyBtns      = {}
 local spamKeyConns = {}
 
@@ -577,11 +672,8 @@ local function bindSpamKey(label)
             if getgenv().__deltaV3_setSpam then getgenv().__deltaV3_setSpam(false) end
         end
     end
-
     if label == "MB1" or label == "MB2" then
-        local uType = label == "MB1"
-            and Enum.UserInputType.MouseButton1
-            or  Enum.UserInputType.MouseButton2
+        local uType = label == "MB1" and Enum.UserInputType.MouseButton1 or Enum.UserInputType.MouseButton2
         table.insert(spamKeyConns, UserInputService.InputBegan:Connect(function(i, g)
             if g then return end
             if i.UserInputType == uType then onPress() end
@@ -605,12 +697,12 @@ end
 local function selectKey(idx)
     selectedKey = idx
     for i = 1, #keyOptions do
-        local sel = i == idx
+        local s = (i == idx)
         tw(keyBtns[i], 0.16, {
-            BackgroundColor3       = sel and Color3.fromRGB(60,100,200) or Color3.fromRGB(28,28,48),
-            BackgroundTransparency = sel and 0.3 or 0.15,
+            BackgroundColor3       = s and Color3.fromRGB(60,100,200) or Color3.fromRGB(28,28,48),
+            BackgroundTransparency = s and 0.3 or 0.15,
         }):Play()
-        keyBtns[i].TextColor3 = sel and Color3.fromRGB(170,210,255) or Color3.fromRGB(105,105,135)
+        keyBtns[i].TextColor3 = s and Color3.fromRGB(170,210,255) or Color3.fromRGB(105,105,135)
     end
     KeyValue.Text = keyOptions[idx]
     bindSpamKey(keyOptions[idx])
@@ -618,37 +710,37 @@ local function selectKey(idx)
 end
 
 for i, label in ipairs(keyOptions) do
-    local sel = i == selectedKey
-    local Btn = Instance.new("TextButton")
-    Btn.Size                   = UDim2.new(0, 32, 0, 26)
-    Btn.BorderSizePixel        = 0
-    Btn.Font                   = Enum.Font.GothamBold
-    Btn.TextSize               = 9
-    Btn.LayoutOrder            = i
-    Btn.BackgroundColor3       = sel and Color3.fromRGB(60,100,200) or Color3.fromRGB(28,28,48)
-    Btn.BackgroundTransparency = sel and 0.3 or 0.15
-    Btn.TextColor3             = sel and Color3.fromRGB(170,210,255) or Color3.fromRGB(105,105,135)
-    Btn.Text                   = label
-    Btn.Parent                 = KeyRow
-    corner(Btn, 7)
-    keyBtns[i] = Btn
-    Btn.Activated:Connect(function() selectKey(i) end)
-    Btn.MouseEnter:Connect(function() tw(Btn, 0.1, {BackgroundTransparency = 0.05}):Play() end)
-    Btn.MouseLeave:Connect(function()
-        tw(Btn, 0.1, {BackgroundTransparency = (i == selectedKey) and 0.3 or 0.15}):Play()
+    local s = (i == selectedKey)
+    local B = Instance.new("TextButton")
+    B.Size                   = UDim2.new(0, 32, 0, 26)
+    B.BorderSizePixel        = 0
+    B.Font                   = Enum.Font.GothamBold
+    B.TextSize               = 9
+    B.LayoutOrder            = i
+    B.BackgroundColor3       = s and Color3.fromRGB(60,100,200) or Color3.fromRGB(28,28,48)
+    B.BackgroundTransparency = s and 0.3 or 0.15
+    B.TextColor3             = s and Color3.fromRGB(170,210,255) or Color3.fromRGB(105,105,135)
+    B.Text                   = label
+    B.Parent                 = KeyRow
+    corner(B, 7)
+    keyBtns[i] = B
+    local ki = i
+    B.Activated:Connect(function() selectKey(ki) end)
+    B.MouseEnter:Connect(function() tw(B, 0.1, {BackgroundTransparency = 0.05}):Play() end)
+    B.MouseLeave:Connect(function()
+        tw(B, 0.1, {BackgroundTransparency = (ki == selectedKey) and 0.3 or 0.15}):Play()
     end)
 end
-
 KeyValue.Text = keyOptions[selectedKey]
 bindSpamKey(keyOptions[selectedKey])
 
 -- ============================================================
 -- MODO DA TECLA + BOTAO ">"
 -- ============================================================
-local HOLD_BG   = Color3.fromRGB(90, 60, 160)
-local HOLD_TEXT = Color3.fromRGB(210, 185, 255)
-local TOGG_BG   = Color3.fromRGB(140, 110, 20)
-local TOGG_TEXT = Color3.fromRGB(255, 235, 130)
+local HOLD_BG   = Color3.fromRGB(90,60,160)
+local HOLD_TEXT = Color3.fromRGB(210,185,255)
+local TOGG_BG   = Color3.fromRGB(140,110,20)
+local TOGG_TEXT = Color3.fromRGB(255,235,130)
 
 local ModeWrapper = Instance.new("Frame")
 ModeWrapper.Name                   = "ModeWrapper"
@@ -660,7 +752,7 @@ ModeWrapper.Parent                 = Body
 local ModeCard = Instance.new("Frame")
 ModeCard.Size                   = UDim2.new(0, 300, 0, 52)
 ModeCard.Position               = UDim2.new(0.5, -150, 0, 3)
-ModeCard.BackgroundColor3       = Color3.fromRGB(22, 22, 40)
+ModeCard.BackgroundColor3       = Color3.fromRGB(22,22,40)
 ModeCard.BackgroundTransparency = 1
 ModeCard.BorderSizePixel        = 0
 ModeCard.Parent                 = ModeWrapper
@@ -683,24 +775,22 @@ ModeTitle.Font                   = Enum.Font.GothamBold
 ModeTitle.TextXAlignment         = Enum.TextXAlignment.Left
 ModeTitle.Parent                 = ModeCard
 
-local isToggleMode = sv("keyMode", "hold") == "toggle"
+local isToggleMode = sv("keyMode","hold") == "toggle"
 
 local PillFrame = Instance.new("Frame")
-PillFrame.Size                   = UDim2.new(0, 160, 0, 28)
-PillFrame.Position               = UDim2.new(0.5, -80, 0, 20)
-PillFrame.BackgroundColor3       = Color3.fromRGB(14, 14, 28)
+PillFrame.Size                   = UDim2.new(0,160,0,28)
+PillFrame.Position               = UDim2.new(0.5,-80,0,20)
+PillFrame.BackgroundColor3       = Color3.fromRGB(14,14,28)
 PillFrame.BackgroundTransparency = 0.3
 PillFrame.BorderSizePixel        = 0
 PillFrame.Parent                 = ModeCard
 corner(PillFrame, 10)
-
 local PillList = Instance.new("UIListLayout")
 PillList.FillDirection       = Enum.FillDirection.Horizontal
 PillList.VerticalAlignment   = Enum.VerticalAlignment.Center
 PillList.HorizontalAlignment = Enum.HorizontalAlignment.Center
 PillList.Padding             = UDim.new(0, 2)
 PillList.Parent              = PillFrame
-
 local PillPad = Instance.new("UIPadding")
 PillPad.PaddingLeft  = UDim.new(0, 3)
 PillPad.PaddingRight = UDim.new(0, 3)
@@ -709,36 +799,34 @@ PillPad.Parent       = PillFrame
 local function makePillBtn(label)
     local B = Instance.new("TextButton")
     B.Size                   = UDim2.new(0, 75, 0, 22)
-    B.BackgroundColor3       = Color3.fromRGB(22, 22, 40)
+    B.BackgroundColor3       = Color3.fromRGB(22,22,40)
     B.BackgroundTransparency = 0.5
     B.BorderSizePixel        = 0
     B.Text                   = label
     B.TextSize               = 10
     B.Font                   = Enum.Font.GothamBold
-    B.TextColor3             = Color3.fromRGB(120, 120, 160)
+    B.TextColor3             = Color3.fromRGB(120,120,160)
     B.Parent                 = PillFrame
     corner(B, 8)
     return B
 end
-
 local HoldBtn   = makePillBtn("HOLD")
 local ToggleBtn = makePillBtn("TOGGLE")
 
 local function updateModePill(animate)
     local t = animate and 0.22 or 0
     if isToggleMode then
-        tw(ToggleBtn, t, {BackgroundColor3 = TOGG_BG, BackgroundTransparency = 0.1}, Enum.EasingStyle.Back):Play()
+        tw(ToggleBtn, t, {BackgroundColor3=TOGG_BG, BackgroundTransparency=0.1}, Enum.EasingStyle.Back):Play()
         ToggleBtn.TextColor3 = TOGG_TEXT
-        tw(HoldBtn, t, {BackgroundColor3 = Color3.fromRGB(22,22,40), BackgroundTransparency = 0.5}):Play()
-        HoldBtn.TextColor3 = Color3.fromRGB(120, 120, 160)
+        tw(HoldBtn, t, {BackgroundColor3=Color3.fromRGB(22,22,40), BackgroundTransparency=0.5}):Play()
+        HoldBtn.TextColor3 = Color3.fromRGB(120,120,160)
     else
-        tw(HoldBtn, t, {BackgroundColor3 = HOLD_BG, BackgroundTransparency = 0.1}, Enum.EasingStyle.Back):Play()
+        tw(HoldBtn, t, {BackgroundColor3=HOLD_BG, BackgroundTransparency=0.1}, Enum.EasingStyle.Back):Play()
         HoldBtn.TextColor3 = HOLD_TEXT
-        tw(ToggleBtn, t, {BackgroundColor3 = Color3.fromRGB(22,22,40), BackgroundTransparency = 0.5}):Play()
-        ToggleBtn.TextColor3 = Color3.fromRGB(120, 120, 160)
+        tw(ToggleBtn, t, {BackgroundColor3=Color3.fromRGB(22,22,40), BackgroundTransparency=0.5}):Play()
+        ToggleBtn.TextColor3 = Color3.fromRGB(120,120,160)
     end
 end
-
 updateModePill(false)
 
 local function switchToHold()
@@ -752,7 +840,6 @@ local function switchToHold()
     updateModePill(true)
     saveConfig()
 end
-
 local function switchToToggle()
     if isToggleMode then return end
     isToggleMode = true
@@ -761,47 +848,44 @@ local function switchToToggle()
     updateModePill(true)
     saveConfig()
 end
-
 HoldBtn.Activated:Connect(switchToHold)
 ToggleBtn.Activated:Connect(switchToToggle)
 HoldBtn.MouseEnter:Connect(function()
-    if isToggleMode then tw(HoldBtn, 0.1, {BackgroundTransparency = 0.3}):Play() end
+    if isToggleMode then tw(HoldBtn, 0.1, {BackgroundTransparency=0.3}):Play() end
 end)
 HoldBtn.MouseLeave:Connect(function()
-    if isToggleMode then tw(HoldBtn, 0.1, {BackgroundTransparency = 0.5}):Play() end
+    if isToggleMode then tw(HoldBtn, 0.1, {BackgroundTransparency=0.5}):Play() end
 end)
 ToggleBtn.MouseEnter:Connect(function()
-    if not isToggleMode then tw(ToggleBtn, 0.1, {BackgroundTransparency = 0.3}):Play() end
+    if not isToggleMode then tw(ToggleBtn, 0.1, {BackgroundTransparency=0.3}):Play() end
 end)
 ToggleBtn.MouseLeave:Connect(function()
-    if not isToggleMode then tw(ToggleBtn, 0.1, {BackgroundTransparency = 0.5}):Play() end
+    if not isToggleMode then tw(ToggleBtn, 0.1, {BackgroundTransparency=0.5}):Play() end
 end)
 
 local NavBtn = Instance.new("TextButton")
 NavBtn.Size                   = UDim2.new(0, 40, 0, 36)
 NavBtn.Position               = UDim2.new(0.5, 158, 0, 10)
-NavBtn.BackgroundColor3       = Color3.fromRGB(20, 20, 42)
+NavBtn.BackgroundColor3       = Color3.fromRGB(20,20,42)
 NavBtn.BackgroundTransparency = 0.15
 NavBtn.BorderSizePixel        = 0
 NavBtn.Text                   = ">"
 NavBtn.TextSize               = 18
 NavBtn.Font                   = Enum.Font.GothamBold
-NavBtn.TextColor3             = Color3.fromRGB(120, 148, 245)
+NavBtn.TextColor3             = Color3.fromRGB(120,148,245)
 NavBtn.Parent                 = ModeWrapper
 corner(NavBtn, 10)
-
 local NavStroke = Instance.new("UIStroke")
 NavStroke.Thickness = 1.2
 NavStroke.Parent    = NavBtn
 table.insert(syncedStrokes, NavStroke)
-
 NavBtn.MouseEnter:Connect(function()
-    tw(NavBtn, 0.14, {BackgroundColor3 = Color3.fromRGB(30, 30, 65), BackgroundTransparency = 0}):Play()
-    tw(NavBtn, 0.14, {TextColor3 = Color3.fromRGB(200, 215, 255)}):Play()
+    tw(NavBtn, 0.14, {BackgroundColor3=Color3.fromRGB(30,30,65), BackgroundTransparency=0}):Play()
+    tw(NavBtn, 0.14, {TextColor3=Color3.fromRGB(200,215,255)}):Play()
 end)
 NavBtn.MouseLeave:Connect(function()
-    tw(NavBtn, 0.14, {BackgroundColor3 = Color3.fromRGB(20, 20, 42), BackgroundTransparency = 0.15}):Play()
-    tw(NavBtn, 0.14, {TextColor3 = Color3.fromRGB(120, 148, 245)}):Play()
+    tw(NavBtn, 0.14, {BackgroundColor3=Color3.fromRGB(20,20,42), BackgroundTransparency=0.15}):Play()
+    tw(NavBtn, 0.14, {TextColor3=Color3.fromRGB(120,148,245)}):Play()
 end)
 
 -- ============================================================
@@ -817,7 +901,7 @@ StatusWrapper.Parent                 = Body
 local StatusBar = Instance.new("Frame")
 StatusBar.Size                   = UDim2.new(1, 0, 0, 28)
 StatusBar.Position               = UDim2.new(0, 0, 0, 2)
-StatusBar.BackgroundColor3       = Color3.fromRGB(8, 8, 18)
+StatusBar.BackgroundColor3       = Color3.fromRGB(8,8,18)
 StatusBar.BackgroundTransparency = 0.35
 StatusBar.BorderSizePixel        = 0
 StatusBar.Parent                 = StatusWrapper
@@ -836,29 +920,25 @@ local function makeDot(label, dotColor)
     f.AutomaticSize          = Enum.AutomaticSize.X
     f.BackgroundTransparency = 1
     f.Parent                 = SList
-
     local fl = Instance.new("UIListLayout")
     fl.FillDirection     = Enum.FillDirection.Horizontal
     fl.VerticalAlignment = Enum.VerticalAlignment.Center
     fl.Padding           = UDim.new(0, 5)
     fl.Parent            = f
-
     local d = Instance.new("Frame")
     d.Size             = UDim2.new(0, 6, 0, 6)
     d.BackgroundColor3 = dotColor
     d.BorderSizePixel  = 0
     d.Parent           = f
     corner(d, 100)
-
     task.spawn(function()
         while d.Parent do
-            tw(d, 1.3, {BackgroundTransparency = 0.55}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut):Play()
+            tw(d, 1.3, {BackgroundTransparency=0.55}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut):Play()
             task.wait(1.3)
-            tw(d, 1.3, {BackgroundTransparency = 0}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut):Play()
+            tw(d, 1.3, {BackgroundTransparency=0}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut):Play()
             task.wait(1.3)
         end
     end)
-
     local t = Instance.new("TextLabel")
     t.Size                   = UDim2.new(0, 0, 1, 0)
     t.AutomaticSize          = Enum.AutomaticSize.X
@@ -874,10 +954,11 @@ end
 
 local dotParry, dotParryD = makeDot("Parry OFF", Color3.fromRGB(50,220,80))
 local dotClash, dotClashD = makeDot("Clash OFF", Color3.fromRGB(80,130,255))
-local dotCps,   _         = makeDot(tostring(cpsData[selectedCps].v) .. " CPS", Color3.fromRGB(255,160,50))
-makeDot("DELTA v5.7", Color3.fromRGB(180,100,255))
+local dotCps,   _         = makeDot("600 CPS",   Color3.fromRGB(255,160,50))
+makeDot("DELTA v5.9", Color3.fromRGB(180,100,255))
 
 task.spawn(function()
+    local allCps = getAllCps()
     while dotParry.Parent do
         local pOn = getgenv().__deltaV3_autoParryOn
         local cOn = getgenv().__deltaV3_autoClashOn
@@ -885,34 +966,34 @@ task.spawn(function()
         tw(dotParryD, 0.2, {BackgroundColor3 = pOn and Color3.fromRGB(50,220,80) or Color3.fromRGB(180,50,50)}):Play()
         dotClash.Text = cOn and "Clash ON" or "Clash OFF"
         tw(dotClashD, 0.2, {BackgroundColor3 = cOn and Color3.fromRGB(80,130,255) or Color3.fromRGB(180,50,50)}):Play()
-        dotCps.Text = tostring(cpsData[selectedCps].v) .. " CPS"
+        local c = allCps[selectedCps]
+        dotCps.Text = c and (tostring(c.v) .. " CPS") or "? CPS"
         task.wait(0.5)
     end
 end)
 
 -- ============================================================
--- TAB 2 — CALIBRAR SCRIPT
--- Mesmo tamanho do Body (fixado apos Body renderizar)
--- ClipsDescendants pra cortar o CalibCard durante animacao de entrada
+-- TAB 2 — CALIBRAR [7] bug fix: visibilidade correta apos expand
 -- ============================================================
+local tab2BodyH = 300
+
 local Tab2 = Instance.new("Frame")
 Tab2.Name                   = "Tab2"
-Tab2.Size                   = UDim2.new(1, 0, 0, 300)   -- vai ser ajustado depois
+Tab2.Size                   = UDim2.new(1, 0, 0, tab2BodyH)
 Tab2.Position               = UDim2.new(0, 0, 0, HEADER_H)
 Tab2.BackgroundTransparency = 1
 Tab2.ClipsDescendants       = false
 Tab2.Visible                = false
 Tab2.Parent                 = MainFrame
 
--- captura o tamanho real do Body depois de renderizar e espelha no Tab2
-task.delay(0.3, function()
+task.delay(0.4, function()
     local h = Body.AbsoluteSize.Y
     if h > 10 then
+        tab2BodyH = h
         Tab2.Size = UDim2.new(1, 0, 0, h)
     end
 end)
 
--- Linha topo: "<" + titulo
 local BackRow = Instance.new("Frame")
 BackRow.Size                   = UDim2.new(1, 0, 0, 44)
 BackRow.Position               = UDim2.new(0, 12, 0, 6)
@@ -922,76 +1003,75 @@ BackRow.Parent                 = Tab2
 local BackBtn = Instance.new("TextButton")
 BackBtn.Size                   = UDim2.new(0, 40, 0, 34)
 BackBtn.Position               = UDim2.new(0, 0, 0.5, -17)
-BackBtn.BackgroundColor3       = Color3.fromRGB(20, 20, 42)
+BackBtn.BackgroundColor3       = Color3.fromRGB(20,20,42)
 BackBtn.BackgroundTransparency = 0.15
 BackBtn.BorderSizePixel        = 0
 BackBtn.Text                   = "<"
 BackBtn.TextSize               = 18
 BackBtn.Font                   = Enum.Font.GothamBold
-BackBtn.TextColor3             = Color3.fromRGB(120, 148, 245)
+BackBtn.TextColor3             = Color3.fromRGB(120,148,245)
 BackBtn.Parent                 = BackRow
 corner(BackBtn, 10)
-
 local BackStroke = Instance.new("UIStroke")
 BackStroke.Thickness = 1.2
 BackStroke.Parent    = BackBtn
 table.insert(syncedStrokes, BackStroke)
-
 BackBtn.MouseEnter:Connect(function()
-    tw(BackBtn, 0.14, {BackgroundColor3 = Color3.fromRGB(30,30,65), BackgroundTransparency = 0}):Play()
-    tw(BackBtn, 0.14, {TextColor3 = Color3.fromRGB(200, 215, 255)}):Play()
+    tw(BackBtn, 0.14, {BackgroundColor3=Color3.fromRGB(30,30,65), BackgroundTransparency=0}):Play()
+    tw(BackBtn, 0.14, {TextColor3=Color3.fromRGB(200,215,255)}):Play()
 end)
 BackBtn.MouseLeave:Connect(function()
-    tw(BackBtn, 0.14, {BackgroundColor3 = Color3.fromRGB(20,20,42), BackgroundTransparency = 0.15}):Play()
-    tw(BackBtn, 0.14, {TextColor3 = Color3.fromRGB(120, 148, 245)}):Play()
+    tw(BackBtn, 0.14, {BackgroundColor3=Color3.fromRGB(20,20,42), BackgroundTransparency=0.15}):Play()
+    tw(BackBtn, 0.14, {TextColor3=Color3.fromRGB(120,148,245)}):Play()
 end)
 
 local Tab2TitleLbl = Instance.new("TextLabel")
 Tab2TitleLbl.Size                   = UDim2.new(1, -52, 1, 0)
 Tab2TitleLbl.Position               = UDim2.new(0, 50, 0, 0)
 Tab2TitleLbl.BackgroundTransparency = 1
-Tab2TitleLbl.Text                   = "CALIBRAR SCRIPT"
-Tab2TitleLbl.TextColor3             = Color3.fromRGB(180, 200, 255)
 Tab2TitleLbl.TextSize               = 13
 Tab2TitleLbl.Font                   = Enum.Font.GothamBold
 Tab2TitleLbl.TextXAlignment         = Enum.TextXAlignment.Left
 Tab2TitleLbl.Parent                 = BackRow
 
--- CalibCard — mesmo tamanho de um card normal (80px), posicionado top-left
--- largura = metade da area util, igual ColLeft (0.5 - 5px gap = aprox 274px sobre 556px util)
+-- [11] Mostra status de calibração salva no título
+if sv("calibApplied", false) and sv("calibFps","") ~= "" then
+    Tab2TitleLbl.Text       = "CALIBRADO ✓  " .. sv("calibFps","") .. "fps / " .. sv("calibPing","") .. "ms"
+    Tab2TitleLbl.TextColor3 = Color3.fromRGB(120, 235, 155)
+else
+    Tab2TitleLbl.Text       = "CALIBRAR SCRIPT"
+    Tab2TitleLbl.TextColor3 = Color3.fromRGB(180, 200, 255)
+end
+
+local fieldW = math.floor((274 - 24 - 8) / 2)
+
 local CalibCard = Instance.new("Frame")
-CalibCard.Size             = UDim2.new(0, 274, 0, 96)
-CalibCard.Position         = UDim2.new(0, 12, 0, 56)
-CalibCard.BackgroundColor3 = Color3.fromRGB(22, 22, 40)
+CalibCard.Size                   = UDim2.new(0, 274, 0, 96)
+CalibCard.Position               = UDim2.new(0, 12, 0, 56)
+CalibCard.BackgroundColor3       = Color3.fromRGB(22,22,40)
 CalibCard.BackgroundTransparency = 1
-CalibCard.BorderSizePixel  = 0
-CalibCard.Parent           = Tab2
+CalibCard.BorderSizePixel        = 0
+CalibCard.Parent                 = Tab2
 corner(CalibCard, 12)
 
--- stroke que segue a cor principal (igual MainFrame)
 local CalibStroke = Instance.new("UIStroke")
 CalibStroke.Thickness = 1.2
 CalibStroke.Parent    = CalibCard
 table.insert(syncedStrokes, CalibStroke)
 
-CalibCard.MouseEnter:Connect(function() tw(CalibCard, 0.14, {BackgroundTransparency = 0.18}):Play() end)
-CalibCard.MouseLeave:Connect(function() tw(CalibCard, 0.14, {BackgroundTransparency = 0.35}):Play() end)
+CalibCard.MouseEnter:Connect(function() tw(CalibCard, 0.14, {BackgroundTransparency=0.18}):Play() end)
+CalibCard.MouseLeave:Connect(function() tw(CalibCard, 0.14, {BackgroundTransparency=0.35}):Play() end)
 
--- Titulo interno
 local CTitle = Instance.new("TextLabel")
-CTitle.Size                   = UDim2.new(1, -12, 0, 14)
-CTitle.Position               = UDim2.new(0, 12, 0, 8)
+CTitle.Size                   = UDim2.new(1,-12,0,14)
+CTitle.Position               = UDim2.new(0,12,0,8)
 CTitle.BackgroundTransparency = 1
 CTitle.Text                   = "CALIBRAR SCRIPT"
-CTitle.TextColor3             = Color3.fromRGB(200, 215, 255)
+CTitle.TextColor3             = Color3.fromRGB(200,215,255)
 CTitle.TextSize               = 10
 CTitle.Font                   = Enum.Font.GothamBold
 CTitle.TextXAlignment         = Enum.TextXAlignment.Left
 CTitle.Parent                 = CalibCard
-
--- Campos FPS e PING — lado a lado, compactos
--- card tem 274px, padding 12 de cada lado = 250px util, gap 8 = dois campos de 121px
-local fieldW = math.floor((274 - 24 - 8) / 2)
 
 local function makeField(xOff, labelTxt, placeholder, savedVal)
     local lbl = Instance.new("TextLabel")
@@ -999,7 +1079,7 @@ local function makeField(xOff, labelTxt, placeholder, savedVal)
     lbl.Position               = UDim2.new(0, xOff, 0, 26)
     lbl.BackgroundTransparency = 1
     lbl.Text                   = labelTxt
-    lbl.TextColor3             = Color3.fromRGB(130, 152, 210)
+    lbl.TextColor3             = Color3.fromRGB(130,152,210)
     lbl.TextSize               = 9
     lbl.Font                   = Enum.Font.GothamBold
     lbl.TextXAlignment         = Enum.TextXAlignment.Left
@@ -1008,7 +1088,7 @@ local function makeField(xOff, labelTxt, placeholder, savedVal)
     local box = Instance.new("Frame")
     box.Size                   = UDim2.new(0, fieldW, 0, 26)
     box.Position               = UDim2.new(0, xOff, 0, 39)
-    box.BackgroundColor3       = Color3.fromRGB(11, 11, 25)
+    box.BackgroundColor3       = Color3.fromRGB(11,11,25)
     box.BackgroundTransparency = 0.05
     box.BorderSizePixel        = 0
     box.Parent                 = CalibCard
@@ -1016,17 +1096,17 @@ local function makeField(xOff, labelTxt, placeholder, savedVal)
 
     local bs = Instance.new("UIStroke")
     bs.Thickness = 1
-    bs.Color     = Color3.fromRGB(46, 66, 145)
+    bs.Color     = Color3.fromRGB(46,66,145)
     bs.Parent    = box
 
     local tb = Instance.new("TextBox")
-    tb.Size                   = UDim2.new(1, -10, 1, 0)
-    tb.Position               = UDim2.new(0, 5, 0, 0)
+    tb.Size                   = UDim2.new(1,-10,1,0)
+    tb.Position               = UDim2.new(0,5,0,0)
     tb.BackgroundTransparency = 1
     tb.Text                   = savedVal or ""
     tb.PlaceholderText        = placeholder
-    tb.PlaceholderColor3      = Color3.fromRGB(50, 58, 100)
-    tb.TextColor3             = Color3.fromRGB(190, 210, 255)
+    tb.PlaceholderColor3      = Color3.fromRGB(50,58,100)
+    tb.TextColor3             = Color3.fromRGB(190,210,255)
     tb.TextSize               = 13
     tb.Font                   = Enum.Font.GothamBold
     tb.TextXAlignment         = Enum.TextXAlignment.Center
@@ -1035,129 +1115,140 @@ local function makeField(xOff, labelTxt, placeholder, savedVal)
 
     tb.Changed:Connect(function(p)
         if p == "Text" then
-            local clean = tb.Text:gsub("[^%d]", "")
+            local clean = tb.Text:gsub("[^%d]","")
             if clean ~= tb.Text then tb.Text = clean end
         end
     end)
-
     tb.Focused:Connect(function()
-        tw(box, 0.14, {BackgroundColor3 = Color3.fromRGB(16, 16, 38)}):Play()
-        -- stroke do campo segue a cor principal no foco
+        tw(box, 0.14, {BackgroundColor3=Color3.fromRGB(16,16,38)}):Play()
         bs.Color = currentStrokeColor
-        tw(bs, 0.14, {Thickness = 1.5}):Play()
-        tw(lbl, 0.14, {TextColor3 = Color3.fromRGB(172, 198, 255)}):Play()
+        tw(bs, 0.14, {Thickness=1.5}):Play()
+        tw(lbl, 0.14, {TextColor3=Color3.fromRGB(172,198,255)}):Play()
     end)
     tb.FocusLost:Connect(function()
-        tw(box, 0.14, {BackgroundColor3 = Color3.fromRGB(11, 11, 25)}):Play()
-        tw(bs, 0.14, {Color = Color3.fromRGB(46, 66, 145), Thickness = 1}):Play()
-        tw(lbl, 0.14, {TextColor3 = Color3.fromRGB(130, 152, 210)}):Play()
+        tw(box, 0.14, {BackgroundColor3=Color3.fromRGB(11,11,25)}):Play()
+        tw(bs, 0.14, {Color=Color3.fromRGB(46,66,145), Thickness=1}):Play()
+        tw(lbl, 0.14, {TextColor3=Color3.fromRGB(130,152,210)}):Play()
     end)
-
     return tb, bs
 end
 
-local fpsBox,  fpsBs  = makeField(12,               "FPS",  "60", sv("calibFps",  ""))
-local pingBox, pingBs = makeField(12 + fieldW + 8,  "PING", "48", sv("calibPing", ""))
+local fpsBox,  fpsBs  = makeField(12,              "FPS",  "60", sv("calibFps",  ""))
+local pingBox, pingBs = makeField(12+fieldW+8,     "PING", "48", sv("calibPing", ""))
 
--- ApplyBtn — cor segue o stroke principal (via syncedBtnColors)
+-- ApplyBtn
 local ApplyBtn = Instance.new("TextButton")
-ApplyBtn.Size                   = UDim2.new(1, -24, 0, 18)
-ApplyBtn.Position               = UDim2.new(0, 12, 0, 72)
-ApplyBtn.BackgroundColor3       = currentStrokeColor  -- começa com a cor atual
+ApplyBtn.Size                   = UDim2.new(1,-24,0,18)
+ApplyBtn.Position               = UDim2.new(0,12,0,72)
 ApplyBtn.BackgroundTransparency = 0.25
 ApplyBtn.BorderSizePixel        = 0
-ApplyBtn.Text                   = "APLICAR"
-ApplyBtn.TextColor3             = Color3.fromRGB(220, 235, 255)
+ApplyBtn.TextColor3             = Color3.fromRGB(220,235,255)
 ApplyBtn.TextSize               = 10
 ApplyBtn.Font                   = Enum.Font.GothamBold
 ApplyBtn.Parent                 = CalibCard
 corner(ApplyBtn, 7)
 
--- registra no sistema de cores sincronizadas
-table.insert(syncedBtnColors, {
-    obj    = ApplyBtn,
-    rBase  = 70, rAmp = 70, phase = 0,
-    gBase  = 100, gAmp = 80,
-    bVal   = 255,
-})
-
 local applyLocked = false
 
+-- [11] Mostra verde se já calibrado, arco-iris se nao
+if sv("calibApplied", false) and sv("calibFps","") ~= "" then
+    applyLocked = true
+    ApplyBtn.Text                   = "CALIBRADO ✓  Clique pra recalibrar"
+    ApplyBtn.TextColor3             = Color3.fromRGB(120,235,155)
+    ApplyBtn.BackgroundColor3       = Color3.fromRGB(24,130,58)
+    ApplyBtn.BackgroundTransparency = 0.05
+else
+    ApplyBtn.Text             = "APLICAR"
+    ApplyBtn.BackgroundColor3 = currentStrokeColor
+    table.insert(syncedBtnColors, {
+        obj=ApplyBtn, rBase=70, rAmp=70, phase=0, gBase=100, gAmp=80, bVal=255
+    })
+end
+
 ApplyBtn.MouseEnter:Connect(function()
-    if applyLocked then return end
-    tw(ApplyBtn, 0.12, {BackgroundTransparency = 0.05}):Play()
+    tw(ApplyBtn, 0.12, {BackgroundTransparency=0.05}):Play()
 end)
 ApplyBtn.MouseLeave:Connect(function()
-    if applyLocked then return end
-    tw(ApplyBtn, 0.12, {BackgroundTransparency = 0.25}):Play()
+    if not applyLocked then tw(ApplyBtn, 0.12, {BackgroundTransparency=0.25}):Play() end
 end)
 
 ApplyBtn.Activated:Connect(function()
-    if applyLocked then return end
+    if applyLocked then
+        -- Clicou no botao verde: permite recalibrar
+        applyLocked = false
+        ApplyBtn.Text             = "APLICAR"
+        ApplyBtn.TextColor3       = Color3.fromRGB(220,235,255)
+        ApplyBtn.BackgroundTransparency = 0.25
+        getgenv().__deltaV3_calibrated = false
+        Tab2TitleLbl.Text       = "CALIBRAR SCRIPT"
+        Tab2TitleLbl.TextColor3 = Color3.fromRGB(180,200,255)
+        table.insert(syncedBtnColors, {
+            obj=ApplyBtn, rBase=70, rAmp=70, phase=0, gBase=100, gAmp=80, bVal=255
+        })
+        return
+    end
+
     local fpsRaw  = tonumber(fpsBox.Text)
     local pingRaw = tonumber(pingBox.Text)
 
     if not fpsRaw or fpsRaw < 5 or fpsRaw > 800 then
-        tw(fpsBs, 0.1, {Color = Color3.fromRGB(210, 52, 38)}):Play()
-        applyLocked = true
-        local old_t = ApplyBtn.Text
-        ApplyBtn.Text       = "FPS invalido (5 a 800)"
-        ApplyBtn.TextColor3 = Color3.fromRGB(255, 95, 75)
-        -- congela cor vermelha
-        ApplyBtn.BackgroundColor3 = Color3.fromRGB(160, 38, 30)
+        tw(fpsBs, 0.1, {Color=Color3.fromRGB(210,52,38)}):Play()
+        ApplyBtn.Text = "FPS invalido (5-800)"
+        ApplyBtn.TextColor3 = Color3.fromRGB(255,95,75)
+        ApplyBtn.BackgroundColor3 = Color3.fromRGB(160,38,30)
         ApplyBtn.BackgroundTransparency = 0.1
         task.delay(2, function()
-            tw(fpsBs, 0.25, {Color = Color3.fromRGB(46, 66, 145)}):Play()
-            ApplyBtn.Text             = old_t
-            ApplyBtn.TextColor3       = Color3.fromRGB(220, 235, 255)
+            tw(fpsBs, 0.25, {Color=Color3.fromRGB(46,66,145)}):Play()
+            ApplyBtn.Text = "APLICAR"
+            ApplyBtn.TextColor3 = Color3.fromRGB(220,235,255)
             ApplyBtn.BackgroundTransparency = 0.25
-            applyLocked = false
         end)
         return
     end
     if not pingRaw or pingRaw < 1 or pingRaw > 500 then
-        tw(pingBs, 0.1, {Color = Color3.fromRGB(210, 52, 38)}):Play()
-        applyLocked = true
-        local old_t = ApplyBtn.Text
-        ApplyBtn.Text       = "Ping invalido (1 a 500)"
-        ApplyBtn.TextColor3 = Color3.fromRGB(255, 95, 75)
-        ApplyBtn.BackgroundColor3 = Color3.fromRGB(160, 38, 30)
+        tw(pingBs, 0.1, {Color=Color3.fromRGB(210,52,38)}):Play()
+        ApplyBtn.Text = "Ping invalido (1-500)"
+        ApplyBtn.TextColor3 = Color3.fromRGB(255,95,75)
+        ApplyBtn.BackgroundColor3 = Color3.fromRGB(160,38,30)
         ApplyBtn.BackgroundTransparency = 0.1
         task.delay(2, function()
-            tw(pingBs, 0.25, {Color = Color3.fromRGB(46, 66, 145)}):Play()
-            ApplyBtn.Text             = old_t
-            ApplyBtn.TextColor3       = Color3.fromRGB(220, 235, 255)
+            tw(pingBs, 0.25, {Color=Color3.fromRGB(46,66,145)}):Play()
+            ApplyBtn.Text = "APLICAR"
+            ApplyBtn.TextColor3 = Color3.fromRGB(220,235,255)
             ApplyBtn.BackgroundTransparency = 0.25
-            applyLocked = false
         end)
         return
     end
 
-    getgenv().__deltaV3_calibFps  = tostring(fpsRaw)
-    getgenv().__deltaV3_calibPing = tostring(pingRaw)
-    saveConfig()
+    getgenv().__deltaV3_calibFps     = tostring(fpsRaw)
+    getgenv().__deltaV3_calibPing    = tostring(pingRaw)
+    getgenv().__deltaV3_calibrated   = true
 
     if getgenv().__deltaV3_applyCalibration then
         getgenv().__deltaV3_applyCalibration(fpsRaw, pingRaw)
     end
 
-    -- feedback verde por 2s, depois volta ao arco-iris
+    saveConfig()
+
+    -- Remove do loop arco-iris e trava verde
+    for i = #syncedBtnColors, 1, -1 do
+        if syncedBtnColors[i].obj == ApplyBtn then
+            table.remove(syncedBtnColors, i)
+        end
+    end
+
     applyLocked = true
-    ApplyBtn.BackgroundColor3       = Color3.fromRGB(24, 130, 58)
+    ApplyBtn.BackgroundColor3       = Color3.fromRGB(24,130,58)
     ApplyBtn.BackgroundTransparency = 0.05
-    ApplyBtn.Text       = "FPS " .. fpsRaw .. " | Ping " .. pingRaw .. "ms"
-    ApplyBtn.TextColor3 = Color3.fromRGB(120, 235, 155)
-    task.delay(2.2, function()
-        ApplyBtn.Text             = "APLICAR"
-        ApplyBtn.TextColor3       = Color3.fromRGB(220, 235, 255)
-        ApplyBtn.BackgroundTransparency = 0.25
-        applyLocked = false
-    end)
+    ApplyBtn.Text       = "CALIBRADO ✓  Clique pra recalibrar"
+    ApplyBtn.TextColor3 = Color3.fromRGB(120,235,155)
+
+    Tab2TitleLbl.Text       = "CALIBRADO ✓  " .. fpsRaw .. "fps / " .. pingRaw .. "ms"
+    Tab2TitleLbl.TextColor3 = Color3.fromRGB(120,235,155)
 end)
 
 -- ============================================================
--- ANIMACAO DE TROCA DE ABAS
--- Fade + leve translacao vertical (sem clip, sem slide horizontal)
+-- TROCA DE ABAS [7] fix: CalibCard e allCards ficam visíveis corretamente
 -- ============================================================
 local currentTab  = 1
 local tabAnimLock = false
@@ -1169,10 +1260,17 @@ local function switchToTab(n)
     local fadeOut = n == 2 and Body or Tab2
     local fadeIn  = n == 2 and Tab2 or Body
 
-    -- garante tamanho certo do Tab2
+    -- Atualiza tamanho do Tab2
     if n == 2 then
         local h = Body.AbsoluteSize.Y
-        if h > 10 then Tab2.Size = UDim2.new(1, 0, 0, h) end
+        if h > 10 then
+            tab2BodyH = h
+            Tab2.Size = UDim2.new(1, 0, 0, h)
+        end
+    end
+
+    -- Reseta transparencias dos destinos
+    if n == 2 then
         CalibCard.BackgroundTransparency = 1
     else
         for _, card in ipairs(allCards) do
@@ -1180,10 +1278,8 @@ local function switchToTab(n)
         end
     end
 
-    -- fade out atual
     fadeOut.Position = UDim2.new(0, 0, 0, HEADER_H)
     tw(fadeOut, 0.18, {
-        BackgroundTransparency = 1,
         Position = UDim2.new(0, 0, 0, HEADER_H + 10),
     }, Enum.EasingStyle.Quad, Enum.EasingDirection.In):Play()
 
@@ -1191,35 +1287,34 @@ local function switchToTab(n)
         fadeOut.Visible  = false
         fadeOut.Position = UDim2.new(0, 0, 0, HEADER_H)
 
-        -- ajuste do AutomaticSize do MainFrame
         if n == 2 then
-            -- Tab2 e tamanho fixo, desliga AutomaticSize pro frame nao colapsar
             MainFrame.AutomaticSize = Enum.AutomaticSize.None
-            MainFrame.Size = UDim2.new(0, WIDE, 0, HEADER_H + Tab2.AbsoluteSize.Y)
-        else
-            -- Body e AutomaticSize, re-liga
+            MainFrame.Size = UDim2.new(0, WIDE, 0, HEADER_H + tab2BodyH)
         end
 
-        -- fade in novo
         fadeIn.Position = UDim2.new(0, 0, 0, HEADER_H + 10)
         fadeIn.Visible  = true
+
+        -- [7] garante que os filhos aparecem
+        if n == 2 then
+            CalibCard.Visible = true
+        end
 
         local tIn = tw(fadeIn, 0.26, {
             Position = UDim2.new(0, 0, 0, HEADER_H),
         }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
         tIn:Play()
 
-        -- anima cards do fadeIn
         if n == 1 then
             MainFrame.AutomaticSize = Enum.AutomaticSize.Y
             for i, card in ipairs(allCards) do
                 task.delay((i-1)*0.04, function()
-                    tw(card, 0.26, {BackgroundTransparency = 0.35}, Enum.EasingStyle.Back):Play()
+                    tw(card, 0.26, {BackgroundTransparency=0.35}, Enum.EasingStyle.Back):Play()
                 end)
             end
         else
             task.delay(0.05, function()
-                tw(CalibCard, 0.26, {BackgroundTransparency = 0.35}, Enum.EasingStyle.Back):Play()
+                tw(CalibCard, 0.26, {BackgroundTransparency=0.35}, Enum.EasingStyle.Back):Play()
             end)
         end
 
@@ -1234,18 +1329,8 @@ NavBtn.Activated:Connect(function() switchToTab(2) end)
 BackBtn.Activated:Connect(function() switchToTab(1) end)
 
 -- ============================================================
--- DRAG
+-- DRAG [4] Hitbox so no header e nas bordas (nao na area central)
 -- ============================================================
-local BORDER = 18
-
-local DragBorder = Instance.new("Frame")
-DragBorder.Size                   = UDim2.new(1, BORDER*2, 1, BORDER*2)
-DragBorder.Position               = UDim2.new(0, -BORDER, 0, -BORDER)
-DragBorder.BackgroundTransparency = 1
-DragBorder.BorderSizePixel        = 0
-DragBorder.ZIndex                 = 0
-DragBorder.Parent                 = MainFrame
-
 local dragging, dragStart, frameStart = false, nil, nil
 
 local function startDrag(input)
@@ -1262,8 +1347,33 @@ local DRAG_TYPES = {
     [Enum.UserInputType.Touch]        = true,
 }
 
-DragBorder.InputBegan:Connect(function(i) if DRAG_TYPES[i.UserInputType] then startDrag(i) end end)
-Header.InputBegan:Connect(function(i)     if DRAG_TYPES[i.UserInputType] then startDrag(i) end end)
+-- Header e bordas laterais/inferior (nao a area do body)
+Header.InputBegan:Connect(function(i)
+    if DRAG_TYPES[i.UserInputType] and i.Position.X < MainFrame.AbsolutePosition.X + MainFrame.AbsoluteSize.X - 50 then
+        startDrag(i)
+    end
+end)
+
+-- Bordas invisíveis de ~16px nas laterais e base [4]
+local function makeDragEdge(xScale, xOff, yScale, yOff, wOff, hOff)
+    local E = Instance.new("Frame")
+    E.BackgroundTransparency = 1
+    E.BorderSizePixel        = 0
+    E.Size                   = UDim2.new(xScale, wOff, yScale, hOff)
+    E.Position               = UDim2.new(0, xOff, 0, yOff)
+    E.Parent                 = MainFrame
+    E.ZIndex                 = 2
+    E.InputBegan:Connect(function(i)
+        if DRAG_TYPES[i.UserInputType] then startDrag(i) end
+    end)
+    return E
+end
+-- Esquerda, direita, baixo
+makeDragEdge(0, 0,    1, 0, 14,    0)
+makeDragEdge(0, 0,    1, 0, 0,  -14):Position = UDim2.new(1, -14, 0, 0)
+-- Linha de fundo (o Body tem padding bottom de 8 entao 12px pega o rodapé)
+makeDragEdge(1, 0,    0, 0, 0,   12):Position = UDim2.new(0, 0, 1, -12)
+
 CollapseBtn.InputBegan:Connect(function() dragging = false end)
 
 UserInputService.InputChanged:Connect(function(input)
@@ -1279,30 +1389,42 @@ UserInputService.InputChanged:Connect(function(input)
 end)
 
 -- ============================================================
--- COLLAPSE
+-- COLLAPSE [12] protecao pra nao sair da tela ao minimizar/expandir
 -- ============================================================
 local isOpen      = true
 local lastToggleT = 0
 local COOLDOWN    = 0.55
 
+local function clampToScreen()
+    local vp     = workspace.CurrentCamera.ViewportSize
+    local ap     = MainFrame.AbsolutePosition
+    local as     = MainFrame.AbsoluteSize
+    local nx     = math.clamp(ap.X, 0, math.max(0, vp.X - as.X))
+    local ny     = math.clamp(ap.Y, 0, math.max(0, vp.Y - as.Y))
+    if math.abs(nx - ap.X) > 0.5 or math.abs(ny - ap.Y) > 0.5 then
+        MainFrame.Position = UDim2.new(0, nx, 0, ny)
+    end
+end
+
 local function animateHamburger(closing)
     if closing then
-        tw(Line1, 0.25, {Position = UDim2.new(0.5,-8,0.5,-1), Rotation =  45}, Enum.EasingStyle.Back):Play()
-        tw(Line2, 0.12, {BackgroundTransparency = 1}):Play()
-        tw(Line3, 0.25, {Position = UDim2.new(0.5,-8,0.5,-1), Rotation = -45}, Enum.EasingStyle.Back):Play()
+        tw(Line1, 0.25, {Position=UDim2.new(0.5,-8,0.5,-1), Rotation= 45}, Enum.EasingStyle.Back):Play()
+        tw(Line2, 0.12, {BackgroundTransparency=1}):Play()
+        tw(Line3, 0.25, {Position=UDim2.new(0.5,-8,0.5,-1), Rotation=-45}, Enum.EasingStyle.Back):Play()
     else
-        tw(Line1, 0.25, {Position = UDim2.new(0.5,-8,0.5,-5), Rotation = 0}, Enum.EasingStyle.Back):Play()
-        tw(Line2, 0.20, {BackgroundTransparency = 0.1}):Play()
-        tw(Line3, 0.25, {Position = UDim2.new(0.5,-8,0.5, 3), Rotation = 0}, Enum.EasingStyle.Back):Play()
+        tw(Line1, 0.25, {Position=UDim2.new(0.5,-8,0.5,-5), Rotation=0}, Enum.EasingStyle.Back):Play()
+        tw(Line2, 0.20, {BackgroundTransparency=0.1}):Play()
+        tw(Line3, 0.25, {Position=UDim2.new(0.5,-8,0.5, 3), Rotation=0}, Enum.EasingStyle.Back):Play()
     end
 end
 
 local function doCollapse()
+    saveConfig()
     animateHamburger(true)
     local cards = currentTab == 1 and allCards or {CalibCard}
     for i, card in ipairs(cards) do
         task.delay((i-1)*0.03, function()
-            tw(card, 0.13, {BackgroundTransparency = 1}):Play()
+            tw(card, 0.13, {BackgroundTransparency=1}):Play()
         end)
     end
     task.delay(0.15, function()
@@ -1311,39 +1433,43 @@ local function doCollapse()
         local currentH = MainFrame.AbsoluteSize.Y
         MainFrame.AutomaticSize = Enum.AutomaticSize.None
         MainFrame.Size = UDim2.new(0, WIDE, 0, currentH)
-        tw(MainFrame, 0.40, {Size = UDim2.new(0, MINI, 0, HEADER_H)}, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut):Play()
+        tw(MainFrame, 0.40, {Size=UDim2.new(0, MINI, 0, HEADER_H)}, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut):Play()
         task.delay(0.40, function()
-            tw(Header, 0.09, {BackgroundTransparency = 0.05}):Play()
-            task.delay(0.09, function()
-                tw(Header, 0.20, {BackgroundTransparency = 0.25}):Play()
-            end)
+            -- [12] Clamp pra nao ficar fora da tela
+            clampToScreen()
+            saveConfig()
         end)
     end)
 end
 
 local function doExpand()
     animateHamburger(false)
-    tw(MainFrame, 0.42, {Size = UDim2.new(0, WIDE, 0, HEADER_H)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out):Play()
+    tw(MainFrame, 0.42, {Size=UDim2.new(0, WIDE, 0, HEADER_H)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out):Play()
     task.delay(0.20, function()
-        tw(MainFrame, 0.22, {BackgroundTransparency = 0.2}):Play()
+        tw(MainFrame, 0.22, {BackgroundTransparency=0.2}):Play()
         if currentTab == 1 then
             for _, card in ipairs(allCards) do card.BackgroundTransparency = 1 end
             Body.Visible = true
             task.delay(0.10, function() MainFrame.AutomaticSize = Enum.AutomaticSize.Y end)
             for i, card in ipairs(allCards) do
                 task.delay((i-1)*0.05, function()
-                    tw(card, 0.30, {BackgroundTransparency = 0.35}, Enum.EasingStyle.Back):Play()
+                    tw(card, 0.30, {BackgroundTransparency=0.35}, Enum.EasingStyle.Back):Play()
                 end)
             end
         else
+            -- [7] Tab2 expand fix: garante que CalibCard aparece
             CalibCard.BackgroundTransparency = 1
+            CalibCard.Visible = true
             Tab2.Visible = true
+            MainFrame.AutomaticSize = Enum.AutomaticSize.None
             task.delay(0.10, function()
-                local h = Tab2.AbsoluteSize.Y
-                if h < 10 then h = Body.AbsoluteSize.Y end
+                local h = tab2BodyH > 10 and tab2BodyH or 300
+                Tab2.Size = UDim2.new(1, 0, 0, h)
                 MainFrame.Size = UDim2.new(0, WIDE, 0, HEADER_H + h)
             end)
-            tw(CalibCard, 0.30, {BackgroundTransparency = 0.35}, Enum.EasingStyle.Back):Play()
+            task.delay(0.12, function()
+                tw(CalibCard, 0.30, {BackgroundTransparency=0.35}, Enum.EasingStyle.Back):Play()
+            end)
         end
     end)
 end
@@ -1357,8 +1483,8 @@ local function toggleCollapse()
 end
 
 CollapseBtn.Activated:Connect(toggleCollapse)
-CollapseBtn.MouseEnter:Connect(function() tw(CollapseBtn, 0.12, {BackgroundColor3 = Color3.fromRGB(50,50,88)}):Play() end)
-CollapseBtn.MouseLeave:Connect(function() tw(CollapseBtn, 0.12, {BackgroundColor3 = Color3.fromRGB(30,30,55)}):Play() end)
+CollapseBtn.MouseEnter:Connect(function() tw(CollapseBtn, 0.12, {BackgroundColor3=Color3.fromRGB(50,50,88)}):Play() end)
+CollapseBtn.MouseLeave:Connect(function() tw(CollapseBtn, 0.12, {BackgroundColor3=Color3.fromRGB(30,30,55)}):Play() end)
 
 ScreenGui.AncestryChanged:Connect(function()
     if not ScreenGui.Parent then clearSpamKeyConns() end
