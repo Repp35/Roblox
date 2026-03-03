@@ -1369,10 +1369,11 @@ local function makeDragEdge(xScale, xOff, yScale, yOff, wOff, hOff)
     return E
 end
 -- Esquerda, direita, baixo
-makeDragEdge(0, 0,    1, 0, 14,    0)
-makeDragEdge(0, 0,    1, 0, 0,  -14):Position = UDim2.new(1, -14, 0, 0)
--- Linha de fundo (o Body tem padding bottom de 8 entao 12px pega o rodapé)
-makeDragEdge(1, 0,    0, 0, 0,   12):Position = UDim2.new(0, 0, 1, -12)
+makeDragEdge(0, 0,    1, 0, 14,   0)
+local edgeRight = makeDragEdge(0, 0, 1, 0, 14, 0)
+edgeRight.Position = UDim2.new(1, -14, 0, 0)
+local edgeBottom = makeDragEdge(1, 0, 0, 0, 0, 12)
+edgeBottom.Position = UDim2.new(0, 0, 1, -12)
 
 CollapseBtn.InputBegan:Connect(function() dragging = false end)
 
