@@ -1,8 +1,7 @@
--- Phantom Ball Auto Parry + Spam [FINAL v5.7]
--- Fix clash: 3 condições de saída | aura off por padrão
--- Reset dinâmico | Safety net distância fixa
--- FIX v5.6: safetyTrigger não dispara junto com normalTrigger
--- FIX v5.7: ballProcessed não libera enquanto bola ainda tá na safetyDistance
+-- Phantom Ball Auto Parry + Spam [DELTA v5.8 — ENGINE CALIBRADA]
+-- Integração completa com delta_v3_controle.lua
+-- os.clock() anchor | Quantização por frame | Ping offset no threshold
+-- Burst mode | Auto-recalibra ao trocar CPS
 
 local tick       = tick
 local math_clamp = math.clamp
@@ -42,6 +41,7 @@ local Config = {
     ballResetThresh  = 50,
     ballResetLockout = 0.6,
 
+    -- intervalo raw padrão (600 CPS) — sobrescrito pela calibração
     spamInterval    = 0.00167,
     spamCapPerFrame = 10,
 
@@ -82,7 +82,7 @@ local ballSyncRemote = ballSyncFolder and ballSyncFolder:FindFirstChild("BallSyn
 
 local PNotif = RSrv:WaitForChild("PromptNotification")
 task.spawn(function()
-    PNotif:Fire("Auto Parry FINAL v5.7 ✅ | PC + Mobile", true)
+    PNotif:Fire("Auto Parry DELTA v5.8 ✅ | Engine Calibrada", true)
 end)
 
 local spamOn      = false
@@ -120,6 +120,9 @@ local function sendParry()
         )
     end
 end
+
+-- Hook de disparo usado pela engine de spam do controle
+getgenv().__deltaV3_onSpamFire = sendParry
 
 -- ============================================================
 -- GAME INFO
@@ -285,9 +288,83 @@ local function updateClashDetection(newTargetID, ballPos, hrpPos)
 end
 
 -- ============================================================
--- SPAM
+-- ENGINE DE SPAM CALIBRADA
+-- Loop dedicado ancorado em os.clock() — zero drift
+-- Quantização ao frame time | Ping offset | Burst em ping alto
 -- ============================================================
-local lastSpamFire = 0
+
+--[[
+    getgenv().__deltaV3_calibratedInterval = intervalo quantizado ao frame time
+    getgenv().__deltaV3_pingOffset         = ping em segundos (antecipa disparo)
+    getgenv().__deltaV3_burstCount         = 1 normal | 2 se ping >= 60ms
+    getgenv().__deltaV3_calibrated         = bool: calibração aplicada
+
+    Se não calibrado: usa spamInterval raw normalmente
+]]
+
+local spamThread = nil
+
+local function getActiveInterval()
+    if getgenv().__deltaV3_calibrated then
+        return getgenv().__deltaV3_calibratedInterval
+            or getgenv().__deltaV3_spamInterval
+            or Config.spamInterval
+    end
+    return getgenv().__deltaV3_spamInterval or Config.spamInterval
+end
+
+local function getActivePingOffset()
+    if getgenv().__deltaV3_calibrated then
+        return getgenv().__deltaV3_pingOffset or 0
+    end
+    return 0
+end
+
+local function getActiveBurst()
+    if getgenv().__deltaV3_calibrated then
+        return getgenv().__deltaV3_burstCount or 1
+    end
+    return 1
+end
+
+local function runSpamLoop()
+    local startT   = os.clock()
+    local n        = 0
+    local interval = getActiveInterval()
+    local pOff     = getActivePingOffset()
+    local burst    = getActiveBurst()
+
+    while spamOn or clashSpamOn do
+        n = n + 1
+        -- Momento exato de disparo ancorado — sem acúmulo de erro
+        local nextFire = startT + n * interval - pOff
+        local now      = os.clock()
+        local diff     = nextFire - now
+
+        if diff > 0.001 then
+            task.wait(diff)
+        else
+            task.wait()
+            -- Se atrasou muito (lag spike), reancora
+            if (os.clock() - nextFire) > interval * 3 then
+                startT = os.clock()
+                n = 0
+            end
+        end
+
+        if not (spamOn or clashSpamOn) then break end
+
+        -- Disparo (burst se ping alto)
+        for b = 1, burst do
+            pcall(sendParry)
+            if b < burst then task.wait(0.001) end
+        end
+    end
+end
+
+-- ============================================================
+-- SPAM CONTROL
+-- ============================================================
 local toggleButton
 
 local function updateGUI()
@@ -300,14 +377,82 @@ end
 
 local function setSpam(v)
     if spamOn == v then return end
-    spamOn                         = v
-    lastSpamFire                   = tick()
+    spamOn = v
     getgenv().__deltaV3_spamActive = v
     updateGUI()
+
+    if v then
+        -- (Re)inicia loop com valores atuais
+        spamThread = task.spawn(runSpamLoop)
+    else
+        spamThread = nil  -- loop lê spamOn/clashSpamOn e sai naturalmente
+    end
+end
+
+local function setClashSpam(v)
+    local wasActive = spamOn or clashSpamOn
+    clashSpamOn     = v
+    local isActive  = spamOn or clashSpamOn
+
+    if isActive and not wasActive then
+        spamThread = task.spawn(runSpamLoop)
+    end
+    -- se desativou, loop sai naturalmente na próxima iteração
 end
 
 getgenv().__deltaV3_setSpam     = function(v) setSpam(v) end
 getgenv().__deltaV3_setSpamMode = function(mode) getgenv().__deltaV3_spamKeyMode = mode end
+
+-- ============================================================
+-- ENGINE: applyCalibration
+-- Chamada pelo ApplyBtn do controle GUI
+-- Recalcula intervalo quantizado, ping offset e burst
+-- Também alimenta o threshold do auto-parry
+-- ============================================================
+getgenv().__deltaV3_applyCalibration = function(fps, ping)
+    local frameTime  = 1 / fps
+    local pingOff    = ping / 1000
+
+    local rawInterval = getgenv().__deltaV3_spamIntervalRaw
+        or getgenv().__deltaV3_spamInterval
+        or Config.spamInterval
+
+    -- Quantiza ao múltiplo de frame mais próximo
+    local framesPerSpam   = math.max(1, math.floor(rawInterval / frameTime + 0.5))
+    local alignedInterval = framesPerSpam * frameTime
+    local effectiveCps    = math.floor(1 / alignedInterval + 0.5)
+    local bCount          = (pingOff >= 0.060) and 2 or 1
+
+    -- Salva globals para o spam loop
+    getgenv().__deltaV3_calibratedInterval = alignedInterval
+    getgenv().__deltaV3_pingOffset         = pingOff
+    getgenv().__deltaV3_burstCount         = bCount
+    getgenv().__deltaV3_effectiveCps       = effectiveCps
+    getgenv().__deltaV3_frameInterval      = frameTime
+    getgenv().__deltaV3_framesPerSpam      = framesPerSpam
+    getgenv().__deltaV3_frameTime          = frameTime
+    getgenv().__deltaV3_calibrated         = true
+
+    -- Alimenta o threshold do auto-parry:
+    -- Com calibração, o ping offset já é compensado pelo envio antecipado.
+    -- Ajustamos o manualPingOffset para refletir a compensação real,
+    -- evitando double-compensation.
+    Config.manualPingOffset = pingOff * 0.5
+    -- (0.5 = metade: a outra metade é compensada pelo envio antecipado)
+    -- Para FPS baixo, adicionamos margem extra de frame
+    Config.thresholdBase = 0.12 + (frameTime * 0.5)
+
+    -- Se spam estava ativo, reinicia com novos valores
+    if spamOn or clashSpamOn then
+        local wasSpam  = spamOn
+        local wasClash = clashSpamOn
+        spamOn      = false
+        clashSpamOn = false
+        task.wait(0.05)
+        if wasSpam  then setSpam(true) end
+        if wasClash then setClashSpam(true) end
+    end
+end
 
 -- ============================================================
 -- KEYBIND
@@ -407,7 +552,7 @@ task.spawn(function()
     titleLabel.Size                   = UDim2.new(1, -6, 1, 0)
     titleLabel.Position               = UDim2.new(0, 6, 0, 0)
     titleLabel.BackgroundTransparency = 1
-    titleLabel.Text                   = "FINAL v5.7"
+    titleLabel.Text                   = "DELTA v5.8"
     titleLabel.TextColor3             = Color3.fromRGB(180, 195, 255)
     titleLabel.TextScaled             = true
     titleLabel.Font                   = Enum.Font.GothamBold
@@ -426,7 +571,6 @@ task.spawn(function()
     Instance.new("UICorner", toggleButton).CornerRadius = UDim.new(0, 10)
 
     local dragging, dragStart, startPos = false, nil, nil
-
     local function updateDrag(input)
         if not dragStart or not startPos then return end
         local delta  = input.Position - dragStart
@@ -548,10 +692,9 @@ local function bind(ch)
             return
         end
 
-        local now          = tick()
-        local autoParryOn  = getgenv().__deltaV3_autoParryOn
-        local autoClashOn  = getgenv().__deltaV3_autoClashOn
-        local spamInterval = getgenv().__deltaV3_spamInterval or Config.spamInterval
+        local now         = tick()
+        local autoParryOn = getgenv().__deltaV3_autoParryOn
+        local autoClashOn = getgenv().__deltaV3_autoClashOn
 
         -- ── DECAY DO CLASH (3 condições) ──
         if ClashState.Active then
@@ -572,21 +715,14 @@ local function bind(ch)
             end
         end
 
-        clashSpamOn = (autoClashOn and ClashState.Active) and true or false
-
-        -- ── SPAM ──
-        if spamOn or clashSpamOn then
-            local fired = 0
-            while (now - lastSpamFire) >= spamInterval and fired < Config.spamCapPerFrame do
-                sendParry()
-                lastSpamFire = lastSpamFire + spamInterval
-                fired        = fired + 1
-            end
-            if (now - lastSpamFire) > spamInterval * Config.spamCapPerFrame then
-                lastSpamFire = now
-            end
-            return
+        -- Clash spam usa engine calibrada igual ao spam manual
+        local shouldClash = autoClashOn and ClashState.Active
+        if shouldClash ~= clashSpamOn then
+            setClashSpam(shouldClash)
         end
+
+        -- Se spam está ativo (manual ou clash), auto-parry não interfere
+        if spamOn or clashSpamOn then return end
 
         if not autoParryOn then return end
 
@@ -610,7 +746,6 @@ local function bind(ch)
         local safeSpeed = math.max(speed, 0.1)
 
         -- ── RESET DINÂMICO ──
-        -- FIX v5.7: só libera ballProcessed se bola já saiu da safetyDistance
         local dynamicReset = math.max(
             (distance / safeSpeed) * Config.resetFactor,
             Config.resetMin
@@ -647,9 +782,15 @@ local function bind(ch)
         end
 
         local timeToReach = distance / safeSpeed
-        local threshold   = math_clamp(
+
+        -- Threshold usa ping calibrado se disponível, senão usa smoothedPing
+        local activePing  = getgenv().__deltaV3_calibrated
+            and (getgenv().__deltaV3_pingOffset or smoothedPing)
+            or  smoothedPing
+
+        local threshold = math_clamp(
             Config.thresholdBase
-            + smoothedPing * Config.pingMultiplier
+            + activePing * Config.pingMultiplier
             + Config.manualPingOffset,
             Config.thresholdMin,
             Config.thresholdMax
@@ -658,7 +799,6 @@ local function bind(ch)
         local isTarget = (BallSync.TargetID == lp.UserId)
                       or (BallSync.TargetID == -999 and tgtOnFallback())
 
-        -- ── DISPARO: normal + safety net ──
         local normalTrigger = isTarget and timeToReach <= threshold
         local safetyTrigger = isTarget and not normalTrigger and distance <= Config.safetyDistance
 
@@ -680,7 +820,6 @@ local function bind(ch)
             connection:Disconnect()
             setSpam(false)
             resetClash()
-            lastSpamFire           = 0
             lastBallPos            = nil
             ballProcessed          = false
             auraOuter.Transparency = 1
