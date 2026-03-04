@@ -1,4 +1,4 @@
--- DELTA V3 — ALMA v5.1 [BETA: sem CFrame, jitter numérico, dual queue, 1600 CPS]
+-- DELTA V3 — ALMA v5.1 [BETA: sem CFrame, dual queue, 1600 CPS, sem hook CSendEvent]
 local tick       = tick
 local math_clamp = math.clamp
 local typeof     = typeof
@@ -39,7 +39,7 @@ local Config = {
     processResetClash  = 0.05,
     clashRadMult       = 1.5,
     spamInterval       = 0.000625, -- 1600 CPS
-    spamCapPerFrame    = 27,       -- 1600/60fps
+    spamCapPerFrame    = 27,
     pingSmooth         = 0.15,
     pingMultiplier     = 1.1,
     pingOffset         = 0.02,
@@ -68,7 +68,6 @@ local TS_Folder   = RSrv:WaitForChild("TS", 10)
 local NetRemotes  = TS_Folder and TS_Folder:WaitForChild("GeneratedNetworkRemotes", 10)
 local parryRemote = NetRemotes and NetRemotes:FindFirstChild("RE_4.6848415795802784e+76")
 
--- fila B: UnreliableRemoteEvent (menor latência, fila separada)
 local parryUnreliable = nil
 pcall(function()
     if NetRemotes then
@@ -88,25 +87,21 @@ local touchTapEvent = RSrv:FindFirstChild("TouchTap")
 
 local PNotif = RSrv:WaitForChild("PromptNotification")
 task.spawn(function()
-    PNotif:Fire("Delta v5.1 BETA ⚗️ | 1600 CPS | Dual Queue | No CFrame", true)
+    PNotif:Fire("Delta v5.1 BETA ⚗️ | 1600 CPS | Dual Queue", true)
 end)
 
 local spamOn      = false
 local clashSpamOn = false
 
+-- hook só pro IsAvailable (spam manual)
 local _originalIsAvailable
 _originalIsAvailable = hookfunction(Def.IsAvailable, function(self, ...)
     if spamOn then return true end
     return _originalIsAvailable(self, ...)
 end)
 
-local oSend
-oSend = hookfunction(Net.CSendEvent, function(self, router, evt, ...)
-    if router == 46848415795802784000000000000000000000000000000000000000000000000000000000000 then
-        return oSend(self, router, 29338138590583890000000000000000000000000000000000000000000000000000000000000, ...)
-    end
-    return oSend(self, router, evt, ...)
-end)
+-- ── hook CSendEvent REMOVIDO ──
+-- era ele que tirava o cooldown e atrapalhava o auto parry normal
 
 local Cache = { Character = nil, RootPart = nil, Ball = nil }
 
@@ -118,26 +113,25 @@ local function getBallCFrame()
     return Cache.Ball and Cache.Ball.CFrame or getParryCFrame()
 end
 
--- ── SEND PARRY BETA ──
--- sem CFrames = ~8 bytes (era ~104 bytes) → 13x mais parries no mesmo bandwidth
--- jitter numérico → cada pacote único, evita deduplicação
-local parryCounter = 0
-local BASE_VAL     = 2.933813859058389e+76
+local BASE_VAL = 2.933813859058389e+76
 
-local function sendParry()
-    parryCounter = (parryCounter + 1) % 100000
-
-    -- fila A: RemoteEvent normal
+-- ── SPAM: só fila A — leve, sem lag
+-- 1600 × 8 bytes = 12.8kb/s, bem abaixo do limite de 25kb/s
+local function sendParrySpam()
     if parryRemote then
         pcall(function() parryRemote:FireServer(BASE_VAL) end)
     end
+    if touchTapEvent then touchTapEvent:Fire() end
+end
 
-    -- fila B: UnreliableRemoteEvent (menor latência, fila separada de 500/s)
+-- ── AUTO PARRY: 3 filas — só dispara 1x por bola, overhead não importa
+local function sendParry()
+    if parryRemote then
+        pcall(function() parryRemote:FireServer(BASE_VAL) end)
+    end
     if parryUnreliable then
         pcall(function() parryUnreliable:FireServer(BASE_VAL) end)
     end
-
-    -- fila C: Net.CSendEvent (reforço)
     if Net then
         pcall(function()
             Net:CSendEvent(
@@ -146,7 +140,6 @@ local function sendParry()
             )
         end)
     end
-
     if touchTapEvent then touchTapEvent:Fire() end
 end
 
@@ -533,10 +526,11 @@ local function bind(ch)
 
         clashSpamOn = (autoClashOn and ClashState.Active) and true or false
 
+        -- ── SPAM: usa sendParrySpam (só fila A, sem lag) ──
         if spamOn or clashSpamOn then
             local fired = 0
             while (now - lastSpamFire) >= spamInterval and fired < Config.spamCapPerFrame do
-                sendParry()
+                sendParrySpam()
                 lastSpamFire = lastSpamFire + spamInterval
                 fired        = fired + 1
             end
@@ -632,6 +626,7 @@ local function bind(ch)
             and d    <= rad
             and tImp <= (Config.maxImpactTime + ping)
 
+        -- ── AUTO PARRY: usa sendParry (3 filas, dispara 1x por bola) ──
         if can and not ballProcessed and (now - lastFire) >= dynamicCD then
             sendParry()
             lastFire         = now
