@@ -1,4 +1,4 @@
--- DELTA V3 — ALMA v5.1 [BETA: sem CFrame, dual queue, 1600 CPS, sem hook CSendEvent]
+-- DELTA V3 — ALMA v5.1 [BETA: sem CFrame, dual queue, 1600 CPS, sem hook]
 local tick       = tick
 local math_clamp = math.clamp
 local typeof     = typeof
@@ -62,7 +62,6 @@ if getgenv().__deltaV3_auraOn       == nil then getgenv().__deltaV3_auraOn      
 if getgenv().__deltaV3_spamInterval == nil then getgenv().__deltaV3_spamInterval = 0.000625 end
 
 local Net = require(RSrv.TS.Network.Network).Network
-local Def = require(RSrv.TS.Abilities.DeflectAbility).DeflectAbility
 
 local TS_Folder   = RSrv:WaitForChild("TS", 10)
 local NetRemotes  = TS_Folder and TS_Folder:WaitForChild("GeneratedNetworkRemotes", 10)
@@ -93,16 +92,6 @@ end)
 local spamOn      = false
 local clashSpamOn = false
 
--- hook só pro IsAvailable (spam manual)
-local _originalIsAvailable
-_originalIsAvailable = hookfunction(Def.IsAvailable, function(self, ...)
-    if spamOn then return true end
-    return _originalIsAvailable(self, ...)
-end)
-
--- ── hook CSendEvent REMOVIDO ──
--- era ele que tirava o cooldown e atrapalhava o auto parry normal
-
 local Cache = { Character = nil, RootPart = nil, Ball = nil }
 
 local function getParryCFrame()
@@ -115,10 +104,11 @@ end
 
 local BASE_VAL = 2.933813859058389e+76
 
--- ── SPAM: só fila A — leve, sem lag
--- 1600 × 8 bytes = 12.8kb/s, bem abaixo do limite de 25kb/s
+-- ── SPAM: unreliable primeiro, fallback reliable + touchTap
 local function sendParrySpam()
-    if parryRemote then
+    if parryUnreliable then
+        pcall(function() parryUnreliable:FireServer(BASE_VAL) end)
+    elseif parryRemote then
         pcall(function() parryRemote:FireServer(BASE_VAL) end)
     end
     if touchTapEvent then touchTapEvent:Fire() end
@@ -526,7 +516,7 @@ local function bind(ch)
 
         clashSpamOn = (autoClashOn and ClashState.Active) and true or false
 
-        -- ── SPAM: usa sendParrySpam (só fila A, sem lag) ──
+        -- ── SPAM: usa sendParrySpam (unreliable primeiro, fallback reliable) ──
         if spamOn or clashSpamOn then
             local fired = 0
             while (now - lastSpamFire) >= spamInterval and fired < Config.spamCapPerFrame do
