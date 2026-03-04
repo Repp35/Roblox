@@ -1,4 +1,4 @@
--- DELTA V3 — ALMA v5.1 [NO HOOK]
+-- DELTA V3 — ALMA v5.1 [FIXED: double fire, spam loop, hook ignorado]
 local tick       = tick
 local math_clamp = math.clamp
 local typeof     = typeof
@@ -52,9 +52,6 @@ local Config = {
     clashDecayTime    = 1.2,
     clashMinHistory   = 4,
     clashCooldown     = 1.5,
-    clashBurstSize     = 4,
-    clashBurstInterval = 0.0167,
-    clashBurstCount    = 20,
     activationDistanceOffset = 7,
     auraUpdateRate           = 0.015,
 }
@@ -65,6 +62,7 @@ if getgenv().__deltaV3_auraOn       == nil then getgenv().__deltaV3_auraOn      
 if getgenv().__deltaV3_spamInterval == nil then getgenv().__deltaV3_spamInterval = 0.00167 end
 
 local Net = require(RSrv.TS.Network.Network).Network
+local Def = require(RSrv.TS.Abilities.DeflectAbility).DeflectAbility
 
 local TS_Folder   = RSrv:WaitForChild("TS", 10)
 local NetRemotes  = TS_Folder and TS_Folder:WaitForChild("GeneratedNetworkRemotes", 10)
@@ -82,6 +80,13 @@ end)
 
 local spamOn      = false
 local clashSpamOn = false
+
+-- Hook ativo apenas quando spam manual está ligado. Auto clash não o usa.
+local _originalIsAvailable
+_originalIsAvailable = hookfunction(Def.IsAvailable, function(self, ...)
+    if spamOn then return true end
+    return _originalIsAvailable(self, ...)
+end)
 
 local oSend
 oSend = hookfunction(Net.CSendEvent, function(self, router, evt, ...)
@@ -166,7 +171,8 @@ local function getBall()
         Cache.Ball = gi.BallModel
         return Cache.Ball
     end
-    return nil
+    Cache.Ball = WS:FindFirstChild("GameBall", true)
+    return Cache.Ball
 end
 
 local function tgtOn()
@@ -230,7 +236,6 @@ local ClashState = {
     LastActivationTime = 0,
     LastClashTime      = 0,
     CurrentOpponent    = nil,
-    IsBursting         = false,
 }
 
 local TargetHistory = {}
@@ -276,7 +281,6 @@ local function updateClashDetection(newTargetID, ballPos, ballVel, hrpPos)
             ClashState.LastActivationTime = now
             ClashState.LastClashTime      = now
             ClashState.CurrentOpponent    = TargetHistory[2].id
-            clashSpamOn = true
             setState("clash")
         end
     end
@@ -289,56 +293,13 @@ local function updateClashDetection(newTargetID, ballPos, ballVel, hrpPos)
         ClashState.Active             = true
         ClashState.LastActivationTime = now
         ClashState.LastClashTime      = now
-        clashSpamOn = true
         setState("clash")
     end
 end
 
-local function performClashBurst()
-    if ClashState.IsBursting then return end
-    ClashState.IsBursting = true
-    task.spawn(function()
-        for _ = 1, Config.clashBurstCount do
-            if not ClashState.Active then break end
-            for _ = 1, Config.clashBurstSize do
-                sendParry()
-            end
-            task.wait(Config.clashBurstInterval)
-        end
-        ClashState.IsBursting = false
-    end)
-end
-
-local spamThreadRunning = false
-
-local function runSpamLoop()
-    local startT = os.clock()
-    local n      = 0
-
-    while spamOn do
-        n = n + 1
-        local interval = getgenv().__deltaV3_spamInterval or Config.spamInterval
-        local nextFire = startT + n * interval
-        local now      = os.clock()
-        local diff     = nextFire - now
-
-        if diff > 0.001 then
-            task.wait(diff)
-        else
-            task.wait()
-            if (os.clock() - nextFire) > interval * 5 then
-                startT = os.clock()
-                n = 0
-            end
-        end
-
-        if spamOn then
-            sendParry()
-        end
-    end
-    spamThreadRunning = false
-end
-
+-- [FIX] Removidos: runSpamLoop, spamThreadRunning, performClashBurst, clashBurst configs.
+-- Tudo passa pelo Heartbeat com lastSpamFire igual ao Script 2. Double fire eliminado.
+local lastSpamFire = 0
 local toggleButton
 
 local function updateGUI()
@@ -351,17 +312,10 @@ end
 
 local function setSpam(v)
     if spamOn == v then return end
-    spamOn = v
+    spamOn       = v
+    lastSpamFire = tick()
+    setState(v and "spam" or "normal")
     updateGUI()
-    if v then
-        if not spamThreadRunning then
-            spamThreadRunning = true
-            task.spawn(runSpamLoop)
-        end
-        setState("spam")
-    else
-        setState("normal")
-    end
 end
 
 getgenv().__deltaV3_setSpam = function(v) setSpam(v) end
@@ -425,15 +379,14 @@ task.spawn(function()
     Instance.new("UICorner", toggleButton).CornerRadius = UDim.new(0, 10)
 
     local dragging, dragStart, startPos = false, nil, nil
-    local math_clamp_local = math.clamp
 
     local function updateDrag(input)
         if not dragStart or not startPos then return end
         local delta  = input.Position - dragStart
         local vpSize = WS.CurrentCamera.ViewportSize
         local fSize  = mainFrame.AbsoluteSize
-        local nx = math_clamp_local(startPos.X.Offset + delta.X, 0, vpSize.X - fSize.X)
-        local ny = math_clamp_local(startPos.Y.Offset + delta.Y, 0, vpSize.Y - fSize.Y)
+        local nx = math_clamp(startPos.X.Offset + delta.X, 0, vpSize.X - fSize.X)
+        local ny = math_clamp(startPos.Y.Offset + delta.Y, 0, vpSize.Y - fSize.Y)
         mainFrame.Position = UDim2.new(0, nx, 0, ny)
         getgenv().__deltaV3_savedSpamGuiPos = { x = nx, y = ny }
     end
@@ -540,7 +493,7 @@ local function bind(ch)
 
     local hrp         = ch:WaitForChild("HumanoidRootPart", 10)
     local lastBallPos = nil
-    local ballResetAt = 0
+    local ballResetAt = 0   -- [FIX] dentro de bind(), não no escopo do módulo
     local vel         = Vector3.zero
     local lastBP      = nil
     local lastBT      = nil
@@ -554,17 +507,30 @@ local function bind(ch)
             return
         end
 
-        local now         = tick()
-        local autoParryOn = getgenv().__deltaV3_autoParryOn
-        local autoClashOn = getgenv().__deltaV3_autoClashOn
+        local now          = tick()
+        local autoParryOn  = getgenv().__deltaV3_autoParryOn
+        local autoClashOn  = getgenv().__deltaV3_autoClashOn
+        local spamInterval = getgenv().__deltaV3_spamInterval or Config.spamInterval
 
         clashSpamOn = (autoClashOn and ClashState.Active) and true or false
 
-        if autoClashOn and ClashState.Active then
-            performClashBurst()
+        -- [FIX] Spam/clash: tudo no Heartbeat, sem task.spawn paralelo.
+        -- lastSpamFire controla a cadência. Sem burst separado = sem double fire.
+        if spamOn or clashSpamOn then
+            local fired = 0
+            while (now - lastSpamFire) >= spamInterval and fired < Config.spamCapPerFrame do
+                sendParry()
+                lastSpamFire = lastSpamFire + spamInterval
+                fired        = fired + 1
+            end
+            if (now - lastSpamFire) > spamInterval * Config.spamCapPerFrame then
+                lastSpamFire = now
+            end
+            return
+        else
+            lastSpamFire = now
         end
 
-        if spamOn then return end
         if not autoParryOn then return end
 
         pingTimer = pingTimer + dt
@@ -579,9 +545,8 @@ local function bind(ch)
         end
 
         if ClashState.Active and (now - ClashState.LastActivationTime) > Config.clashDecayTime then
-            ClashState.Active     = false
-            ClashState.IsBursting = false
-            clashSpamOn           = false
+            ClashState.Active = false
+            clashSpamOn       = false
             if State.current == "clash" then setState("normal") end
         end
 
@@ -596,6 +561,7 @@ local function bind(ch)
                 ballProcessed    = true
                 lastProcessReset = now
                 ballResetAt      = now
+                lastFire         = now
                 vel              = Vector3.zero
                 lastBP, lastBT   = nil, nil
                 lastBallPos      = bp
@@ -665,8 +631,8 @@ local function bind(ch)
             connection:Disconnect()
             setSpam(false)
             clashSpamOn              = false
+            lastSpamFire             = 0
             ClashState.Active        = false
-            ClashState.IsBursting    = false
             ClashState.LastClashTime = 0
             lastBallPos              = nil
             auraOuter.Transparency   = 1
