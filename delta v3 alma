@@ -38,8 +38,8 @@ local Config = {
     processResetNormal = 0.3,
     processResetClash  = 0.05,
     clashRadMult       = 1.5,
-    spamInterval       = 0.000625, -- 1600 CPS
-    spamCapPerFrame    = 27,
+    spamInterval       = 0.00167,  -- ~600 CPS
+    spamCapPerFrame    = 10,
     pingSmooth         = 0.15,
     pingMultiplier     = 1.1,
     pingOffset         = 0.02,
@@ -59,7 +59,7 @@ local Config = {
 if getgenv().__deltaV3_autoParryOn  == nil then getgenv().__deltaV3_autoParryOn  = true     end
 if getgenv().__deltaV3_autoClashOn  == nil then getgenv().__deltaV3_autoClashOn  = true     end
 if getgenv().__deltaV3_auraOn       == nil then getgenv().__deltaV3_auraOn       = false    end
-if getgenv().__deltaV3_spamInterval == nil then getgenv().__deltaV3_spamInterval = 0.000625 end
+if getgenv().__deltaV3_spamInterval == nil then getgenv().__deltaV3_spamInterval = 0.00167  end
 
 local Net = require(RSrv.TS.Network.Network).Network
 
@@ -105,13 +105,13 @@ end
 local BASE_VAL = 2.933813859058389e+76
 
 -- ── SPAM: sem pcall — overhead zero, falha silenciosamente
+-- touchTapEvent removido do spam: não deve ser disparado 1600x/s
 local function sendParrySpam()
     if parryUnreliable then
         parryUnreliable:FireServer(BASE_VAL)
     elseif parryRemote then
         parryRemote:FireServer(BASE_VAL)
     end
-    if touchTapEvent then touchTapEvent:Fire() end
 end
 
 -- ── AUTO PARRY: 3 filas — pcall só na primeira chamada pra testar
@@ -567,15 +567,14 @@ local function bind(ch)
 
         -- ── SPAM: resetar dívida ao começar para não disparar 27x de uma vez ──
         if spamOn or clashSpamOn then
-            -- se lastSpamFire ficou muito atrás (ex: acabou de ligar), sincroniza
-            if (now - lastSpamFire) > Config.spamInterval * Config.spamCapPerFrame then
-                lastSpamFire = now
-            end
             local fired = 0
-            while (now - lastSpamFire) >= Config.spamInterval and fired < Config.spamCapPerFrame do
-                sendParrySpam()
-                lastSpamFire = lastSpamFire + Config.spamInterval
+            while (now - lastSpamFire) >= spamInterval and fired < Config.spamCapPerFrame do
+                sendParry()
+                lastSpamFire = lastSpamFire + spamInterval
                 fired        = fired + 1
+            end
+            if (now - lastSpamFire) > spamInterval * Config.spamCapPerFrame then
+                lastSpamFire = now
             end
             return
         else
