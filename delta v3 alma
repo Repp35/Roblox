@@ -1,4 +1,4 @@
--- DELTA V3 — ALMA v5.1 [FIXED: double fire, spam loop, hook ignorado]
+-- DELTA V3 — ALMA v5.1 [BETA: UnreliableRemote + arg jitter + dual queue]
 local tick       = tick
 local math_clamp = math.clamp
 local typeof     = typeof
@@ -33,25 +33,25 @@ local Config = {
     radiusPre     = 10,
     minSpeed      = 5,
     maxImpactTime = 0.35,
-    ballResetThresh  = 50,
-    ballResetLockout = 0.6,
+    ballResetThresh    = 50,
+    ballResetLockout   = 0.6,
     processResetNormal = 0.3,
     processResetClash  = 0.05,
-    clashRadMult = 1.5,
-    spamInterval    = 0.00167,
-    spamCapPerFrame = 10,
-    pingSmooth     = 0.15,
-    pingMultiplier = 1.1,
-    pingOffset     = 0.02,
-    pingMin        = 0.02,
-    pingMax        = 0.25,
-    clashHistorySize  = 8,
-    clashTimeWindow   = 0.45,
-    clashMinDist      = 35,
-    clashCriticalDist = 12,
-    clashDecayTime    = 1.2,
-    clashMinHistory   = 4,
-    clashCooldown     = 1.5,
+    clashRadMult       = 1.5,
+    spamInterval       = 0.00167,
+    spamCapPerFrame    = 10,
+    pingSmooth         = 0.15,
+    pingMultiplier     = 1.1,
+    pingOffset         = 0.02,
+    pingMin            = 0.02,
+    pingMax            = 0.25,
+    clashHistorySize   = 8,
+    clashTimeWindow    = 0.45,
+    clashMinDist       = 35,
+    clashCriticalDist  = 12,
+    clashDecayTime     = 1.2,
+    clashMinHistory    = 4,
+    clashCooldown      = 1.5,
     activationDistanceOffset = 7,
     auraUpdateRate           = 0.015,
 }
@@ -68,6 +68,19 @@ local TS_Folder   = RSrv:WaitForChild("TS", 10)
 local NetRemotes  = TS_Folder and TS_Folder:WaitForChild("GeneratedNetworkRemotes", 10)
 local parryRemote = NetRemotes and NetRemotes:FindFirstChild("RE_4.6848415795802784e+76")
 
+-- ── BETA: UnreliableRemoteEvent (fila separada de 500/s) ──
+local parryUnreliable = nil
+pcall(function()
+    if NetRemotes then
+        for _, v in ipairs(NetRemotes:GetChildren()) do
+            if v:IsA("UnreliableRemoteEvent") then
+                parryUnreliable = v
+                break
+            end
+        end
+    end
+end)
+
 local ballSyncRemote = RSrv:WaitForChild("Remotes", 5)
 ballSyncRemote = ballSyncRemote and ballSyncRemote:FindFirstChild("BallSyncData")
 
@@ -75,13 +88,12 @@ local touchTapEvent = RSrv:FindFirstChild("TouchTap")
 
 local PNotif = RSrv:WaitForChild("PromptNotification")
 task.spawn(function()
-    PNotif:Fire("Delta v5.1 ✅ | Auto Parry | Clash | Spam", true)
+    PNotif:Fire("Delta v5.1 BETA ⚗️ | Dual Queue | Jitter", true)
 end)
 
 local spamOn      = false
 local clashSpamOn = false
 
--- Hook ativo apenas quando spam manual está ligado. Auto clash não o usa.
 local _originalIsAvailable
 _originalIsAvailable = hookfunction(Def.IsAvailable, function(self, ...)
     if spamOn then return true end
@@ -106,16 +118,42 @@ local function getBallCFrame()
     return Cache.Ball and Cache.Ball.CFrame or getParryCFrame()
 end
 
+-- ── BETA: contador pra variar args — evita deduplicação de pacotes idênticos ──
+local parryCounter = 0
+
 local function sendParry()
+    parryCounter = (parryCounter + 1) % 1000
+
+    local pCF   = getParryCFrame()
+    local bCF   = getBallCFrame()
+    -- jitter mínimo (0.00001 studs) — imperceptível no jogo mas pacote único
+    local jitter = parryCounter * 0.00001
+    local pCFj  = pCF * CFrame.new(jitter, 0, 0)
+
+    -- fila A: RemoteEvent normal (500/s)
     if parryRemote and Cache.RootPart then
-        parryRemote:FireServer(2.933813859058389e+76, getParryCFrame(), getBallCFrame())
+        pcall(function()
+            parryRemote:FireServer(2.933813859058389e+76, pCFj, bCF)
+        end)
     end
+
+    -- fila B: UnreliableRemoteEvent (500/s separada + menor latência)
+    if parryUnreliable and Cache.RootPart then
+        pcall(function()
+            parryUnreliable:FireServer(2.933813859058389e+76, pCFj, bCF)
+        end)
+    end
+
+    -- fila C: Net.CSendEvent (reforço)
     if Net then
-        Net:CSendEvent(
-            46848415795802784000000000000000000000000000000000000000000000000000000000000,
-            6846744283873508500000000000000000000000000000000000000000000000000000000000
-        )
+        pcall(function()
+            Net:CSendEvent(
+                46848415795802784000000000000000000000000000000000000000000000000000000000000,
+                6846744283873508500000000000000000000000000000000000000000000000000000000000
+            )
+        end)
     end
+
     if touchTapEvent then
         touchTapEvent:Fire()
     end
@@ -264,16 +302,12 @@ local function updateClashDetection(newTargetID, ballPos, ballVel, hrpPos)
     if (now - ClashState.LastClashTime) < Config.clashCooldown then return end
 
     if #TargetHistory >= Config.clashMinHistory then
-        local timeGap = TargetHistory[1].t - TargetHistory[Config.clashMinHistory].t
-
+        local timeGap       = TargetHistory[1].t - TargetHistory[Config.clashMinHistory].t
         local isAlternating = true
         for i = 1, Config.clashMinHistory do
             local expectedMe = (i % 2 == 1)
             local isMe       = (TargetHistory[i].id == lp.UserId)
-            if expectedMe ~= isMe then
-                isAlternating = false
-                break
-            end
+            if expectedMe ~= isMe then isAlternating = false; break end
         end
 
         if isAlternating and timeGap < Config.clashTimeWindow and dist < Config.clashMinDist then
@@ -297,8 +331,6 @@ local function updateClashDetection(newTargetID, ballPos, ballVel, hrpPos)
     end
 end
 
--- [FIX] Removidos: runSpamLoop, spamThreadRunning, performClashBurst, clashBurst configs.
--- Tudo passa pelo Heartbeat com lastSpamFire igual ao Script 2. Double fire eliminado.
 local lastSpamFire = 0
 local toggleButton
 
@@ -360,7 +392,7 @@ task.spawn(function()
     titleLabel.Size                   = UDim2.new(1, -6, 1, 0)
     titleLabel.Position               = UDim2.new(0, 6, 0, 0)
     titleLabel.BackgroundTransparency = 1
-    titleLabel.Text                   = "SPAM [1]"
+    titleLabel.Text                   = "SPAM BETA ⚗️"
     titleLabel.TextColor3             = Color3.fromRGB(180, 195, 255)
     titleLabel.TextScaled             = true
     titleLabel.Font                   = Enum.Font.GothamBold
@@ -398,9 +430,7 @@ task.spawn(function()
             dragStart = input.Position
             startPos  = mainFrame.Position
             input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
             end)
         end
     end)
@@ -442,8 +472,8 @@ local function createAuraPart(name)
     return p
 end
 
-local auraOuter = createAuraPart("DeltaAuraOuter")
-local auraInner = createAuraPart("DeltaAuraInner")
+local auraOuter        = createAuraPart("DeltaAuraOuter")
+local auraInner        = createAuraPart("DeltaAuraInner")
 local lastVisualUpdate = 0
 
 local auraConn = RS.RenderStepped:Connect(function()
@@ -451,10 +481,8 @@ local auraConn = RS.RenderStepped:Connect(function()
     if (now - lastVisualUpdate) < Config.auraUpdateRate then return end
     lastVisualUpdate = now
 
-    local auraEnabled = getgenv().__deltaV3_auraOn
-    local hrp         = Cache.RootPart
-
-    if not auraEnabled or not hrp or not hrp.Parent then
+    local hrp = Cache.RootPart
+    if not getgenv().__deltaV3_auraOn or not hrp or not hrp.Parent then
         auraOuter.Transparency = 1
         auraInner.Transparency = 1
         return
@@ -493,7 +521,7 @@ local function bind(ch)
 
     local hrp         = ch:WaitForChild("HumanoidRootPart", 10)
     local lastBallPos = nil
-    local ballResetAt = 0   -- [FIX] dentro de bind(), não no escopo do módulo
+    local ballResetAt = 0
     local vel         = Vector3.zero
     local lastBP      = nil
     local lastBT      = nil
@@ -514,8 +542,6 @@ local function bind(ch)
 
         clashSpamOn = (autoClashOn and ClashState.Active) and true or false
 
-        -- [FIX] Spam/clash: tudo no Heartbeat, sem task.spawn paralelo.
-        -- lastSpamFire controla a cadência. Sem burst separado = sem double fire.
         if spamOn or clashSpamOn then
             local fired = 0
             while (now - lastSpamFire) >= spamInterval and fired < Config.spamCapPerFrame do
