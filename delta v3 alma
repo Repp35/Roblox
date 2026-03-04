@@ -1,19 +1,8 @@
--- DELTA V3 — ALMA v5.1 [FIXED]
--- Correcoes vs FIXED v5.0:
---   [FIX] hookfunction: IsAvailable REMOVIDO
---   [FIX] Spam em task.spawn separado controlado por flag, sem task.cancel
---   [FIX] Clash burst separado e nao bloqueia heartbeat do auto-parry
---   [FIX] clashSpamOn reintroduzido corretamente para aura e logica
---   [FIX] Heartbeat: spam e auto-parry nao se interferem
---   [FIX] Status dots refletem defaults reais (parry ON, clash ON por padrao)
---   [FIX] getBall sem FindFirstChild recursivo (cache via ChildAdded)
---   [PERF] Sem pcall no loop de spam (objetos sempre validos)
-
+-- DELTA V3 — ALMA v5.1 [NO HOOK]
 local tick       = tick
 local math_clamp = math.clamp
 local typeof     = typeof
 
--- cleanup de execucao anterior
 if getgenv().__na_aex_conn then
     getgenv().__na_aex_conn:Disconnect()
     getgenv().__na_aex_conn = nil
@@ -36,7 +25,6 @@ local Config = {
     parryCDMax    = 0.3,
     parryCDFactor = 0.5,
     clashCDFactor = 0.1,
-
     velSmooth     = 0.05,
     minRadius     = 9,
     maxRadius     = 90,
@@ -45,24 +33,18 @@ local Config = {
     radiusPre     = 10,
     minSpeed      = 5,
     maxImpactTime = 0.35,
-
     ballResetThresh  = 50,
     ballResetLockout = 0.6,
-
     processResetNormal = 0.3,
     processResetClash  = 0.05,
-
     clashRadMult = 1.5,
-
     spamInterval    = 0.00167,
     spamCapPerFrame = 10,
-
     pingSmooth     = 0.15,
     pingMultiplier = 1.1,
     pingOffset     = 0.02,
     pingMin        = 0.02,
     pingMax        = 0.25,
-
     clashHistorySize  = 8,
     clashTimeWindow   = 0.45,
     clashMinDist      = 35,
@@ -70,23 +52,19 @@ local Config = {
     clashDecayTime    = 1.2,
     clashMinHistory   = 4,
     clashCooldown     = 1.5,
-
     clashBurstSize     = 4,
     clashBurstInterval = 0.0167,
     clashBurstCount    = 20,
-
     activationDistanceOffset = 7,
     auraUpdateRate           = 0.015,
 }
 
--- defaults e comunicacao com o controle
 if getgenv().__deltaV3_autoParryOn  == nil then getgenv().__deltaV3_autoParryOn  = true    end
 if getgenv().__deltaV3_autoClashOn  == nil then getgenv().__deltaV3_autoClashOn  = true    end
 if getgenv().__deltaV3_auraOn       == nil then getgenv().__deltaV3_auraOn       = false   end
 if getgenv().__deltaV3_spamInterval == nil then getgenv().__deltaV3_spamInterval = 0.00167 end
 
-local Net  = require(RSrv.TS.Network.Network).Network
-local Def  = require(RSrv.TS.Abilities.DeflectAbility).DeflectAbility
+local Net = require(RSrv.TS.Network.Network).Network
 
 local TS_Folder   = RSrv:WaitForChild("TS", 10)
 local NetRemotes  = TS_Folder and TS_Folder:WaitForChild("GeneratedNetworkRemotes", 10)
@@ -105,7 +83,6 @@ end)
 local spamOn      = false
 local clashSpamOn = false
 
--- hook oSend mantido (roteamento de evento, nao tem relacao com cooldown)
 local oSend
 oSend = hookfunction(Net.CSendEvent, function(self, router, evt, ...)
     if router == 46848415795802784000000000000000000000000000000000000000000000000000000000000 then
@@ -189,7 +166,6 @@ local function getBall()
         Cache.Ball = gi.BallModel
         return Cache.Ball
     end
-    -- sem FindFirstChild recursivo - depende do cache via ChildAdded
     return nil
 end
 
@@ -318,7 +294,6 @@ local function updateClashDetection(newTargetID, ballPos, ballVel, hrpPos)
     end
 end
 
--- Clash burst: task.spawn separado, nao bloqueia heartbeat
 local function performClashBurst()
     if ClashState.IsBursting then return end
     ClashState.IsBursting = true
@@ -334,8 +309,6 @@ local function performClashBurst()
     end)
 end
 
--- Spam manual: loop em thread separada, controlado por flag
-local spamThread        = nil
 local spamThreadRunning = false
 
 local function runSpamLoop()
@@ -366,7 +339,6 @@ local function runSpamLoop()
     spamThreadRunning = false
 end
 
-local lastSpamFire = 0
 local toggleButton
 
 local function updateGUI()
@@ -379,13 +351,12 @@ end
 
 local function setSpam(v)
     if spamOn == v then return end
-    spamOn       = v
-    lastSpamFire = tick()
+    spamOn = v
     updateGUI()
     if v then
         if not spamThreadRunning then
             spamThreadRunning = true
-            spamThread = task.spawn(runSpamLoop)
+            task.spawn(runSpamLoop)
         end
         setState("spam")
     else
@@ -393,15 +364,8 @@ local function setSpam(v)
     end
 end
 
-getgenv().__deltaV3_setSpam    = function(v) setSpam(v) end
-getgenv().__deltaV3_spamActive = spamOn
+getgenv().__deltaV3_setSpam = function(v) setSpam(v) end
 
-local _spamActiveMeta = {}
-setmetatable(_spamActiveMeta, {
-    __index = function() return spamOn end
-})
-
--- GUI de spam
 task.spawn(function()
     local old = CoreGui:FindFirstChild("ParrySpamToggleGui")
     if old then old:Destroy() end
@@ -505,7 +469,6 @@ task.spawn(function()
     updateGUI()
 end)
 
--- Aura visual
 local OUTER_TRANSPARENCY = 0.18
 local INNER_TRANSPARENCY = 0.9
 local AREA_COLOR         = Color3.fromRGB(255, 255, 255)
@@ -572,7 +535,6 @@ local auraConn = RS.RenderStepped:Connect(function()
     auraInner.Transparency = INNER_TRANSPARENCY
 end)
 
--- HEARTBEAT
 local function bind(ch)
     setupCharacter(ch)
 
@@ -603,7 +565,6 @@ local function bind(ch)
         end
 
         if spamOn then return end
-
         if not autoParryOn then return end
 
         pingTimer = pingTimer + dt
