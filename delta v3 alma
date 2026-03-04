@@ -1,4 +1,4 @@
--- DELTA V3 — ALMA v5.1 [BETA: UnreliableRemote + arg jitter + dual queue]
+-- DELTA V3 — ALMA v5.1 [BETA: sem CFrame, jitter numérico, dual queue, 1600 CPS]
 local tick       = tick
 local math_clamp = math.clamp
 local typeof     = typeof
@@ -38,8 +38,8 @@ local Config = {
     processResetNormal = 0.3,
     processResetClash  = 0.05,
     clashRadMult       = 1.5,
-    spamInterval       = 0.00167,
-    spamCapPerFrame    = 10,
+    spamInterval       = 0.000625, -- 1600 CPS
+    spamCapPerFrame    = 27,       -- 1600/60fps
     pingSmooth         = 0.15,
     pingMultiplier     = 1.1,
     pingOffset         = 0.02,
@@ -56,10 +56,10 @@ local Config = {
     auraUpdateRate           = 0.015,
 }
 
-if getgenv().__deltaV3_autoParryOn  == nil then getgenv().__deltaV3_autoParryOn  = true    end
-if getgenv().__deltaV3_autoClashOn  == nil then getgenv().__deltaV3_autoClashOn  = true    end
-if getgenv().__deltaV3_auraOn       == nil then getgenv().__deltaV3_auraOn       = false   end
-if getgenv().__deltaV3_spamInterval == nil then getgenv().__deltaV3_spamInterval = 0.00167 end
+if getgenv().__deltaV3_autoParryOn  == nil then getgenv().__deltaV3_autoParryOn  = true     end
+if getgenv().__deltaV3_autoClashOn  == nil then getgenv().__deltaV3_autoClashOn  = true     end
+if getgenv().__deltaV3_auraOn       == nil then getgenv().__deltaV3_auraOn       = false    end
+if getgenv().__deltaV3_spamInterval == nil then getgenv().__deltaV3_spamInterval = 0.000625 end
 
 local Net = require(RSrv.TS.Network.Network).Network
 local Def = require(RSrv.TS.Abilities.DeflectAbility).DeflectAbility
@@ -68,7 +68,7 @@ local TS_Folder   = RSrv:WaitForChild("TS", 10)
 local NetRemotes  = TS_Folder and TS_Folder:WaitForChild("GeneratedNetworkRemotes", 10)
 local parryRemote = NetRemotes and NetRemotes:FindFirstChild("RE_4.6848415795802784e+76")
 
--- ── BETA: UnreliableRemoteEvent (fila separada de 500/s) ──
+-- fila B: UnreliableRemoteEvent (menor latência, fila separada)
 local parryUnreliable = nil
 pcall(function()
     if NetRemotes then
@@ -88,7 +88,7 @@ local touchTapEvent = RSrv:FindFirstChild("TouchTap")
 
 local PNotif = RSrv:WaitForChild("PromptNotification")
 task.spawn(function()
-    PNotif:Fire("Delta v5.1 BETA ⚗️ | Dual Queue | Jitter", true)
+    PNotif:Fire("Delta v5.1 BETA ⚗️ | 1600 CPS | Dual Queue | No CFrame", true)
 end)
 
 local spamOn      = false
@@ -118,30 +118,23 @@ local function getBallCFrame()
     return Cache.Ball and Cache.Ball.CFrame or getParryCFrame()
 end
 
--- ── BETA: contador pra variar args — evita deduplicação de pacotes idênticos ──
+-- ── SEND PARRY BETA ──
+-- sem CFrames = ~8 bytes (era ~104 bytes) → 13x mais parries no mesmo bandwidth
+-- jitter numérico → cada pacote único, evita deduplicação
 local parryCounter = 0
+local BASE_VAL     = 2.933813859058389e+76
 
 local function sendParry()
-    parryCounter = (parryCounter + 1) % 1000
+    parryCounter = (parryCounter + 1) % 100000
 
-    local pCF   = getParryCFrame()
-    local bCF   = getBallCFrame()
-    -- jitter mínimo (0.00001 studs) — imperceptível no jogo mas pacote único
-    local jitter = parryCounter * 0.00001
-    local pCFj  = pCF * CFrame.new(jitter, 0, 0)
-
-    -- fila A: RemoteEvent normal (500/s)
-    if parryRemote and Cache.RootPart then
-        pcall(function()
-            parryRemote:FireServer(2.933813859058389e+76, pCFj, bCF)
-        end)
+    -- fila A: RemoteEvent normal
+    if parryRemote then
+        pcall(function() parryRemote:FireServer(BASE_VAL) end)
     end
 
-    -- fila B: UnreliableRemoteEvent (500/s separada + menor latência)
-    if parryUnreliable and Cache.RootPart then
-        pcall(function()
-            parryUnreliable:FireServer(2.933813859058389e+76, pCFj, bCF)
-        end)
+    -- fila B: UnreliableRemoteEvent (menor latência, fila separada de 500/s)
+    if parryUnreliable then
+        pcall(function() parryUnreliable:FireServer(BASE_VAL) end)
     end
 
     -- fila C: Net.CSendEvent (reforço)
@@ -154,9 +147,7 @@ local function sendParry()
         end)
     end
 
-    if touchTapEvent then
-        touchTapEvent:Fire()
-    end
+    if touchTapEvent then touchTapEvent:Fire() end
 end
 
 local gi, br
