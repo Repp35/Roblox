@@ -555,6 +555,14 @@ local function bind(ch)
         local autoClashOn  = getgenv().__deltaV3_autoClashOn
         local spamInterval = getgenv().__deltaV3_spamInterval or Config.spamInterval
 
+        -- decay do clash SEMPRE roda, mesmo durante spam
+        -- sem isso o clashSpamOn fica preso pra sempre
+        if ClashState.Active and (now - ClashState.LastActivationTime) > Config.clashDecayTime then
+            ClashState.Active = false
+            lastSpamFire      = tick() -- reseta dívida ao sair do clash spam
+            if State.current == "clash" then setState("normal") end
+        end
+
         clashSpamOn = (autoClashOn and ClashState.Active) and true or false
 
         -- ── SPAM: resetar dívida ao começar para não disparar 27x de uma vez ──
@@ -587,11 +595,6 @@ local function bind(ch)
             ballProcessed = false
         end
 
-        if ClashState.Active and (now - ClashState.LastActivationTime) > Config.clashDecayTime then
-            ClashState.Active = false
-            clashSpamOn       = false
-            if State.current == "clash" then setState("normal") end
-        end
 
         local b = getBall()
         if not (b and b.Parent) then return end
