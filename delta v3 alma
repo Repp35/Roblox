@@ -104,32 +104,60 @@ end
 
 local BASE_VAL = 2.933813859058389e+76
 
--- ── SPAM: unreliable primeiro, fallback reliable + touchTap
+-- ── SPAM: sem pcall — overhead zero, falha silenciosamente
 local function sendParrySpam()
     if parryUnreliable then
-        pcall(function() parryUnreliable:FireServer(BASE_VAL) end)
+        parryUnreliable:FireServer(BASE_VAL)
     elseif parryRemote then
-        pcall(function() parryRemote:FireServer(BASE_VAL) end)
+        parryRemote:FireServer(BASE_VAL)
     end
     if touchTapEvent then touchTapEvent:Fire() end
 end
 
--- ── AUTO PARRY: 3 filas — só dispara 1x por bola, overhead não importa
-local function sendParry()
-    if parryRemote then
-        pcall(function() parryRemote:FireServer(BASE_VAL) end)
+-- ── AUTO PARRY: 3 filas — pcall só na primeira chamada pra testar
+-- se funcionar, troca pra chamada direta pra sempre
+-- se falhar, desativa aquele caminho
+local _remoteFn = parryRemote and function()
+    local ok = pcall(function() parryRemote:FireServer(BASE_VAL) end)
+    if ok then
+        _remoteFn = function() parryRemote:FireServer(BASE_VAL) end
+    else
+        _remoteFn = function() end
     end
-    if parryUnreliable then
-        pcall(function() parryUnreliable:FireServer(BASE_VAL) end)
+end or function() end
+
+local _unreliableFn = parryUnreliable and function()
+    local ok = pcall(function() parryUnreliable:FireServer(BASE_VAL) end)
+    if ok then
+        _unreliableFn = function() parryUnreliable:FireServer(BASE_VAL) end
+    else
+        _unreliableFn = function() end
     end
-    if Net then
-        pcall(function()
+end or function() end
+
+local _netFn = Net and function()
+    local ok = pcall(function()
+        Net:CSendEvent(
+            46848415795802784000000000000000000000000000000000000000000000000000000000000,
+            6846744283873508500000000000000000000000000000000000000000000000000000000000
+        )
+    end)
+    if ok then
+        _netFn = function()
             Net:CSendEvent(
                 46848415795802784000000000000000000000000000000000000000000000000000000000000,
                 6846744283873508500000000000000000000000000000000000000000000000000000000000
             )
-        end)
+        end
+    else
+        _netFn = function() end
     end
+end or function() end
+
+local function sendParry()
+    _remoteFn()
+    _unreliableFn()
+    _netFn()
     if touchTapEvent then touchTapEvent:Fire() end
 end
 
@@ -451,6 +479,13 @@ local auraInner        = createAuraPart("DeltaAuraInner")
 local lastVisualUpdate = 0
 
 local auraConn = RS.RenderStepped:Connect(function()
+    -- aura desativada durante spam pra reduzir overhead
+    if spamOn or clashSpamOn then
+        auraOuter.Transparency = 1
+        auraInner.Transparency = 1
+        return
+    end
+
     local now = tick()
     if (now - lastVisualUpdate) < Config.auraUpdateRate then return end
     lastVisualUpdate = now
