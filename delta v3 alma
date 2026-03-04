@@ -1,6 +1,13 @@
--- DELTA V3 — ALMA v5.1 [CLICK SYSTEM FROM FINAL v5.0]
--- Deteccao de clash: v5.1 original (burst/IsBursting/clashBurst configs mantidos na deteccao)
--- Sistema de click (spam + clash fire): v5.0 (Heartbeat while loop, capPerFrame, cooldown real)
+-- DELTA V3 — ALMA v5.1 [FIXED]
+-- Correcoes vs FIXED v5.0:
+--   [FIX] hookfunction: IsAvailable REMOVIDO
+--   [FIX] Spam em task.spawn separado controlado por flag, sem task.cancel
+--   [FIX] Clash burst separado e nao bloqueia heartbeat do auto-parry
+--   [FIX] clashSpamOn reintroduzido corretamente para aura e logica
+--   [FIX] Heartbeat: spam e auto-parry nao se interferem
+--   [FIX] Status dots refletem defaults reais (parry ON, clash ON por padrao)
+--   [FIX] getBall sem FindFirstChild recursivo (cache via ChildAdded)
+--   [PERF] Sem pcall no loop de spam (objetos sempre validos)
 
 local tick       = tick
 local math_clamp = math.clamp
@@ -56,7 +63,6 @@ local Config = {
     pingMin        = 0.02,
     pingMax        = 0.25,
 
-    -- deteccao de clash: configs do v5.1 (mantidas)
     clashHistorySize  = 8,
     clashTimeWindow   = 0.45,
     clashMinDist      = 35,
@@ -64,6 +70,10 @@ local Config = {
     clashDecayTime    = 1.2,
     clashMinHistory   = 4,
     clashCooldown     = 1.5,
+
+    clashBurstSize     = 4,
+    clashBurstInterval = 0.0167,
+    clashBurstCount    = 20,
 
     activationDistanceOffset = 7,
     auraUpdateRate           = 0.015,
@@ -95,13 +105,7 @@ end)
 local spamOn      = false
 local clashSpamOn = false
 
--- [FIX v5.1] Hook: so retorna true quando spam ou clash ativo
-local originalIsAvailable
-originalIsAvailable = hookfunction(Def.IsAvailable, function(self, ...)
-    if spamOn or clashSpamOn then return true end
-    return originalIsAvailable(self, ...)
-end)
-
+-- hook oSend mantido (roteamento de evento, nao tem relacao com cooldown)
 local oSend
 oSend = hookfunction(Net.CSendEvent, function(self, router, evt, ...)
     if router == 46848415795802784000000000000000000000000000000000000000000000000000000000000 then
@@ -185,7 +189,7 @@ local function getBall()
         Cache.Ball = gi.BallModel
         return Cache.Ball
     end
-    -- sem FindFirstChild recursivo - depende do cache via ChildAdded (v5.1)
+    -- sem FindFirstChild recursivo - depende do cache via ChildAdded
     return nil
 end
 
@@ -245,15 +249,12 @@ end
 local ballProcessed    = false
 local lastProcessReset = 0
 
--- ============================================================
--- DETECCAO DE CLASH — v5.1 original intacta
--- (historico alternado + distancia critica + cooldown)
--- ============================================================
 local ClashState = {
     Active             = false,
     LastActivationTime = 0,
     LastClashTime      = 0,
     CurrentOpponent    = nil,
+    IsBursting         = false,
 }
 
 local TargetHistory = {}
@@ -317,10 +318,54 @@ local function updateClashDetection(newTargetID, ballPos, ballVel, hrpPos)
     end
 end
 
--- ============================================================
--- SPAM / GUI — mesmo do v5.1 (sem thread separada agora,
--- o fire acontece no Heartbeat como no v5.0)
--- ============================================================
+-- Clash burst: task.spawn separado, nao bloqueia heartbeat
+local function performClashBurst()
+    if ClashState.IsBursting then return end
+    ClashState.IsBursting = true
+    task.spawn(function()
+        for _ = 1, Config.clashBurstCount do
+            if not ClashState.Active then break end
+            for _ = 1, Config.clashBurstSize do
+                sendParry()
+            end
+            task.wait(Config.clashBurstInterval)
+        end
+        ClashState.IsBursting = false
+    end)
+end
+
+-- Spam manual: loop em thread separada, controlado por flag
+local spamThread        = nil
+local spamThreadRunning = false
+
+local function runSpamLoop()
+    local startT = os.clock()
+    local n      = 0
+
+    while spamOn do
+        n = n + 1
+        local interval = getgenv().__deltaV3_spamInterval or Config.spamInterval
+        local nextFire = startT + n * interval
+        local now      = os.clock()
+        local diff     = nextFire - now
+
+        if diff > 0.001 then
+            task.wait(diff)
+        else
+            task.wait()
+            if (os.clock() - nextFire) > interval * 5 then
+                startT = os.clock()
+                n = 0
+            end
+        end
+
+        if spamOn then
+            sendParry()
+        end
+    end
+    spamThreadRunning = false
+end
+
 local lastSpamFire = 0
 local toggleButton
 
@@ -336,12 +381,25 @@ local function setSpam(v)
     if spamOn == v then return end
     spamOn       = v
     lastSpamFire = tick()
-    setState(v and "spam" or "normal")
     updateGUI()
+    if v then
+        if not spamThreadRunning then
+            spamThreadRunning = true
+            spamThread = task.spawn(runSpamLoop)
+        end
+        setState("spam")
+    else
+        setState("normal")
+    end
 end
 
 getgenv().__deltaV3_setSpam    = function(v) setSpam(v) end
 getgenv().__deltaV3_spamActive = spamOn
+
+local _spamActiveMeta = {}
+setmetatable(_spamActiveMeta, {
+    __index = function() return spamOn end
+})
 
 -- GUI de spam
 task.spawn(function()
@@ -505,7 +563,6 @@ local auraConn = RS.RenderStepped:Connect(function()
     auraOuter.Size   = sz
     auraInner.Size   = szIn
 
-    -- clashSpamOn reflete estado real da deteccao v5.1
     local targetColor = clashSpamOn and CLASH_COLOR
                      or spamOn      and SPAM_COLOR
                      or AREA_COLOR
@@ -515,11 +572,7 @@ local auraConn = RS.RenderStepped:Connect(function()
     auraInner.Transparency = INNER_TRANSPARENCY
 end)
 
--- ============================================================
 -- HEARTBEAT
--- Deteccao: v5.1 (updateClashDetection com historico alternado)
--- Click/fire: v5.0 (while loop com lastSpamFire + capPerFrame)
--- ============================================================
 local function bind(ch)
     setupCharacter(ch)
 
@@ -539,30 +592,17 @@ local function bind(ch)
             return
         end
 
-        local now          = tick()
-        local autoParryOn  = getgenv().__deltaV3_autoParryOn
-        local autoClashOn  = getgenv().__deltaV3_autoClashOn
-        local spamInterval = getgenv().__deltaV3_spamInterval or Config.spamInterval
+        local now         = tick()
+        local autoParryOn = getgenv().__deltaV3_autoParryOn
+        local autoClashOn = getgenv().__deltaV3_autoClashOn
 
-        -- clashSpamOn atualizado pela deteccao v5.1
         clashSpamOn = (autoClashOn and ClashState.Active) and true or false
 
-        -- [CLICK SYSTEM v5.0] spam e clash disparam aqui, com cooldown real
-        if spamOn or clashSpamOn then
-            local fired = 0
-            while (now - lastSpamFire) >= spamInterval and fired < Config.spamCapPerFrame do
-                sendParry()
-                lastSpamFire = lastSpamFire + spamInterval
-                fired        = fired + 1
-            end
-            -- drift recovery: se atrasou demais, reseta acumulador
-            if (now - lastSpamFire) > spamInterval * Config.spamCapPerFrame then
-                lastSpamFire = now
-            end
-            return
-        else
-            lastSpamFire = now
+        if autoClashOn and ClashState.Active then
+            performClashBurst()
         end
+
+        if spamOn then return end
 
         if not autoParryOn then return end
 
@@ -577,10 +617,10 @@ local function bind(ch)
             ballProcessed = false
         end
 
-        -- decay do clash (deteccao v5.1)
         if ClashState.Active and (now - ClashState.LastActivationTime) > Config.clashDecayTime then
-            ClashState.Active = false
-            clashSpamOn       = false
+            ClashState.Active     = false
+            ClashState.IsBursting = false
+            clashSpamOn           = false
             if State.current == "clash" then setState("normal") end
         end
 
@@ -625,7 +665,6 @@ local function bind(ch)
 
         local currentTarget = WS:GetAttribute("GameBallTarget")
         if currentTarget then
-            -- deteccao de clash: v5.1 intacta
             updateClashDetection(currentTarget, bp, vel, hrpPos)
         end
 
@@ -665,8 +704,8 @@ local function bind(ch)
             connection:Disconnect()
             setSpam(false)
             clashSpamOn              = false
-            lastSpamFire             = 0
             ClashState.Active        = false
+            ClashState.IsBursting    = false
             ClashState.LastClashTime = 0
             lastBallPos              = nil
             auraOuter.Transparency   = 1
