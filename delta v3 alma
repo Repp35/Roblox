@@ -347,7 +347,7 @@ end
 local function setSpam(v)
     if spamOn == v then return end
     spamOn       = v
-    lastSpamFire = tick()
+    lastSpamFire = tick() -- reseta dívida tanto ao ligar quanto ao desligar
     setState(v and "spam" or "normal")
     updateGUI()
 end
@@ -526,6 +526,12 @@ local auraConn = RS.RenderStepped:Connect(function()
 end)
 
 local function bind(ch)
+    -- desconecta heartbeat anterior antes de criar novo (evita dois loops rodando)
+    if getgenv().__na_aex_conn then
+        getgenv().__na_aex_conn:Disconnect()
+        getgenv().__na_aex_conn = nil
+    end
+
     setupCharacter(ch)
 
     local hrp         = ch:WaitForChild("HumanoidRootPart", 10)
@@ -551,16 +557,17 @@ local function bind(ch)
 
         clashSpamOn = (autoClashOn and ClashState.Active) and true or false
 
-        -- ── SPAM: usa sendParrySpam (unreliable primeiro, fallback reliable) ──
+        -- ── SPAM: resetar dívida ao começar para não disparar 27x de uma vez ──
         if spamOn or clashSpamOn then
-            local fired = 0
-            while (now - lastSpamFire) >= spamInterval and fired < Config.spamCapPerFrame do
-                sendParrySpam()
-                lastSpamFire = lastSpamFire + spamInterval
-                fired        = fired + 1
-            end
-            if (now - lastSpamFire) > spamInterval * Config.spamCapPerFrame then
+            -- se lastSpamFire ficou muito atrás (ex: acabou de ligar), sincroniza
+            if (now - lastSpamFire) > Config.spamInterval * Config.spamCapPerFrame then
                 lastSpamFire = now
+            end
+            local fired = 0
+            while (now - lastSpamFire) >= Config.spamInterval and fired < Config.spamCapPerFrame do
+                sendParrySpam()
+                lastSpamFire = lastSpamFire + Config.spamInterval
+                fired        = fired + 1
             end
             return
         else
@@ -644,7 +651,10 @@ local function bind(ch)
         local ping    = getPingCompensation()
 
         local cdFactor  = ClashState.Active and Config.clashCDFactor or Config.parryCDFactor
-        local dynamicCD = math_clamp(tImp * cdFactor, Config.parryCDMin, Config.parryCDMax)
+        -- CD fixo no clash, dinâmico mas com mínimo baixo no normal
+        local dynamicCD = ClashState.Active
+            and Config.parryCDMin
+            or math_clamp(tImp * cdFactor, Config.parryCDMin, 0.3)
 
         local can = tgt and app
             and spd  > Config.minSpeed
@@ -666,9 +676,11 @@ local function bind(ch)
     ch.AncestryChanged:Connect(function(_, p)
         if not p then
             connection:Disconnect()
-            setSpam(false)
+            getgenv().__na_aex_conn = nil
+            -- para spam imediatamente e reseta estado
+            spamOn                   = false
             clashSpamOn              = false
-            lastSpamFire             = 0
+            lastSpamFire             = tick()
             ClashState.Active        = false
             ClashState.LastClashTime = 0
             lastBallPos              = nil
