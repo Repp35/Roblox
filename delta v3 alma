@@ -36,7 +36,7 @@ local Config = {
     clashCDFactor = 0.1,
 
     ballResetThresh   = 50,
-    ballResetLockout  = 0.6,
+    ballResetLockout  = 0.15,
 
     spamInterval    = 0.00167,
     spamCapPerFrame = 10,
@@ -201,10 +201,8 @@ if ballSyncRemote then
                 if BallSync.TargetID == lp.UserId then
                     ballLeftMe = true           -- bola saiu de mim
                 end
-                if newID == lp.UserId then
-                    -- libera sempre que bola vem pra mim (reset ou troca normal)
-                    -- timeToReach ainda filtra se ela tá longe
-                    ballProcessed = false
+                if newID == lp.UserId and ballLeftMe then
+                    ballProcessed = false       -- voltou pra mim → libera
                     ballLeftMe    = false
                 end
             end
