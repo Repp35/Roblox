@@ -67,7 +67,7 @@ local Def    = require(RSrv.TS.Abilities.DeflectAbility).DeflectAbility
 local PNotif = RSrv:WaitForChild("PromptNotification")
 
 task.spawn(function()
-    PNotif:Fire("Delta ΔV5 ✅ | Auto Parry | 600 CPS", true)
+    PNotif:Fire("Delta ΔV5 ✅ | Super Auto Parry | 600 CPS", true)
 end)
 
 local spamOn      = false
@@ -75,7 +75,7 @@ local clashSpamOn = false
 
 local originalIsAvailable
 originalIsAvailable = hookfunction(Def.IsAvailable, function(self, ...)
-    if spamOn then return true end
+    if spamOn or clashSpamOn then return true end
     return originalIsAvailable(self, ...)
 end)
 
@@ -142,26 +142,14 @@ local function tgtOn()
     return false
 end
 
--- ================== BALL SYNC ==================
-local ballSyncRemote = RSrv:WaitForChild("Remotes", 5)
-ballSyncRemote = ballSyncRemote and ballSyncRemote:FindFirstChild("BallSyncData")
-
-local BallSync = { RealPosition = Vector3.zero, Speed = 0, TargetID = -999 }
-
-if ballSyncRemote then
-    ballSyncRemote.OnClientEvent:Connect(function(data)
-        if typeof(data) ~= "table" then return end
-        if data.RealPosition then BallSync.RealPosition = data.RealPosition end
-        if typeof(data.Speed) == "number" then
-            BallSync.Speed = data.Speed
-        elseif type(data.Speed) == "table" and data.Speed.Magnitude then
-            BallSync.Speed = data.Speed.Magnitude
-        end
-        if data.TargetPlayerID then BallSync.TargetID = data.TargetPlayerID end
-    end)
-end
+-- ================== REMOTES TEK ==================
+local TS_Folder     = RSrv:WaitForChild("TS", 10)
+local NetRemotes    = TS_Folder and TS_Folder:WaitForChild("GeneratedNetworkRemotes", 10)
+local parryRemote   = NetRemotes and NetRemotes:FindFirstChild("RE_4.6848415795802784e+76")
+local touchTapEvent = RSrv:FindFirstChild("TouchTap")
 
 -- ================== PING ==================
+-- declarado ANTES do BallSync callback pra closure funcionar
 local smoothedPing = 0.05
 
 local function updatePing()
@@ -188,6 +176,59 @@ local function getPingCompensation()
         smoothedPing * Config.pingMultiplier + Config.pingOffset,
         Config.pingMin, Config.pingMax
     )
+end
+
+-- ================== BALL SYNC ==================
+local BallSync      = { RealPosition = Vector3.zero, Speed = 0, TargetID = -999 }
+local ballProcessed = false
+local ballLeftMe    = false
+
+local ballSyncRemote = RSrv:WaitForChild("Remotes", 5)
+ballSyncRemote = ballSyncRemote and ballSyncRemote:FindFirstChild("BallSyncData")
+
+if ballSyncRemote then
+    ballSyncRemote.OnClientEvent:Connect(function(data)
+        if typeof(data) ~= "table" then return end
+        if data.RealPosition then BallSync.RealPosition = data.RealPosition end
+        if typeof(data.Speed) == "number" then
+            BallSync.Speed = data.Speed
+        elseif type(data.Speed) == "table" and data.Speed.Magnitude then
+            BallSync.Speed = data.Speed.Magnitude
+        end
+        if data.TargetPlayerID then
+            local newID = data.TargetPlayerID
+            if newID ~= BallSync.TargetID then
+                if BallSync.TargetID == lp.UserId then
+                    ballLeftMe = true           -- bola saiu de mim
+                end
+                if newID == lp.UserId and ballLeftMe then
+                    ballProcessed = false       -- voltou pra mim → libera
+                    ballLeftMe    = false
+                end
+            end
+            BallSync.TargetID = newID
+        end
+
+        -- [SUPER AUTO PARRY] disparo direto no callback: zero delay de loop
+        if BallSync.TargetID == lp.UserId and not ballProcessed
+            and not spamOn and not clashSpamOn
+            and getgenv().__deltaV3_autoParryOn
+            and Cache.RootPart
+        then
+            local dist        = (Cache.RootPart.Position - BallSync.RealPosition).Magnitude
+            local timeToReach = dist / math.max(BallSync.Speed, 1)
+            local threshold   = math_clamp(0.12 + (smoothedPing * 1.05) + 0.045, 0.05, 0.55)
+            if timeToReach <= threshold then
+                local b = getBall()
+                if parryRemote then
+                    parryRemote:FireServer(2.933813859058389e+76, Cache.RootPart.CFrame,
+                        b and b.Parent and b.CFrame or Cache.RootPart.CFrame)
+                end
+                if touchTapEvent then touchTapEvent:Fire() end
+                ballProcessed = true
+            end
+        end
+    end)
 end
 
 -- ================== STATE MACHINE ==================
@@ -227,26 +268,39 @@ local function updateClashDetection(newTargetID, ballPos)
             TargetHistory[3].id == lp.UserId
         )
         if isAlternating and timeGap < Config.clashTimeWindow and dist < Config.clashMinDist then
+            if not ClashState.Active then
+                -- [FIX] enche acumulador imediatamente ao ativar clash
+                local interval = getgenv().__deltaV3_spamInterval    or Config.spamInterval
+                local cap      = getgenv().__deltaV3_spamCapPerFrame or Config.spamCapPerFrame
+                spamAccum = interval * cap
+            end
             ClashState.Active             = true
             ClashState.LastActivationTime = now
             ClashState.CurrentOpponent    = TargetHistory[2].id
+            clashSpamOn                   = true
             setState("clash")
         end
     end
 
     if newTargetID == lp.UserId and dist < Config.clashCriticalDist then
+        if not ClashState.Active then
+            local interval = getgenv().__deltaV3_spamInterval    or Config.spamInterval
+            local cap      = getgenv().__deltaV3_spamCapPerFrame or Config.spamCapPerFrame
+            spamAccum = interval * cap
+        end
         ClashState.Active             = true
         ClashState.LastActivationTime = now
+        clashSpamOn                   = true
         setState("clash")
     end
 end
 
-local ballProcessed    = false
-local lastProcessReset = 0
-
-local function resetProcessedIfNeeded(now)
-    if ballProcessed and (now - lastProcessReset) >= Config.processResetInt then
-        ballProcessed = false
+local function stopClash()
+    if ClashState.Active then
+        ClashState.Active = false
+        clashSpamOn       = false
+        spamAccum         = 0   -- [FIX] para spam imediatamente
+        if State.current == "clash" then setState("normal") end
     end
 end
 
@@ -266,7 +320,8 @@ end
 local function startSpamLoop()
     if spamConn then spamConn:Disconnect() end
     spamConn = RS.Heartbeat:Connect(function(dt)
-        if not spamOn then
+        local active = spamOn or clashSpamOn
+        if not active then
             spamAccum = 0
             return
         end
@@ -287,7 +342,6 @@ local function setSpam(v)
     spamOn = v
     getgenv().__deltaV3_spamActive = v
     if v then
-        -- [FIX] enche o acumulador no ato pra disparar imediatamente
         local interval = getgenv().__deltaV3_spamInterval    or Config.spamInterval
         local cap      = getgenv().__deltaV3_spamCapPerFrame or Config.spamCapPerFrame
         spamAccum = interval * cap
@@ -476,18 +530,12 @@ local auraConn = RS.RenderStepped:Connect(function()
     auraInner.Transparency = INNER_TRANSPARENCY
 end)
 
--- ================== AUTO PARRY (Tek/Phantom style) ==================
-local TS_Folder   = RSrv:WaitForChild("TS", 10)
-local NetRemotes  = TS_Folder and TS_Folder:WaitForChild("GeneratedNetworkRemotes", 10)
-local parryRemote = NetRemotes and NetRemotes:FindFirstChild("RE_4.6848415795802784e+76")
-local touchTapEvent = RSrv:FindFirstChild("TouchTap")
-
+-- ================== LOOP (ping + clash decay) ==================
 local function bind(ch)
     setupCharacter(ch)
 
     local hrp     = ch:WaitForChild("HumanoidRootPart", 10)
     local running = true
-
     local pingTimer = 0
 
     task.spawn(function()
@@ -496,8 +544,6 @@ local function bind(ch)
             local now = tick()
 
             if not (ch and ch.Parent and hrp and hrp.Parent) then continue end
-            if spamOn then continue end
-            if not getgenv().__deltaV3_autoParryOn then continue end
 
             pingTimer = pingTimer + 0.016
             if pingTimer >= 2 then
@@ -505,49 +551,31 @@ local function bind(ch)
                 task.spawn(updatePing)
             end
 
-            -- reset ballProcessed
-            if ballProcessed and (now - lastProcessReset) >= Config.processResetInt then
-                ballProcessed = false
+            -- clash decay
+            if ClashState.Active and (now - ClashState.LastActivationTime) > Config.clashDecayTime then
+                stopClash()
             end
 
-            -- só dispara quando a bola tá vindo pra mim
-            if BallSync.TargetID ~= lp.UserId then continue end
-
-            local b = getBall()
-            local ballPos = (BallSync.RealPosition ~= Vector3.zero) and BallSync.RealPosition
-                         or (b and b.Parent and b.Position)
-            if not ballPos then continue end
-
-            local dist        = (hrp.Position - ballPos).Magnitude
-            local speed       = math.max(BallSync.Speed, 1)
-            local timeToReach = dist / speed
-
-            -- ping smoothado no BallSync callback, threshold igual ao Tek
-            local threshold = math_clamp(
-                0.12 + (smoothedPing * 1.05) + 0.045,
-                0.05, 0.55
-            )
-
-            if timeToReach <= threshold and not ballProcessed then
-                if parryRemote and hrp then
-                    parryRemote:FireServer(2.933813859058389e+76, hrp.CFrame,
-                        b and b.Parent and b.CFrame or hrp.CFrame)
+            -- atualiza clash detection via WS attribute (fallback)
+            if not clashSpamOn then
+                local b = getBall()
+                if b and b.Parent then
+                    local currentTarget = WS:GetAttribute("GameBallTarget")
+                    if currentTarget then
+                        updateClashDetection(currentTarget, b.Position)
+                    end
                 end
-                if touchTapEvent then touchTapEvent:Fire() end
-                ballProcessed    = true
-                lastProcessReset = now
-                setState("normal")
             end
         end
     end)
 
     ch.AncestryChanged:Connect(function(_, p)
         if not p then
-            running                = false
+            running = false
             setSpam(false)
-            clashSpamOn            = false
-            ClashState.Active      = false
-            lastBallPos            = nil
+            stopClash()           -- [FIX] para clash + spam + zera acumulador
+            ballProcessed  = false
+            ballLeftMe     = false
             auraOuter.Transparency = 1
             auraInner.Transparency = 1
             updateGUI()
@@ -568,6 +596,7 @@ CoreGui.ChildRemoved:Connect(function(c)
         getgenv().__na_aex = nil
         if spamConn then spamConn:Disconnect() end
         setSpam(false)
+        stopClash()
         if getgenv().__na_aex_conn then
             getgenv().__na_aex_conn:Disconnect()
             getgenv().__na_aex_conn = nil
