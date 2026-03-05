@@ -51,7 +51,7 @@ local Config = {
     clashMinDist      = 40,
     clashCriticalDist = 20,
     clashDecayTime    = 0.5,
-    processResetInt   = 0.3,
+    processResetInt   = 0.4,
 
     clashRadMult             = 1.5,
     activationDistanceOffset = 7,
@@ -158,6 +158,13 @@ if ballSyncRemote then
             BallSync.Speed = data.Speed.Magnitude
         end
         if data.TargetPlayerID then BallSync.TargetID = data.TargetPlayerID end
+        -- smoothar ping junto com cada update do servidor
+        local ok, raw = pcall(function()
+            return Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000
+        end)
+        if ok and type(raw) == "number" and raw > 0 then
+            smoothedPing = (smoothedPing * 0.8) + (raw * 0.2)
+        end
     end)
 end
 
@@ -476,114 +483,56 @@ local auraConn = RS.RenderStepped:Connect(function()
     auraInner.Transparency = INNER_TRANSPARENCY
 end)
 
--- ================== AUTO PARRY ==================
+-- ================== AUTO PARRY (Tek/Phantom style) ==================
+local TS_Folder   = RSrv:WaitForChild("TS", 10)
+local NetRemotes  = TS_Folder and TS_Folder:WaitForChild("GeneratedNetworkRemotes", 10)
+local parryRemote = NetRemotes and NetRemotes:FindFirstChild("RE_4.6848415795802784e+76")
+local touchTapEvent = RSrv:FindFirstChild("TouchTap")
+
 local function bind(ch)
     setupCharacter(ch)
 
-    local hrp         = ch:WaitForChild("HumanoidRootPart", 10)
-    local lastBallPos = nil
-    local ballResetAt = 0
-    local vel         = Vector3.zero
-    local lastBP      = nil
-    local lastBT      = nil
-    local lastFire    = 0
-    local pingTimer   = 0
-    local running     = true
-
-    -- [FIX] aplica lockout inicial pra bola já existente no spawn
-    ballResetAt = tick()
+    local hrp     = ch:WaitForChild("HumanoidRootPart", 10)
+    local running = true
 
     task.spawn(function()
         while running do
-            local dt  = task.wait(0.016)
+            task.wait(0.016)
             local now = tick()
 
             if not (ch and ch.Parent and hrp and hrp.Parent) then continue end
             if spamOn then continue end
             if not getgenv().__deltaV3_autoParryOn then continue end
 
-            pingTimer = pingTimer + dt
-            if pingTimer >= 2 then
-                pingTimer = 0
-                task.spawn(updatePing)
+            -- reset ballProcessed
+            if ballProcessed and (now - lastProcessReset) >= Config.processResetInt then
+                ballProcessed = false
             end
 
-            resetProcessedIfNeeded(now)
-
-            if ClashState.Active and (now - ClashState.LastActivationTime) > Config.clashDecayTime then
-                ClashState.Active = false
-                if State.current == "clash" then setState("normal") end
-            end
+            -- só dispara quando a bola tá vindo pra mim
+            if BallSync.TargetID ~= lp.UserId then continue end
 
             local b = getBall()
-            if not (b and b.Parent) then continue end
+            local ballPos = (BallSync.RealPosition ~= Vector3.zero) and BallSync.RealPosition
+                         or (b and b.Parent and b.Position)
+            if not ballPos then continue end
 
-            local bp = b.Position
+            local dist        = (hrp.Position - ballPos).Magnitude
+            local speed       = math.max(BallSync.Speed, 1)
+            local timeToReach = dist / speed
 
-            -- [FIX] primeira vez vendo a bola: aplica lockout, não dispara
-            if lastBallPos == nil then
-                lastBallPos      = bp
-                ballProcessed    = true
-                lastProcessReset = now
-                ballResetAt      = now
-                continue
-            end
+            -- ping smoothado no BallSync callback, threshold igual ao Tek
+            local threshold = math_clamp(
+                0.12 + (smoothedPing * 1.05) + 0.045,
+                0.05, 0.55
+            )
 
-            local jump = (bp - lastBallPos).Magnitude
-            if jump > Config.ballResetThresh then
-                -- [FIX] bola teleportou: lockout imediato
-                ballProcessed    = true
-                lastProcessReset = now
-                ballResetAt      = now
-                vel              = Vector3.zero
-                lastBP, lastBT   = nil, nil
-                lastBallPos      = bp
-                continue
-            end
-            lastBallPos = bp
-
-            if (now - ballResetAt) < Config.ballResetLockout then continue end
-
-            local currentTarget = WS:GetAttribute("GameBallTarget")
-            if currentTarget then
-                updateClashDetection(currentTarget, bp)
-            end
-
-            local okVel, av = pcall(function() return b.AssemblyLinearVelocity end)
-            if okVel and typeof(av) == "Vector3" and av.Magnitude > 0.1 then
-                vel    = av
-                lastBT, lastBP = now, bp
-            elseif not lastBT then
-                lastBT, lastBP = now, bp
-            else
-                local dtt = now - lastBT
-                if dtt > 0 then
-                    local raw = (bp - lastBP) / dtt
-                    local a   = dt / (Config.velSmooth + dt)
-                    vel       = vel + (raw - vel) * a
-                    lastBT, lastBP = now, bp
+            if timeToReach <= threshold and not ballProcessed then
+                if parryRemote and hrp then
+                    parryRemote:FireServer(2.933813859058389e+76, hrp.CFrame,
+                        b and b.Parent and b.CFrame or hrp.CFrame)
                 end
-            end
-
-            local hrpPos = hrp.Position
-            local spd    = vel.Magnitude
-            local rad    = math_clamp(spd * Config.radiusWin + Config.radiusOff, Config.minRadius, Config.maxRadius) + Config.radiusPre
-            local d      = (bp - hrpPos).Magnitude
-            local app    = vel:Dot(hrpPos - bp) > 0
-            local tgt    = tgtOn()
-            local tImp   = spd > 1 and (d / spd) or 1000000
-            local ping   = getPingCompensation()
-
-            local cdFactor  = ClashState.Active and Config.clashCDFactor or Config.parryCDFactor
-            local dynamicCD = math_clamp(tImp * cdFactor, Config.parryCDMin, Config.parryCDMax)
-
-            local can = tgt and app and spd > Config.minSpeed
-                and d <= rad
-                and tImp <= (Config.maxImpactTime + ping)
-
-            if can and not ballProcessed and now - lastFire >= dynamicCD then
-                sendParry()
-                lastFire         = now
+                if touchTapEvent then touchTapEvent:Fire() end
                 ballProcessed    = true
                 lastProcessReset = now
                 setState("normal")
