@@ -63,10 +63,13 @@ if getgenv().__deltaV3_autoClashOn  == nil then getgenv().__deltaV3_autoClashOn 
 if getgenv().__deltaV3_auraOn       == nil then getgenv().__deltaV3_auraOn       = false   end
 if getgenv().__deltaV3_spamInterval == nil then getgenv().__deltaV3_spamInterval = 0.00167 end
 
-local Net    = require(RSrv.TS.Network.Network).Network
-local Def    = require(RSrv.TS.Abilities.DeflectAbility).DeflectAbility
-local PNotif = RSrv:WaitForChild("PromptNotification")
+-- network: tenta hook (mobile) com fallback FireServer (PC)
+local Net = nil
+local Def = nil
+pcall(function() Net = require(RSrv.TS.Network.Network).Network end)
+pcall(function() Def = require(RSrv.TS.Abilities.DeflectAbility).DeflectAbility end)
 
+local PNotif = RSrv:WaitForChild("PromptNotification")
 task.spawn(function()
     PNotif:Fire("Delta ΔV5 ✅ | Super Auto Parry | 600 CPS", true)
 end)
@@ -74,26 +77,49 @@ end)
 local spamOn      = false
 local clashSpamOn = false
 
-local originalIsAvailable
-originalIsAvailable = hookfunction(Def.IsAvailable, function(self, ...)
-    if spamOn or clashSpamOn then return true end
-    return originalIsAvailable(self, ...)
-end)
+-- hookfunction: só disponível em alguns executors (mobile)
+-- no PC usa fallback direto via FireServer
+local hookOk = false
+if Def and typeof(hookfunction) == "function" then
+    pcall(function()
+        local originalIsAvailable
+        originalIsAvailable = hookfunction(Def.IsAvailable, function(self, ...)
+            if spamOn or clashSpamOn then return true end
+            return originalIsAvailable(self, ...)
+        end)
+        hookOk = true
+    end)
+end
 
-local oSend
-oSend = hookfunction(Net.CSendEvent, function(self, router, evt, ...)
-    if router == 46848415795802784000000000000000000000000000000000000000000000000000000000000 then
-        return oSend(self, router, 29338138590583890000000000000000000000000000000000000000000000000000000000000, ...)
+local oSendOk = false
+if Net and typeof(hookfunction) == "function" then
+    pcall(function()
+        local oSend
+        oSend = hookfunction(Net.CSendEvent, function(self, router, evt, ...)
+            if router == 46848415795802784000000000000000000000000000000000000000000000000000000000000 then
+                return oSend(self, router, 29338138590583890000000000000000000000000000000000000000000000000000000000000, ...)
+            end
+            return oSend(self, router, evt, ...)
+        end)
+        oSendOk = true
+    end)
+end
+
+-- resolve método de parry uma vez só na inicialização
+local sendParry
+if Net and oSendOk then
+    sendParry = function()
+        Net:CSendEvent(
+            46848415795802784000000000000000000000000000000000000000000000000000000000000,
+            6846744283873508500000000000000000000000000000000000000000000000000000000000
+        )
     end
-    return oSend(self, router, evt, ...)
-end)
-
-local function sendParry()
-    if not Net then return end
-    Net:CSendEvent(
-        46848415795802784000000000000000000000000000000000000000000000000000000000000,
-        6846744283873508500000000000000000000000000000000000000000000000000000000000
-    )
+else
+    local _parryRemoteNet = RSrv.TS.GeneratedNetworkRemotes
+        :FindFirstChild("RE_4.6848415795802784e+76")
+    sendParry = function()
+        _parryRemoteNet:FireServer(2.933813859058389e+76)
+    end
 end
 
 local gi, br
