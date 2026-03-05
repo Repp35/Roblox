@@ -158,13 +158,6 @@ if ballSyncRemote then
             BallSync.Speed = data.Speed.Magnitude
         end
         if data.TargetPlayerID then BallSync.TargetID = data.TargetPlayerID end
-        -- smoothar ping junto com cada update do servidor
-        local ok, raw = pcall(function()
-            return Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000
-        end)
-        if ok and type(raw) == "number" and raw > 0 then
-            smoothedPing = (smoothedPing * 0.8) + (raw * 0.2)
-        end
     end)
 end
 
@@ -495,6 +488,8 @@ local function bind(ch)
     local hrp     = ch:WaitForChild("HumanoidRootPart", 10)
     local running = true
 
+    local pingTimer = 0
+
     task.spawn(function()
         while running do
             task.wait(0.016)
@@ -503,6 +498,12 @@ local function bind(ch)
             if not (ch and ch.Parent and hrp and hrp.Parent) then continue end
             if spamOn then continue end
             if not getgenv().__deltaV3_autoParryOn then continue end
+
+            pingTimer = pingTimer + 0.016
+            if pingTimer >= 2 then
+                pingTimer = 0
+                task.spawn(updatePing)
+            end
 
             -- reset ballProcessed
             if ballProcessed and (now - lastProcessReset) >= Config.processResetInt then
