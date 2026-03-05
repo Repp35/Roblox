@@ -201,8 +201,10 @@ if ballSyncRemote then
                 if BallSync.TargetID == lp.UserId then
                     ballLeftMe = true           -- bola saiu de mim
                 end
-                if newID == lp.UserId and ballLeftMe then
-                    ballProcessed = false       -- voltou pra mim → libera
+                if newID == lp.UserId then
+                    -- libera sempre que bola vem pra mim (reset ou troca normal)
+                    -- timeToReach ainda filtra se ela tá longe
+                    ballProcessed = false
                     ballLeftMe    = false
                 end
             end
@@ -391,6 +393,18 @@ task.spawn(function()
     stroke.Color     = Color3.fromRGB(70, 90, 200)
     stroke.Thickness = 1.5
     stroke.Parent    = mainFrame
+
+    -- gradiente animado roxo→azul igual ao controle
+    task.spawn(function()
+        local t = 0
+        while stroke.Parent do
+            t = t + 0.025
+            local r = math.floor(70  + 70  * math.sin(t))
+            local g = math.floor(90  + 80  * math.sin(t + 2.1))
+            stroke.Color = Color3.fromRGB(r, g, 255)
+            task.wait(0.05)
+        end
+    end)
 
     local titleBar = Instance.new("Frame")
     titleBar.Size             = UDim2.new(1, 0, 0, 24)
