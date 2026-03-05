@@ -180,9 +180,11 @@ end
 
 -- ================== BALL SYNC ==================
 local BallSync      = { RealPosition = Vector3.zero, Speed = 0, TargetID = -999 }
-local ballProcessed    = false
-local ballLeftMe       = false
-local lastProcessReset = 0
+local ballProcessed      = false
+local ballLeftMe         = false
+local lastProcessReset   = 0
+local ballCameFromReset  = false   -- bola veio de reset, não de troca normal
+local lastTargetToMe     = 0       -- tick quando TargetID virou meu
 
 local ballSyncRemote = RSrv:WaitForChild("Remotes", 5)
 ballSyncRemote = ballSyncRemote and ballSyncRemote:FindFirstChild("BallSyncData")
@@ -202,9 +204,19 @@ if ballSyncRemote then
                 if BallSync.TargetID == lp.UserId then
                     ballLeftMe = true           -- bola saiu de mim
                 end
-                if newID == lp.UserId and ballLeftMe then
-                    ballProcessed = false       -- voltou pra mim → libera
-                    ballLeftMe    = false
+                if newID == lp.UserId then
+                    if ballLeftMe then
+                        -- troca normal: bola passou por outro jogador → libera imediatamente
+                        ballProcessed   = false
+                        ballLeftMe      = false
+                        ballCameFromReset = false
+                    else
+                        -- veio do reset: marca e aplica mini lockout
+                        ballCameFromReset = true
+                        ballProcessed    = true   -- bloqueia por ora
+                        lastProcessReset = tick() -- vai liberar após 0.15s
+                    end
+                    lastTargetToMe = tick()
                 end
             end
             BallSync.TargetID = newID
@@ -216,6 +228,7 @@ if ballSyncRemote then
             and getgenv().__deltaV3_autoParryOn
             and Cache.RootPart
             and BallSync.Speed > Config.minSpeed   -- ignora bola parada/resetando
+            and not ballCameFromReset               -- aguarda mini lockout pós-reset
         then
             local dist        = (Cache.RootPart.Position - BallSync.RealPosition).Magnitude
             local timeToReach = dist / math.max(BallSync.Speed, 1)
@@ -571,8 +584,14 @@ local function bind(ch)
                 stopClash()
             end
 
-            -- fallback: reset por tempo caso ballLeftMe nunca dispare (ex: após clash)
-            if ballProcessed and (now - lastProcessReset) >= Config.processResetInt then
+            -- mini lockout pós-reset (0.15s) — depois libera normalmente
+            if ballProcessed and ballCameFromReset and (now - lastProcessReset) >= 0.15 then
+                ballProcessed    = false
+                ballCameFromReset = false
+            end
+
+            -- fallback geral: reset por tempo caso ballLeftMe nunca dispare
+            if ballProcessed and not ballCameFromReset and (now - lastProcessReset) >= Config.processResetInt then
                 ballProcessed = false
             end
 
@@ -594,8 +613,9 @@ local function bind(ch)
             running = false
             setSpam(false)
             stopClash()           -- [FIX] para clash + spam + zera acumulador
-            ballProcessed  = false
-            ballLeftMe     = false
+            ballProcessed     = false
+            ballLeftMe        = false
+            ballCameFromReset = false
             auraOuter.Transparency = 1
             auraInner.Transparency = 1
             updateGUI()
