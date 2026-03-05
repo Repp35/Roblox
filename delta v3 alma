@@ -225,7 +225,7 @@ if ballSyncRemote then
 
         -- [SUPER AUTO PARRY] disparo direto no callback: zero delay de loop
         if BallSync.TargetID == lp.UserId and not ballProcessed
-            and not spamOn and not clashSpamOn
+            and not spamOn
             and getgenv().__deltaV3_autoParryOn
             and Cache.RootPart
             and BallSync.Speed > Config.minSpeed   -- ignora bola parada/resetando
@@ -317,7 +317,8 @@ local function stopClash()
     if ClashState.Active then
         ClashState.Active = false
         clashSpamOn       = false
-        spamAccum         = 0   -- [FIX] para spam imediatamente
+        spamAccum         = 0
+        ballProcessed     = false  -- libera auto parry imediatamente
         if State.current == "clash" then setState("normal") end
     end
 end
@@ -365,7 +366,8 @@ local function setSpam(v)
         spamAccum = interval * cap
         setState("spam")
     else
-        spamAccum = 0
+        spamAccum     = 0
+        ballProcessed = false  -- libera auto parry imediatamente ao desativar spam
         setState("normal")
     end
     updateGUI()
@@ -587,7 +589,7 @@ local function bind(ch)
             end
 
             -- mini lockout pós-reset (0.15s) — depois libera normalmente
-            if ballProcessed and ballCameFromReset and (now - lastProcessReset) >= 0.15 then
+            if ballProcessed and ballCameFromReset and (now - lastProcessReset) >= 0.25 then
                 ballProcessed    = false
                 ballCameFromReset = false
             end
