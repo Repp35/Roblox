@@ -589,7 +589,7 @@ local function bind(ch)
             end
 
             -- mini lockout pós-reset (0.15s) — depois libera normalmente
-            if ballProcessed and ballCameFromReset and (now - lastProcessReset) >= 0.25 then
+            if ballProcessed and ballCameFromReset and (now - lastProcessReset) >= 0.5 then
                 ballProcessed    = false
                 ballCameFromReset = false
             end
