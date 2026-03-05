@@ -49,6 +49,7 @@ local Config = {
     clashHistorySize  = 6,
     clashTimeWindow   = 0.6,
     clashMinDist      = 40,
+    clashMinSpeed     = 35,   -- velocidade mínima pra ativar clash quando longe
     clashCriticalDist = 20,
     clashDecayTime    = 0.5,
     processResetInt   = 0.4,
@@ -283,7 +284,8 @@ local function updateClashDetection(newTargetID, ballPos)
             TargetHistory[1].id == lp.UserId and
             TargetHistory[3].id == lp.UserId
         )
-        if isAlternating and timeGap < Config.clashTimeWindow and dist < Config.clashMinDist then
+        local speedOk = dist < Config.clashCriticalDist or BallSync.Speed >= Config.clashMinSpeed
+        if isAlternating and timeGap < Config.clashTimeWindow and dist < Config.clashMinDist and speedOk then
             if not ClashState.Active then
                 -- [FIX] enche acumulador imediatamente ao ativar clash
                 local interval = getgenv().__deltaV3_spamInterval    or Config.spamInterval
