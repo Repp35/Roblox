@@ -180,8 +180,9 @@ end
 
 -- ================== BALL SYNC ==================
 local BallSync      = { RealPosition = Vector3.zero, Speed = 0, TargetID = -999 }
-local ballProcessed = false
-local ballLeftMe    = false
+local ballProcessed    = false
+local ballLeftMe       = false
+local lastProcessReset = 0
 
 local ballSyncRemote = RSrv:WaitForChild("Remotes", 5)
 ballSyncRemote = ballSyncRemote and ballSyncRemote:FindFirstChild("BallSyncData")
@@ -214,6 +215,7 @@ if ballSyncRemote then
             and not spamOn and not clashSpamOn
             and getgenv().__deltaV3_autoParryOn
             and Cache.RootPart
+            and BallSync.Speed > Config.minSpeed   -- ignora bola parada/resetando
         then
             local dist        = (Cache.RootPart.Position - BallSync.RealPosition).Magnitude
             local timeToReach = dist / math.max(BallSync.Speed, 1)
@@ -225,7 +227,8 @@ if ballSyncRemote then
                         b and b.Parent and b.CFrame or Cache.RootPart.CFrame)
                 end
                 if touchTapEvent then touchTapEvent:Fire() end
-                ballProcessed = true
+                ballProcessed    = true
+                lastProcessReset = tick()
             end
         end
     end)
@@ -566,6 +569,11 @@ local function bind(ch)
             -- clash decay
             if ClashState.Active and (now - ClashState.LastActivationTime) > Config.clashDecayTime then
                 stopClash()
+            end
+
+            -- fallback: reset por tempo caso ballLeftMe nunca dispare (ex: após clash)
+            if ballProcessed and (now - lastProcessReset) >= Config.processResetInt then
+                ballProcessed = false
             end
 
             -- atualiza clash detection via WS attribute (fallback)
