@@ -105,7 +105,16 @@ if Net and typeof(hookfunction) == "function" then
     end)
 end
 
--- resolve método de parry uma vez só na inicialização
+-- resolve método de parry com lazy loading (funciona mid-game)
+local _parryRemoteCache = nil
+local function getParryRemote()
+    if _parryRemoteCache and _parryRemoteCache.Parent then return _parryRemoteCache end
+    local ts  = RSrv:FindFirstChild("TS")
+    local net = ts and ts:FindFirstChild("GeneratedNetworkRemotes")
+    _parryRemoteCache = net and net:FindFirstChild("RE_4.6848415795802784e+76")
+    return _parryRemoteCache
+end
+
 local sendParry
 if Net and oSendOk then
     sendParry = function()
@@ -115,10 +124,9 @@ if Net and oSendOk then
         )
     end
 else
-    local _parryRemoteNet = RSrv.TS.GeneratedNetworkRemotes
-        :FindFirstChild("RE_4.6848415795802784e+76")
     sendParry = function()
-        _parryRemoteNet:FireServer(2.933813859058389e+76)
+        local r = getParryRemote()
+        if r then r:FireServer(2.933813859058389e+76) end
     end
 end
 
@@ -170,9 +178,12 @@ local function tgtOn()
 end
 
 -- ================== REMOTES TEK ==================
-local TS_Folder     = RSrv:WaitForChild("TS", 10)
-local NetRemotes    = TS_Folder and TS_Folder:WaitForChild("GeneratedNetworkRemotes", 10)
-local parryRemote   = NetRemotes and NetRemotes:FindFirstChild("RE_4.6848415795802784e+76")
+-- parryRemote e touchTapEvent com lazy loading
+local function getParryRemoteTek()
+    local ts  = RSrv:FindFirstChild("TS")
+    local net = ts and ts:FindFirstChild("GeneratedNetworkRemotes")
+    return net and net:FindFirstChild("RE_4.6848415795802784e+76")
+end
 local touchTapEvent = RSrv:FindFirstChild("TouchTap")
 
 -- ================== PING ==================
@@ -213,13 +224,37 @@ local lastProcessReset   = 0
 local ballCameFromReset  = false   -- bola veio de reset, não de troca normal
 local lastTargetToMe     = 0       -- tick quando TargetID virou meu
 
-local ballSyncRemote = RSrv:WaitForChild("Remotes", 5)
-ballSyncRemote = ballSyncRemote and ballSyncRemote:FindFirstChild("BallSyncData")
+local ballSyncRemote = nil
+task.spawn(function()
+    local remotes = RSrv:WaitForChild("Remotes", 30)
+    if remotes then
+        ballSyncRemote = remotes:WaitForChild("BallSyncData", 30)
+    end
+end)
+-- aguarda até 3s pra ter o remote antes de conectar
+local _t = tick()
+repeat task.wait(0.05) until ballSyncRemote or (tick() - _t) > 3
 
 if ballSyncRemote then
     ballSyncRemote.OnClientEvent:Connect(function(data)
         if typeof(data) ~= "table" then return end
-        if data.RealPosition then BallSync.RealPosition = data.RealPosition end
+        if data.RealPosition then
+            -- detecta teleporte pela posição mesmo sem mudar TargetID
+            local prevPos = BallSync.RealPosition
+            if prevPos ~= Vector3.zero then
+                local jump = (data.RealPosition - prevPos).Magnitude
+                if jump > Config.ballResetThresh then
+                    -- bola teletransportou → aplica lockout independente do TargetID
+                    if BallSync.TargetID == lp.UserId then
+                        ballCameFromReset = true
+                        ballProcessed     = true
+                        lastProcessReset  = tick()
+                        ballLeftMe        = false
+                    end
+                end
+            end
+            BallSync.RealPosition = data.RealPosition
+        end
         if typeof(data.Speed) == "number" then
             BallSync.Speed = data.Speed
         elseif type(data.Speed) == "table" and data.Speed.Magnitude then
@@ -262,8 +297,9 @@ if ballSyncRemote then
             local threshold   = math_clamp(0.12 + (smoothedPing * 1.05) + 0.045, 0.05, 0.55)
             if timeToReach <= threshold then
                 local b = getBall()
-                if parryRemote then
-                    parryRemote:FireServer(2.933813859058389e+76, Cache.RootPart.CFrame,
+                local pr = getParryRemoteTek()
+                if pr then
+                    pr:FireServer(2.933813859058389e+76, Cache.RootPart.CFrame,
                         b and b.Parent and b.CFrame or Cache.RootPart.CFrame)
                 end
                 if touchTapEvent then touchTapEvent:Fire() end
@@ -623,6 +659,30 @@ local function bind(ch)
             -- fallback geral: reset por tempo caso ballLeftMe nunca dispare
             if ballProcessed and not ballCameFromReset and (now - lastProcessReset) >= Config.processResetInt then
                 ballProcessed = false
+            end
+
+            -- loop fallback: auto parry nos gaps entre eventos BallSync
+            if BallSync.TargetID == lp.UserId and not ballProcessed
+                and not spamOn
+                and getgenv().__deltaV3_autoParryOn
+                and Cache.RootPart
+                and BallSync.Speed > Config.minSpeed
+                and not ballCameFromReset
+            then
+                local dist        = (Cache.RootPart.Position - BallSync.RealPosition).Magnitude
+                local timeToReach = dist / math.max(BallSync.Speed, 1)
+                local threshold   = math_clamp(0.12 + (smoothedPing * 1.05) + 0.045, 0.05, 0.55)
+                if timeToReach <= threshold then
+                    local pr = getParryRemoteTek()
+                    local b  = getBall()
+                    if pr then
+                        pr:FireServer(2.933813859058389e+76, Cache.RootPart.CFrame,
+                            b and b.Parent and b.CFrame or Cache.RootPart.CFrame)
+                    end
+                    if touchTapEvent then touchTapEvent:Fire() end
+                    ballProcessed    = true
+                    lastProcessReset = now
+                end
             end
 
             -- atualiza clash detection via WS attribute (fallback)
