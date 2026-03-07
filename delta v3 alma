@@ -252,11 +252,26 @@ if ballSyncRemote then
             and BallSync.Speed > Config.minSpeed
             and not ballCameFromReset
         then
-            local dist        = (Cache.RootPart.Position - BallSync.RealPosition).Magnitude
+            local hrpPos      = Cache.RootPart.Position
+            local ballPos     = BallSync.RealPosition
+            local dist        = (hrpPos - ballPos).Magnitude
             local timeToReach = dist / math.max(BallSync.Speed, 1)
             local threshold   = math_clamp(0.12 + (smoothedPing * 1.05) + 0.045, 0.05, 0.55)
-            if timeToReach <= threshold then
-                local b = getBall()
+
+            -- checa se bola tá se aproximando (igual BETA v2)
+            local b   = getBall()
+            local vel = b and b.Parent and b.AssemblyLinearVelocity or nil
+            local app = vel and vel:Dot(hrpPos - ballPos) > 0 or true
+
+            -- detect reset via AssemblyLinearVelocity zero (mais rápido que BallSync)
+            if vel and vel.Magnitude < 1 then
+                ballCameFromReset = true
+                ballProcessed    = true
+                lastProcessReset = tick()
+                return
+            end
+
+            if timeToReach <= threshold and app then
                 if parryRemote then
                     parryRemote:FireServer(2.933813859058389e+76, Cache.RootPart.CFrame,
                         b and b.Parent and b.CFrame or Cache.RootPart.CFrame)
@@ -628,11 +643,19 @@ local function bind(ch)
                 and not ballCameFromReset
                 and (now - lastBallSyncTime) < 0.15
             then
-                local dist        = (Cache.RootPart.Position - BallSync.RealPosition).Magnitude
+                local hrpPos      = Cache.RootPart.Position
+                local ballPos     = BallSync.RealPosition
+                local dist        = (hrpPos - ballPos).Magnitude
                 local timeToReach = dist / math.max(BallSync.Speed, 1)
                 local threshold   = math_clamp(0.12 + (smoothedPing * 1.05) + 0.045, 0.05, 0.55)
-                if timeToReach <= threshold then
-                    local b = getBall()
+                local b   = getBall()
+                local vel = b and b.Parent and b.AssemblyLinearVelocity or nil
+                local app = vel and vel:Dot(hrpPos - ballPos) > 0 or true
+                if vel and vel.Magnitude < 1 then
+                    ballCameFromReset = true
+                    ballProcessed    = true
+                    lastProcessReset = now
+                elseif timeToReach <= threshold and app then
                     if parryRemote then
                         parryRemote:FireServer(2.933813859058389e+76, Cache.RootPart.CFrame,
                             b and b.Parent and b.CFrame or Cache.RootPart.CFrame)
