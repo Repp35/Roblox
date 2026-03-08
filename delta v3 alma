@@ -31,7 +31,7 @@ local Config = {
 
     ballResetThresh   = 50,
     ballResetLockout  = 0.6,
-    processResetInt   = 0.4,
+    processResetInt   = 2.0,
 
     spamInterval    = 0.00167,
     spamCapPerFrame = 10,
