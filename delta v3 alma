@@ -682,4 +682,4 @@ CoreGui.ChildRemoved:Connect(function(c)
             getgenv().__na_aex_conn = nil
         end
     end
-end) 
+end)
