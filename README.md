@@ -1,1 +1,0 @@
-![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/Repp35/Roblox?utm_source=oss&utm_medium=github&utm_campaign=Repp35%2FRoblox&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
