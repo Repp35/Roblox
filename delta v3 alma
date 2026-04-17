@@ -1,7 +1,12 @@
--- DELTA ΔV5
+-- ============================================================================
+-- DELTA ΔV5 ULTIMATE | PERFECT SYNC PARRY | By Renan
+-- Integração completa com BallReplicator, Network e GameBall
+-- ============================================================================
+
 local math_clamp = math.clamp
 local typeof     = typeof
 
+-- ================== CLEANUP & GUARDS ==================
 if getgenv().__na_aex_conn then
     getgenv().__na_aex_conn:Disconnect()
     getgenv().__na_aex_conn = nil
@@ -11,6 +16,7 @@ getgenv().__na_aex = true
 
 if game.GameId ~= 4538598064 then return end
 
+-- ================== SERVICES ==================
 local Plrs    = game:GetService("Players")
 local RS      = game:GetService("RunService")
 local RSrv    = game:GetService("ReplicatedStorage")
@@ -19,151 +25,88 @@ local UIS     = game:GetService("UserInputService")
 local Stats   = game:GetService("Stats")
 local CoreGui = game:GetService("CoreGui")
 
+-- ================== CONFIG OTIMIZADO ==================
 local Config = {
-    velSmooth     = 0.05,
-    minRadius     = 9,
-    maxRadius     = 90,
-    radiusWin     = 0.40,
-    radiusOff     = 6,
-    radiusPre     = 10,
-    minSpeed      = 5,
-    maxImpactTime = 0.35,
-
-    ballResetThresh   = 50,
-    ballResetLockout  = 0.6,
-    processResetInt   = 2.0,
-
-    spamInterval    = 0.00167,
-    spamCapPerFrame = 10,
-
-    pingSmooth        = 0.15,
-    pingMultiplier    = 1.1,
-    pingOffset        = 0.02,
-    pingMin           = 0.02,
-    pingMax           = 0.25,
-    clashHistorySize  = 6,
-    clashTimeWindow   = 0.6,
-    clashMinDist      = 40,
-    clashMinSpeed     = 35,
-    clashCriticalDist = 20,
-    clashDecayTime    = 0.5,
-
-    clashRadMult             = 1.5,
-    activationDistanceOffset = 7,
+    -- Ball detection
+    killDistance        = 4,
+    distanceMultiplier  = 0.15,
+    criticalDistance    = 15,
+    criticalSpeed       = 150,
+    
+    -- Parry timing
+    maxImpactTime       = 0.35,
+    velSmooth           = 0.05,
+    
+    -- Spam settings
+    spamInterval        = 0.00167,      -- ~600 CPS
+    spamCapPerFrame     = 10,
+    
+    -- Ping compensation
+    pingSmooth          = 0.15,
+    pingMultiplier      = 1.5,
+    pingOffset          = 0.02,
+    pingMin             = 0.02,
+    pingMax             = 0.25,
+    
+    -- Clash detection
+    clashHistorySize    = 6,
+    clashTimeWindow     = 0.6,
+    clashMinDist        = 40,
+    clashMinSpeed       = 35,
+    clashCriticalDist   = 20,
+    clashDecayTime      = 0.5,
+    clashRadMult        = 1.5,
+    
+    -- Ball sync
+    ballResetThresh     = 50,
+    ballResetLockout    = 0.6,
+    processResetInt     = 2.0,
 }
 
-if getgenv().__deltaV3_autoParryOn  == nil then getgenv().__deltaV3_autoParryOn  = true    end
-if getgenv().__deltaV3_autoClashOn  == nil then getgenv().__deltaV3_autoClashOn  = true    end
-if getgenv().__deltaV3_auraOn       == nil then getgenv().__deltaV3_auraOn       = false   end
-if getgenv().__deltaV3_spamInterval == nil then getgenv().__deltaV3_spamInterval = 0.00167 end
-
-local Net = nil
-local Def = nil
-pcall(function() Net = require(RSrv.TS.Network.Network).Network end)
-pcall(function() Def = require(RSrv.TS.Abilities.DeflectAbility).DeflectAbility end)
-
-local PNotif = RSrv:WaitForChild("PromptNotification")
-task.spawn(function()
-    PNotif:Fire("Delta ΔV5 ✅ | Super Auto Parry | 600 CPS", true)
-end)
+-- ================== GLOBAL STATE ==================
+if getgenv().__deltaV5_autoParryOn   == nil then getgenv().__deltaV5_autoParryOn   = true    end
+if getgenv().__deltaV5_autoClashOn   == nil then getgenv().__deltaV5_autoClashOn   = true    end
+if getgenv().__deltaV5_auraOn        == nil then getgenv().__deltaV5_auraOn        = false   end
+if getgenv().__deltaV5_spamInterval  == nil then getgenv().__deltaV5_spamInterval  = 0.00167 end
+if getgenv().__deltaV5_spamCapPerFrame == nil then getgenv().__deltaV5_spamCapPerFrame = 10 end
 
 local spamOn      = false
 local clashSpamOn = false
+local spamAccum   = 0
 
-if Def and typeof(hookfunction) == "function" then
-    pcall(function()
-        local originalIsAvailable
-        originalIsAvailable = hookfunction(Def.IsAvailable, function(self, ...)
-            if spamOn or clashSpamOn then return true end
-            return originalIsAvailable(self, ...)
-        end)
-    end)
-end
+-- ================== MODULE LOADING ==================
+local TS_Folder = RSrv:WaitForChild("TS", 10)
+local Net = nil
+local BallRep = nil
+local GameBall = nil
+local GameInfo = nil
 
-local oSendOk = false
-if Net and typeof(hookfunction) == "function" then
-    pcall(function()
-        local oSend
-        oSend = hookfunction(Net.CSendEvent, function(self, router, evt, ...)
-            if router == 46848415795802784000000000000000000000000000000000000000000000000000000000000 then
-                return oSend(self, router, 29338138590583890000000000000000000000000000000000000000000000000000000000000, ...)
-            end
-            return oSend(self, router, evt, ...)
-        end)
-        oSendOk = true
-    end)
-end
+pcall(function() 
+    Net = require(TS_Folder.Network.Network).Network 
+end)
 
-local sendParry
-if Net and oSendOk then
-    sendParry = function()
-        Net:CSendEvent(
-            46848415795802784000000000000000000000000000000000000000000000000000000000000,
-            6846744283873508500000000000000000000000000000000000000000000000000000000000
-        )
-    end
-else
-    local _parryRemoteNet = RSrv.TS.GeneratedNetworkRemotes
-        :FindFirstChild("RE_4.6848415795802784e+76")
-    sendParry = function()
-        if _parryRemoteNet then _parryRemoteNet:FireServer(2.933813859058389e+76) end
-    end
-end
+pcall(function() 
+    BallRep = require(TS_Folder.BallReplicator.BallReplicator).BallReplicator 
+end)
 
-local gi, br
+pcall(function() 
+    GameBall = require(TS_Folder.Gameplay.GameBall).GameBall 
+end)
 
-do
-    local ok, mod = pcall(function()
-        return require(RSrv:WaitForChild("TS"):WaitForChild("GameInfo"))
-    end)
-    if ok and mod and mod.GameInfo then gi = mod.GameInfo end
-end
+pcall(function() 
+    GameInfo = require(TS_Folder.GameInfo).GameInfo 
+end)
 
-do
-    local ok, mod = pcall(function()
-        return require(RSrv:WaitForChild("TS"):WaitForChild("BallReplicator"):WaitForChild("BallReplicator"))
-    end)
-    if ok and mod and mod.BallReplicator then br = mod.BallReplicator end
-end
+-- ================== NETWORK REMOTES ==================
+local NetRemotes      = TS_Folder and TS_Folder:WaitForChild("GeneratedNetworkRemotes", 10)
+local parryRemote     = NetRemotes and NetRemotes:FindFirstChild("RE_4.6848415795802784e+76")
+local touchTapEvent   = RSrv:FindFirstChild("TouchTap")
 
-local lp = Plrs.LocalPlayer
-local Cache = { Character = nil, RootPart = nil, Ball = nil }
+-- Network IDs (extraídos do decompilado)
+local PARRY_EVENT_ID  = "46848415795802784000000000000000000000000000000000000000000000000000000000000"
+local PARRY_ARG       = 2.933813859058389e+76
 
-local function setupCharacter(ch)
-    if not ch then return end
-    Cache.Character = ch
-    Cache.RootPart  = ch:WaitForChild("HumanoidRootPart", 10)
-end
-
-lp.CharacterAdded:Connect(setupCharacter)
-setupCharacter(lp.Character)
-
-local function getBall()
-    if Cache.Ball and Cache.Ball.Parent then return Cache.Ball end
-    if gi and gi.BallModel and gi.BallModel.Parent then
-        Cache.Ball = gi.BallModel
-        return Cache.Ball
-    end
-    local found = WS:FindFirstChild("GameBall", true)
-    if found then Cache.Ball = found end
-    return Cache.Ball
-end
-
-local function tgtOn()
-    local ch = lp.Character
-    if ch and ch:FindFirstChild("Highlight") then return true end
-    if WS:GetAttribute("GameBallTarget") == lp.UserId then return true end
-    if br and br.syncData and br.syncData.HighlightTargetPlayerID == lp.UserId then return true end
-    return false
-end
-
--- ================== REMOTES TEK ==================
-local TS_Folder     = RSrv:WaitForChild("TS", 10)
-local NetRemotes    = TS_Folder and TS_Folder:WaitForChild("GeneratedNetworkRemotes", 10)
-local parryRemote   = NetRemotes and NetRemotes:FindFirstChild("RE_4.6848415795802784e+76")
-local touchTapEvent = RSrv:FindFirstChild("TouchTap")
-
--- ================== PING ==================
+-- ================== PING COMPENSATION ==================
 local smoothedPing = 0.05
 
 local function updatePing()
@@ -182,11 +125,12 @@ local function getPingCompensation()
     )
 end
 
--- ================== BALL SYNC (só pra clash + reset de ballProcessed) ==================
-local BallSync      = { Speed = 0, TargetID = -999 }
+-- ================== BALL SYNC & STATE ==================
+local BallSync = { Speed = 0, TargetID = -999, RealPosition = Vector3.new(0, 0, 0) }
 local ballProcessed    = false
 local ballLeftMe       = false
 local lastProcessReset = 0
+local State = { current = "normal", lastTransition = 0 }
 
 local ballSyncRemote = RSrv:WaitForChild("Remotes", 5)
 ballSyncRemote = ballSyncRemote and ballSyncRemote:FindFirstChild("BallSyncData")
@@ -194,30 +138,35 @@ ballSyncRemote = ballSyncRemote and ballSyncRemote:FindFirstChild("BallSyncData"
 if ballSyncRemote then
     ballSyncRemote.OnClientEvent:Connect(function(data)
         if typeof(data) ~= "table" then return end
+        
+        -- Atualiza Speed
         if typeof(data.Speed) == "number" then
             BallSync.Speed = data.Speed
         elseif type(data.Speed) == "table" and data.Speed.Magnitude then
             BallSync.Speed = data.Speed.Magnitude
         end
+        
+        -- Atualiza TargetPlayerID
         if data.TargetPlayerID then
             local newID = data.TargetPlayerID
             if newID ~= BallSync.TargetID then
-                if BallSync.TargetID == lp.UserId then
+                if BallSync.TargetID == Plrs.LocalPlayer.UserId then
                     ballLeftMe = true
                 end
-                if newID == lp.UserId and ballLeftMe then
-                    -- bola voltou via troca normal → libera imediatamente
+                if newID == Plrs.LocalPlayer.UserId and ballLeftMe then
                     ballProcessed = false
                     ballLeftMe    = false
                 end
             end
             BallSync.TargetID = newID
         end
+        
+        -- Atualiza RealPosition
+        if data.RealPosition then
+            BallSync.RealPosition = data.RealPosition
+        end
     end)
 end
-
--- ================== STATE MACHINE ==================
-local State = { current = "normal", lastTransition = 0 }
 
 local function setState(s)
     if State.current == s then return end
@@ -225,7 +174,7 @@ local function setState(s)
     State.lastTransition = tick()
 end
 
--- ================== CLASH ==================
+-- ================== CLASH DETECTION ==================
 local ClashState = {
     Active             = false,
     LastActivationTime = 0,
@@ -235,16 +184,18 @@ local ClashState = {
 local TargetHistory = {}
 local lastTarget    = nil
 
-local function updateClashDetection(newTargetID, ballPos)
+local function updateClashDetection(newTargetID, ballPos, hrp)
     if newTargetID == lastTarget then return end
     lastTarget = newTargetID
 
-    if not Cache.RootPart then return end
-    local dist = (Cache.RootPart.Position - ballPos).Magnitude
+    if not hrp then return end
+    local dist = (hrp.Position - ballPos).Magnitude
     local now  = tick()
 
     table.insert(TargetHistory, 1, { id = newTargetID, t = now })
     if #TargetHistory > Config.clashHistorySize then table.remove(TargetHistory) end
+
+    local lp = Plrs.LocalPlayer
 
     if #TargetHistory >= 3 then
         local timeGap       = TargetHistory[1].t - TargetHistory[3].t
@@ -255,8 +206,8 @@ local function updateClashDetection(newTargetID, ballPos)
         local speedOk = dist < Config.clashCriticalDist or BallSync.Speed >= Config.clashMinSpeed
         if isAlternating and timeGap < Config.clashTimeWindow and dist < Config.clashMinDist and speedOk then
             if not ClashState.Active then
-                local interval = getgenv().__deltaV3_spamInterval    or Config.spamInterval
-                local cap      = getgenv().__deltaV3_spamCapPerFrame or Config.spamCapPerFrame
+                local interval = getgenv().__deltaV5_spamInterval
+                local cap      = getgenv().__deltaV5_spamCapPerFrame
                 spamAccum = interval * cap
             end
             ClashState.Active             = true
@@ -269,8 +220,8 @@ local function updateClashDetection(newTargetID, ballPos)
 
     if newTargetID == lp.UserId and dist < Config.clashCriticalDist then
         if not ClashState.Active then
-            local interval = getgenv().__deltaV3_spamInterval    or Config.spamInterval
-            local cap      = getgenv().__deltaV3_spamCapPerFrame or Config.spamCapPerFrame
+            local interval = getgenv().__deltaV5_spamInterval
+            local cap      = getgenv().__deltaV5_spamCapPerFrame
             spamAccum = interval * cap
         end
         ClashState.Active             = true
@@ -290,10 +241,43 @@ local function stopClash()
     end
 end
 
--- ================== SPAM ==================
-local spamAccum  = 0
+-- ================== SEND PARRY FUNCTIONS ==================
+local function sendParryViaNetwork(hrp, ballModel)
+    if Net then
+        pcall(function()
+            Net:CSendEvent(PARRY_EVENT_ID, PARRY_ARG, hrp.CFrame, ballModel.CFrame)
+        end)
+    elseif parryRemote then
+        pcall(function()
+            parryRemote:FireServer(PARRY_ARG, hrp.CFrame, ballModel.CFrame)
+        end)
+    end
+end
+
+local function sendParry()
+    local lp = Plrs.LocalPlayer
+    local char = lp and lp.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    
+    if not hrp then return end
+    
+    local ballModel = GameInfo and GameInfo.BallModel
+    if not ballModel or not ballModel.Parent then
+        ballModel = WS:FindFirstChild("GameBall", true)
+    end
+    
+    if not ballModel or not ballModel.Parent then return end
+    
+    sendParryViaNetwork(hrp, ballModel)
+    
+    if touchTapEvent then
+        pcall(function() touchTapEvent:Fire() end)
+    end
+end
+
+-- ================== SPAM LOOP ==================
 local toggleButton
-local spamConn   = nil
+local spamConn = nil
 
 local function updateGUI()
     if not toggleButton then return end
@@ -311,9 +295,11 @@ local function startSpamLoop()
             spamAccum = 0
             return
         end
-        local interval = getgenv().__deltaV3_spamInterval    or Config.spamInterval
-        local cap      = getgenv().__deltaV3_spamCapPerFrame or Config.spamCapPerFrame
+        
+        local interval = getgenv().__deltaV5_spamInterval
+        local cap      = getgenv().__deltaV5_spamCapPerFrame
         spamAccum = math.min(spamAccum + dt, interval * cap)
+        
         local fired = 0
         while spamAccum >= interval and fired < cap do
             sendParry()
@@ -326,10 +312,10 @@ end
 local function setSpam(v)
     if spamOn == v then return end
     spamOn = v
-    getgenv().__deltaV3_spamActive = v
+    getgenv().__deltaV5_spamActive = v
     if v then
-        local interval = getgenv().__deltaV3_spamInterval    or Config.spamInterval
-        local cap      = getgenv().__deltaV3_spamCapPerFrame or Config.spamCapPerFrame
+        local interval = getgenv().__deltaV5_spamInterval
+        local cap      = getgenv().__deltaV5_spamCapPerFrame
         spamAccum = interval * cap
         setState("spam")
     else
@@ -340,7 +326,7 @@ local function setSpam(v)
     updateGUI()
 end
 
-getgenv().__deltaV3_setSpam = function(v) setSpam(v) end
+getgenv().__deltaV5_setSpam = function(v) setSpam(v) end
 
 startSpamLoop()
 
@@ -349,7 +335,158 @@ UIS.InputBegan:Connect(function(inp, gpe)
     if inp.KeyCode == Enum.KeyCode.X then setSpam(not spamOn) end
 end)
 
--- ================== GUI (estilo v5.0) ==================
+-- ================== AUTO PARRY LOOP (OTIMIZADO) ==================
+local lp = Plrs.LocalPlayer
+local Cache = { Character = nil, RootPart = nil }
+
+local function setupCharacter(ch)
+    if not ch then return end
+    Cache.Character = ch
+    Cache.RootPart  = ch:WaitForChild("HumanoidRootPart", 10)
+end
+
+lp.CharacterAdded:Connect(setupCharacter)
+setupCharacter(lp.Character)
+
+local function bind(ch)
+    setupCharacter(ch)
+
+    local hrp       = ch:WaitForChild("HumanoidRootPart", 10)
+    local running   = true
+    local lastBallPos  = nil
+    local ballResetAt  = 0
+    local vel          = Vector3.zero
+    local lastBP       = nil
+    local lastBT       = nil
+    local lastParryTime = 0
+    local pingTimer   = 0
+
+    local function getBallVel(b)
+        local av = b.AssemblyLinearVelocity
+        if typeof(av) == "Vector3" and av.Magnitude > 0.1 then
+            return av
+        end
+        return nil
+    end
+
+    task.spawn(function()
+        while running do
+            local dt  = task.wait(0.016)
+            local now = tick()
+
+            if not (ch and ch.Parent and hrp and hrp.Parent) then continue end
+
+            pingTimer = pingTimer + dt
+            if pingTimer >= 2 then
+                pingTimer = 0
+                task.spawn(updatePing)
+            end
+
+            -- Clash decay
+            if ClashState.Active and (now - ClashState.LastActivationTime) > Config.clashDecayTime then
+                stopClash()
+            end
+
+            -- Fallback reset
+            if ballProcessed and (now - lastProcessReset) >= Config.processResetInt then
+                ballProcessed = false
+            end
+
+            if spamOn then continue end
+            if not getgenv().__deltaV5_autoParryOn then continue end
+
+            local b = BallRep and BallRep.syncData and GameInfo and GameInfo.BallModel
+            if not (b and b.Parent) then continue end
+
+            local bp = b.Position
+
+            -- Detecta reset
+            if lastBallPos then
+                local jump = (bp - lastBallPos).Magnitude
+                if jump > Config.ballResetThresh then
+                    ballProcessed    = true
+                    lastProcessReset = now
+                    ballResetAt      = now
+                    vel              = Vector3.zero
+                    lastBP, lastBT   = nil, nil
+                    lastBallPos      = bp
+                    continue
+                end
+            end
+            lastBallPos = bp
+
+            if (now - ballResetAt) < Config.ballResetLockout then continue end
+
+            -- Clash detection
+            local currentTarget = BallSync.TargetID
+            if currentTarget and currentTarget > 0 then
+                updateClashDetection(currentTarget, bp, hrp)
+            end
+
+            -- Velocidade (usa BallSync primeiro, depois fallback)
+            local av = BallRep and BallRep.syncData and BallRep.syncData.Speed or getBallVel(b)
+            if av then
+                if typeof(av) == "number" then
+                    vel = Vector3.new(0, 0, av)
+                else
+                    vel    = av
+                end
+                lastBT, lastBP = now, bp
+            elseif not lastBT then
+                lastBT, lastBP = now, bp
+            else
+                local dtt = now - lastBT
+                if dtt > 0 then
+                    local raw = (bp - lastBP) / dtt
+                    local a   = dt / (Config.velSmooth + dt)
+                    vel       = vel + (raw - vel) * a
+                    lastBT, lastBP = now, bp
+                end
+            end
+
+            local hrpPos = hrp.Position
+            local spd    = BallRep and BallRep.syncData and BallRep.syncData.Speed or vel.Magnitude
+            local d      = (bp - hrpPos).Magnitude
+            local app    = vel:Dot(hrpPos - bp) > 0
+            local tgt    = (BallSync.TargetID == lp.UserId)
+            local tImp   = spd > 1 and (d / spd) or 1000000
+            local ping   = getPingCompensation()
+
+            -- CÁLCULO CRÍTICO: Distância com compensação agressiva
+            local activationDist = Config.killDistance + (spd * (Config.distanceMultiplier + (ping * 0.5)))
+
+            local can = tgt and app and spd > 5
+                and d <= activationDist
+                and tImp <= (Config.maxImpactTime + ping)
+
+            if can and not ballProcessed then
+                sendParry()
+                ballProcessed    = true
+                lastProcessReset = now
+                setState("normal")
+            end
+        end
+    end)
+
+    ch.AncestryChanged:Connect(function(_, p)
+        if not p then
+            running = false
+            setSpam(false)
+            stopClash()
+            ballProcessed = false
+            ballLeftMe    = false
+            lastBallPos   = nil
+            updateGUI()
+        end
+    end)
+
+    getgenv().__na_aex_conn = { Disconnect = function() running = false end }
+end
+
+lp.CharacterAdded:Connect(bind)
+if lp.Character then bind(lp.Character) end
+
+-- ================== GUI (ULTRA POLISH) ==================
 task.spawn(function()
     local old = CoreGui:FindFirstChild("ParrySpamToggleGui")
     if old then old:Destroy() end
@@ -362,21 +499,21 @@ task.spawn(function()
     screenGui.Parent         = CoreGui
 
     local mainFrame = Instance.new("Frame")
-    mainFrame.Size             = UDim2.new(0, 120, 0, 95)
-    mainFrame.Position         = UDim2.new(1, -130, 0.5, -47)
+    mainFrame.Size             = UDim2.new(0, 140, 0, 110)
+    mainFrame.Position         = UDim2.new(1, -150, 0.5, -55)
     mainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 30)
     mainFrame.BorderSizePixel  = 0
     mainFrame.Parent           = screenGui
     Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 14)
 
-    local savedPos = getgenv().__deltaV3_savedSpamGuiPos
+    local savedPos = getgenv().__deltaV5_savedSpamGuiPos
     if savedPos and savedPos.x and savedPos.y then
         mainFrame.Position = UDim2.new(0, savedPos.x, 0, savedPos.y)
     end
 
     local stroke     = Instance.new("UIStroke")
     stroke.Color     = Color3.fromRGB(70, 90, 200)
-    stroke.Thickness = 1.5
+    stroke.Thickness = 2
     stroke.Parent    = mainFrame
 
     task.spawn(function()
@@ -391,7 +528,7 @@ task.spawn(function()
     end)
 
     local titleBar = Instance.new("Frame")
-    titleBar.Size             = UDim2.new(1, 0, 0, 24)
+    titleBar.Size             = UDim2.new(1, 0, 0, 28)
     titleBar.BackgroundColor3 = Color3.fromRGB(30, 30, 55)
     titleBar.BorderSizePixel  = 0
     titleBar.Parent           = mainFrame
@@ -401,7 +538,7 @@ task.spawn(function()
     titleLabel.Size                   = UDim2.new(1, -6, 1, 0)
     titleLabel.Position               = UDim2.new(0, 6, 0, 0)
     titleLabel.BackgroundTransparency = 1
-    titleLabel.Text                   = "Δ V5"
+    titleLabel.Text                   = "Δ V5 ULTIMATE"
     titleLabel.TextColor3             = Color3.fromRGB(180, 195, 255)
     titleLabel.TextScaled             = true
     titleLabel.Font                   = Enum.Font.GothamBold
@@ -409,7 +546,7 @@ task.spawn(function()
 
     toggleButton = Instance.new("TextButton")
     toggleButton.Size             = UDim2.new(0.85, 0, 0, 52)
-    toggleButton.Position         = UDim2.new(0.075, 0, 0, 30)
+    toggleButton.Position         = UDim2.new(0.075, 0, 0, 35)
     toggleButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
     toggleButton.BorderSizePixel  = 0
     toggleButton.Text             = "OFF"
@@ -429,7 +566,7 @@ task.spawn(function()
         local nx = math_clamp(startPos.X.Offset + delta.X, 0, vpSize.X - fSize.X)
         local ny = math_clamp(startPos.Y.Offset + delta.Y, 0, vpSize.Y - fSize.Y)
         mainFrame.Position = UDim2.new(0, nx, 0, ny)
-        getgenv().__deltaV3_savedSpamGuiPos = { x = nx, y = ny }
+        getgenv().__deltaV5_savedSpamGuiPos = { x = nx, y = ny }
     end
 
     titleBar.InputBegan:Connect(function(input)
@@ -494,21 +631,14 @@ local auraConn = RS.RenderStepped:Connect(function()
     lastVisualUpdate = now
 
     local hrp = Cache.RootPart
-    if not getgenv().__deltaV3_auraOn or not hrp or not hrp.Parent then
+    if not getgenv().__deltaV5_auraOn or not hrp or not hrp.Parent then
         auraOuter.Transparency = 1
         auraInner.Transparency = 1
         return
     end
 
-    local b         = getBall()
-    local realSpeed = BallSync.Speed > 0 and BallSync.Speed
-                   or (b and b.Parent and b.AssemblyLinearVelocity.Magnitude)
-                   or 45
-
-    local baseRad = math_clamp(
-        realSpeed * Config.radiusWin + Config.radiusOff,
-        Config.minRadius, Config.maxRadius
-    ) + Config.radiusPre + Config.activationDistanceOffset
+    local realSpeed = BallSync.Speed > 0 and BallSync.Speed or 45
+    local baseRad = Config.killDistance + (realSpeed * Config.distanceMultiplier) + 10
 
     local rad  = ClashState.Active and (baseRad * Config.clashRadMult) or baseRad
     local sz   = Vector3.new(rad * 2, rad * 2, rad * 2)
@@ -528,148 +658,9 @@ local auraConn = RS.RenderStepped:Connect(function()
     auraInner.Transparency = INNER_TRANSPARENCY
 end)
 
--- ================== LOOP (auto parry antigo + clash decay + ping) ==================
-local function bind(ch)
-    setupCharacter(ch)
-
-    local hrp       = ch:WaitForChild("HumanoidRootPart", 10)
-    local running   = true
-    local lastBallPos  = nil
-    local ballResetAt  = 0
-    local vel          = Vector3.zero
-    local lastBP       = nil
-    local lastBT       = nil
-    local lastParryTime = 0
-    local pingTimer   = 0
-
-    local function getBallVel(b)
-        local av = b.AssemblyLinearVelocity
-        if typeof(av) == "Vector3" and av.Magnitude > 0.1 then
-            return av
-        end
-        return nil
-    end
-
-    task.spawn(function()
-        while running do
-            local dt  = task.wait(0.016)
-            local now = tick()
-
-            if not (ch and ch.Parent and hrp and hrp.Parent) then continue end
-
-            pingTimer = pingTimer + dt
-            if pingTimer >= 2 then
-                pingTimer = 0
-                task.spawn(updatePing)
-            end
-
-            -- clash decay
-            if ClashState.Active and (now - ClashState.LastActivationTime) > Config.clashDecayTime then
-                stopClash()
-            end
-
-            -- fallback geral: libera após processResetInt caso ballLeftMe nunca dispare
-            if ballProcessed and (now - lastProcessReset) >= Config.processResetInt then
-                ballProcessed = false
-            end
-
-            if spamOn then continue end
-            if not getgenv().__deltaV3_autoParryOn then continue end
-
-            local b = getBall()
-            if not (b and b.Parent) then continue end
-
-            local bp = b.Position
-
-            -- detecta reset pela posição
-            if lastBallPos then
-                local jump = (bp - lastBallPos).Magnitude
-                if jump > Config.ballResetThresh then
-                    ballProcessed    = true
-                    lastProcessReset = now
-                    ballResetAt      = now
-                    vel              = Vector3.zero
-                    lastBP, lastBT   = nil, nil
-                    lastBallPos      = bp
-                    continue
-                end
-            end
-            lastBallPos = bp
-
-            if (now - ballResetAt) < Config.ballResetLockout then continue end
-
-            -- atualiza clash detection
-            local currentTarget = WS:GetAttribute("GameBallTarget")
-            if currentTarget then
-                updateClashDetection(currentTarget, bp)
-            end
-
-            -- velocidade da bola
-            local av = getBallVel(b)
-            if av then
-                vel    = av
-                lastBT, lastBP = now, bp
-            elseif not lastBT then
-                lastBT, lastBP = now, bp
-            else
-                local dtt = now - lastBT
-                if dtt > 0 then
-                    local raw = (bp - lastBP) / dtt
-                    local a   = dt / (Config.velSmooth + dt)
-                    vel       = vel + (raw - vel) * a
-                    lastBT, lastBP = now, bp
-                end
-            end
-
-            local hrpPos = hrp.Position
-            local spd    = vel.Magnitude
-            local rad    = math_clamp(spd * Config.radiusWin + Config.radiusOff, Config.minRadius, Config.maxRadius) + Config.radiusPre
-            local d      = (bp - hrpPos).Magnitude
-            local app    = vel:Dot(hrpPos - bp) > 0
-            local tgt    = tgtOn()
-            local tImp   = spd > 1 and (d / spd) or 1000000
-            local ping   = getPingCompensation()
-
-            local can = tgt and app and spd > Config.minSpeed
-                and d <= rad
-                and tImp <= (Config.maxImpactTime + ping)
-
-            -- sem cooldown fixo — só ballProcessed controla
-            if can and not ballProcessed then
-                local pr = parryRemote
-                if pr then
-                    pr:FireServer(2.933813859058389e+76, hrp.CFrame, b.CFrame)
-                end
-                if touchTapEvent then touchTapEvent:Fire() end
-                ballProcessed    = true
-                lastProcessReset = now
-                setState("normal")
-            end
-        end
-    end)
-
-    ch.AncestryChanged:Connect(function(_, p)
-        if not p then
-            running = false
-            setSpam(false)
-            stopClash()
-            ballProcessed = false
-            ballLeftMe    = false
-            lastBallPos   = nil
-            auraOuter.Transparency = 1
-            auraInner.Transparency = 1
-            updateGUI()
-        end
-    end)
-
-    getgenv().__na_aex_conn = { Disconnect = function() running = false end }
-end
-
-lp.CharacterAdded:Connect(bind)
-if lp.Character then bind(lp.Character) end
-
+-- ================== CLEANUP ==================
 CoreGui.ChildRemoved:Connect(function(c)
-    if c.Name == "DeltaV3Gui" then
+    if c.Name == "ParrySpamToggleGui" then
         if auraConn then auraConn:Disconnect() end
         pcall(function() auraOuter:Destroy() end)
         pcall(function() auraInner:Destroy() end)
@@ -683,3 +674,15 @@ CoreGui.ChildRemoved:Connect(function(c)
         end
     end
 end)
+
+-- ================== STARTUP NOTIFICATION ==================
+task.spawn(function()
+    local PNotif = RSrv:WaitForChild("PromptNotification", 5)
+    if PNotif then
+        PNotif:Fire("Δ V5 ULTIMATE ✅ | Perfect Sync Parry | 600+ CPS | BallReplicator Integrated", true)
+    end
+end)
+
+print("[DELTA V5 ULTIMATE] Script carregado com sucesso!")
+print("[DELTA V5 ULTIMATE] - Auto Parry: " .. tostring(getgenv().__deltaV5_autoParryOn))
+print("[DELTA V5 ULTIMATE] - Press X para ativar/desativar Spam Manual")
