@@ -37,12 +37,12 @@ local Config = {
     pingMax         = 0.25,
 
     clashHistorySize  = 6,
-    clashTimeWindow   = 0.6,
-    clashMinDist      = 40,
-    clashMinSpeed     = 35,
-    clashCriticalDist = 20,
-    clashDecayTime    = 0.5,
-    clashDotThresh    = 0.15,
+    clashTimeWindow   = 0.9,
+    clashMinDist      = 55,
+    clashMinSpeed     = 20,
+    clashCriticalDist = 30,
+    clashDecayTime    = 0.8,
+    clashDotThresh    = 0.10,
     clashResetGuard   = 1.2,
 
     clashRadMult             = 1.5,
@@ -235,7 +235,9 @@ local function stopClash()
     end
 end
 
--- ================== SPAM — HEARTBEAT DIRETO ==================
+-- ================== SPAM — 30 CPS ==================
+local SPAM_INTERVAL = 1 / 30  -- 30 clicks por segundo
+local lastSpam      = 0
 local toggleButton
 local spamConn = nil
 
@@ -251,6 +253,9 @@ local function startSpamLoop()
     if spamConn then spamConn:Disconnect() end
     spamConn = RS.Heartbeat:Connect(function()
         if not (spamOn or clashSpamOn) then return end
+        local now = tick()
+        if (now - lastSpam) < SPAM_INTERVAL then return end
+        lastSpam = now
         sendParry()
     end)
 end
@@ -487,13 +492,11 @@ local function bind(ch)
 
             if (now - ballResetAt) < Config.ballResetLockout then continue end
 
-            -- ========== CLASH DETECTION AQUI (ANTES DO SPAM GUARD) ==========
             local currentTarget = getSyncTarget() or WS:GetAttribute("GameBallTarget")
             if currentTarget and currentTarget > 0 then
                 updateClashDetection(currentTarget, bp, getBallVel(b))
             end
 
-            -- ========== AUTO PARRY COMEÇA AQUI ==========
             if spamOn then continue end
             if not getgenv().__deltaV3_autoParryOn then continue end
             if isLocked() then continue end
@@ -520,7 +523,6 @@ local function bind(ch)
             local d       = (bp - hrpPos).Magnitude
             local tgt     = tgtOn()
 
-            -- GRACE PATH
             if grace and tgt and not ballProcessed then
                 local graceRad = math_clamp((syncSpd or 45) * Config.radiusWin + Config.radiusOff,
                     Config.minRadius, Config.maxRadius) * Config.graceRadiusMult + Config.radiusPre
@@ -535,7 +537,6 @@ local function bind(ch)
                 continue
             end
 
-            -- NORMAL PATH
             local rad  = math_clamp(spd * Config.radiusWin + Config.radiusOff, Config.minRadius, Config.maxRadius) + Config.radiusPre
             local app  = vel.Magnitude > 0.1 and vel:Dot(hrpPos - bp) > 0
             local tImp = spd > 1 and (d / spd) or 1000000
@@ -584,54 +585,3 @@ CoreGui.ChildRemoved:Connect(function(c)
         end
     end
 end)
-
--- ================== TOUCH PARRY ADDON ==================
-do
-    local THUMB_W     = 200
-    local THUMB_H     = 200
-    local DRAG_THRESH = 20
-    local DOUBLE_CD   = 0.05
-    local lastParry   = 0
-    local activeTouches = {}
-
-    local function isInThumbstickZone(pos)
-        local vp = WS.CurrentCamera.ViewportSize
-        return pos.X < THUMB_W and pos.Y > (vp.Y - THUMB_H)
-    end
-
-    local function isInSafeZone(pos)
-        local vp = WS.CurrentCamera.ViewportSize
-        return pos.Y > (vp.Y * 0.60)
-            or pos.Y < (vp.Y * 0.128)
-            or pos.X < (vp.X * 0.128)
-    end
-
-    UIS.InputBegan:Connect(function(inp, gpe)
-        if gpe then return end
-        if inp.UserInputType ~= Enum.UserInputType.Touch then return end
-        if isInThumbstickZone(inp.Position) then return end
-        if isInSafeZone(inp.Position) then return end
-        activeTouches[inp] = { pos = inp.Position, t = os.clock() }
-    end)
-
-    UIS.InputEnded:Connect(function(inp, gpe)
-        if inp.UserInputType ~= Enum.UserInputType.Touch then return end
-        local data = activeTouches[inp]
-        activeTouches[inp] = nil
-        if not data or gpe then return end
-
-        local delta = (inp.Position - data.pos).Magnitude
-        if delta > DRAG_THRESH then return end
-
-        -- Se spam tá ativo, toque não faz nada (já tá spammando)
-        if spamOn or clashSpamOn then return end
-
-        local now = os.clock()
-        if (now - lastParry) < DOUBLE_CD then return end
-        lastParry = now
-        sendParry()
-        if touchTapEvent then touchTapEvent:Fire() end
-    end)
-
-    print("Touch Parry Addon ✅ | integrado ao V5")
-end
