@@ -32,6 +32,9 @@ local Config = {
     ballResetLockout = 0.6,
     processResetInt  = 3.5,
 
+    spamInterval    = 0.00167,
+    spamCapPerFrame = 10,
+
     pingSmooth      = 0.15,
     pingMultiplier  = 1.1,
     pingOffset      = 0.02,
@@ -51,16 +54,12 @@ local Config = {
     activationDistanceOffset = 7,
     killDistance             = 4,
     graceRadiusMult          = 1.4,
-
-    -- Phantom spam
-    clashBurstSize     = 4,
-    clashBurstInterval = 0.0167,
-    clashBurstCount    = 20,
 }
 
-if getgenv().__deltaV3_autoParryOn == nil then getgenv().__deltaV3_autoParryOn = true  end
-if getgenv().__deltaV3_autoClashOn == nil then getgenv().__deltaV3_autoClashOn = true  end
-if getgenv().__deltaV3_auraOn      == nil then getgenv().__deltaV3_auraOn      = false end
+if getgenv().__deltaV3_autoParryOn  == nil then getgenv().__deltaV3_autoParryOn  = true    end
+if getgenv().__deltaV3_autoClashOn  == nil then getgenv().__deltaV3_autoClashOn  = true    end
+if getgenv().__deltaV3_auraOn       == nil then getgenv().__deltaV3_auraOn       = false   end
+if getgenv().__deltaV3_spamInterval == nil then getgenv().__deltaV3_spamInterval = 0.00167 end
 
 -- ================== REMOTE ==================
 local _parryRemote
@@ -161,9 +160,13 @@ local function setState(s)
 end
 
 -- ================== CLASH ==================
-local ClashState    = { Active = false, LastActivationTime = 0, CurrentOpponent = nil, IsBursting = false }
+local ClashState    = { Active = false, LastActivationTime = 0, CurrentOpponent = nil }
 local TargetHistory = {}
 local lastTarget    = nil
+
+local spamOn      = false
+local clashSpamOn = false
+local spamAccum   = 0
 
 local function updateClashDetection(newTargetID, ballPos, ballVel)
     if newTargetID == lastTarget then return end
@@ -195,47 +198,45 @@ local function updateClashDetection(newTargetID, ballPos, ballVel)
         local distOk  = dist < Config.clashMinDist
 
         if isAlternating and timeGap < Config.clashTimeWindow and distOk and speedOk and ballComing then
+            if not ClashState.Active then
+                spamAccum = (getgenv().__deltaV3_spamInterval or Config.spamInterval)
+                          * (getgenv().__deltaV3_spamCapPerFrame or Config.spamCapPerFrame)
+            end
             ClashState.Active             = true
             ClashState.LastActivationTime = now
             ClashState.CurrentOpponent    = TargetHistory[2].id
+            clashSpamOn                   = true
             setState("clash")
             return
         end
     end
 
     if newTargetID == lp.UserId and dist < Config.clashCriticalDist and ballComing and spd >= Config.clashMinSpeed then
+        if not ClashState.Active then
+            spamAccum = (getgenv().__deltaV3_spamInterval or Config.spamInterval)
+                      * (getgenv().__deltaV3_spamCapPerFrame or Config.spamCapPerFrame)
+        end
         ClashState.Active             = true
         ClashState.LastActivationTime = now
+        clashSpamOn                   = true
         setState("clash")
     end
-end
-
-local function performClashBurst()
-    if ClashState.IsBursting then return end
-    ClashState.IsBursting = true
-    task.spawn(function()
-        for i = 1, Config.clashBurstCount do
-            if not ClashState.Active then break end
-            sendParry()
-            task.wait(getgenv().__deltaV3_spamInterval or Config.clashBurstInterval)
-        end
-        ClashState.IsBursting = false
-    end)
 end
 
 local function stopClash()
     if ClashState.Active then
         ClashState.Active          = false
         ClashState.CurrentOpponent = nil
+        clashSpamOn                = false
+        spamAccum                  = 0
         ballProcessed              = false
         if State.current == "clash" then setState("normal") end
     end
 end
 
--- ================== SPAM MANUAL ==================
-local spamOn          = false
-local manualSpamToken = 0
-local toggleButton    = nil
+-- ================== SPAM — Heartbeat acumulador ==================
+local toggleButton = nil
+local spamConn     = nil
 
 local function updateGUI()
     if not toggleButton then return end
@@ -245,26 +246,41 @@ local function updateGUI()
         or  Color3.fromRGB(220, 50, 50)
 end
 
+local function startSpamLoop()
+    if spamConn then spamConn:Disconnect() end
+    spamConn = RS.Heartbeat:Connect(function(dt)
+        local active = spamOn or clashSpamOn
+        if not active then spamAccum = 0 return end
+        local interval = getgenv().__deltaV3_spamInterval    or Config.spamInterval
+        local cap      = getgenv().__deltaV3_spamCapPerFrame or Config.spamCapPerFrame
+        spamAccum = math.min(spamAccum + dt, interval * cap)
+        local fired = 0
+        while spamAccum >= interval and fired < cap do
+            sendParry()
+            spamAccum = spamAccum - interval
+            fired     = fired + 1
+        end
+    end)
+end
+
 local function setSpam(v)
     if spamOn == v then return end
     spamOn = v
     getgenv().__deltaV3_spamActive = v
-    if not v then ballProcessed = false end
-    setState(v and "spam" or "normal")
     if v then
-        manualSpamToken = manualSpamToken + 1
-        local myToken = manualSpamToken
-        task.spawn(function()
-            while spamOn and manualSpamToken == myToken do
-                sendParry()
-                task.wait(getgenv().__deltaV3_spamInterval or Config.clashBurstInterval)
-            end
-        end)
+        spamAccum = (getgenv().__deltaV3_spamInterval    or Config.spamInterval)
+                  * (getgenv().__deltaV3_spamCapPerFrame or Config.spamCapPerFrame)
+        setState("spam")
+    else
+        spamAccum     = 0
+        ballProcessed = false
+        setState("normal")
     end
     updateGUI()
 end
 
 getgenv().__deltaV3_setSpam = setSpam
+startSpamLoop()
 
 UIS.InputBegan:Connect(function(inp, gpe)
     if not gpe and inp.KeyCode == Enum.KeyCode.X then setSpam(not spamOn) end
@@ -486,12 +502,6 @@ local function bind(ch)
                 updateClashDetection(currentTarget, bp, getBallVel(b))
             end
 
-            if ClashState.Active then
-                if not spamOn then performClashBurst() end
-                continue
-            end
-
-            if spamOn then continue end
             if not getgenv().__deltaV3_autoParryOn then continue end
             if isLocked() then continue end
 
@@ -569,6 +579,7 @@ CoreGui.ChildRemoved:Connect(function(c)
         if auraConn then auraConn:Disconnect() end
         pcall(function() auraOuter:Destroy() auraInner:Destroy() end)
         getgenv().__na_aex = nil
+        if spamConn then spamConn:Disconnect() end
         setSpam(false) stopClash()
         if getgenv().__na_aex_conn then
             getgenv().__na_aex_conn:Disconnect()
