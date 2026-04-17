@@ -1,4 +1,4 @@
--- DELTA ΔV5
+-- DELTA ΔV5 + Phantom Spam
 local math_clamp = math.clamp
 local typeof     = typeof
 
@@ -8,6 +8,7 @@ getgenv().__na_aex = true
 
 if game.GameId ~= 4538598064 then return end
 
+-- ================== SERVICES ==================
 local Plrs    = game:GetService("Players")
 local RS      = game:GetService("RunService")
 local RSrv    = game:GetService("ReplicatedStorage")
@@ -16,6 +17,7 @@ local UIS     = game:GetService("UserInputService")
 local Stats   = game:GetService("Stats")
 local CoreGui = game:GetService("CoreGui")
 
+-- ================== CONFIG ==================
 local Config = {
     velSmooth     = 0.05,
     minRadius     = 9,
@@ -49,22 +51,18 @@ local Config = {
     activationDistanceOffset = 7,
     killDistance             = 4,
     graceRadiusMult          = 1.4,
+
+    -- Phantom spam
+    clashBurstSize     = 4,
+    clashBurstInterval = 0.0167,
+    clashBurstCount    = 20,
 }
 
 if getgenv().__deltaV3_autoParryOn == nil then getgenv().__deltaV3_autoParryOn = true  end
 if getgenv().__deltaV3_autoClashOn == nil then getgenv().__deltaV3_autoClashOn = true  end
 if getgenv().__deltaV3_auraOn      == nil then getgenv().__deltaV3_auraOn      = false end
 
-local Def = nil
-pcall(function() Def = require(RSrv.TS.Abilities.DeflectAbility).DeflectAbility end)
-
-local PNotif = RSrv:WaitForChild("PromptNotification")
-task.spawn(function() PNotif:Fire("Delta ΔV5 ✅ | Super Auto Parry | Spam Fixado", true) end)
-
-local spamOn      = false
-local clashSpamOn = false
-
--- ================== REMOTE DIRETO ==================
+-- ================== REMOTE ==================
 local _parryRemote
 do
     local ts  = RSrv:WaitForChild("TS", 10)
@@ -72,20 +70,13 @@ do
     _parryRemote = net and net:FindFirstChild("RE_4.6848415795802784e+76")
 end
 
+local touchTapEvent = RSrv:FindFirstChild("TouchTap")
+
 local function sendParry()
     if _parryRemote then
         _parryRemote:FireServer(2.933813859058389e+76)
     end
-end
-
-if Def and typeof(hookfunction) == "function" then
-    pcall(function()
-        local orig
-        orig = hookfunction(Def.IsAvailable, function(self, ...)
-            if spamOn or clashSpamOn then return true end
-            return orig(self, ...)
-        end)
-    end)
+    if touchTapEvent then touchTapEvent:Fire() end
 end
 
 -- ================== GAME INFO / BALL REPLICATOR ==================
@@ -118,7 +109,7 @@ local function getBall()
     return Cache.Ball
 end
 
-local function getSyncData()  return br and br.syncData end
+local function getSyncData()   return br and br.syncData end
 local function isGraceActive() local sd = getSyncData() return sd and sd.Grace == true end
 local function isLocked()      local sd = getSyncData() return sd and sd.Locked == true end
 local function getSyncSpeed()  local sd = getSyncData() if sd and sd.Speed and sd.Speed > 0 then return sd.Speed end return nil end
@@ -134,8 +125,6 @@ local function tgtOn()
     end
     return false
 end
-
-local touchTapEvent = RSrv:FindFirstChild("TouchTap")
 
 -- ================== PING ==================
 local smoothedPing = 0.05
@@ -159,9 +148,7 @@ RS.Heartbeat:Connect(function()
     if not br or not br.syncData then return end
     local newID = br.syncData.TargetPlayerID
     if newID ~= lastSyncTarget then
-        if newID == lp.UserId then
-            ballProcessed = false
-        end
+        if newID == lp.UserId then ballProcessed = false end
         lastSyncTarget = newID
     end
 end)
@@ -174,7 +161,7 @@ local function setState(s)
 end
 
 -- ================== CLASH ==================
-local ClashState    = { Active = false, LastActivationTime = 0, CurrentOpponent = nil }
+local ClashState    = { Active = false, LastActivationTime = 0, CurrentOpponent = nil, IsBursting = false }
 local TargetHistory = {}
 local lastTarget    = nil
 
@@ -211,7 +198,6 @@ local function updateClashDetection(newTargetID, ballPos, ballVel)
             ClashState.Active             = true
             ClashState.LastActivationTime = now
             ClashState.CurrentOpponent    = TargetHistory[2].id
-            clashSpamOn                   = true
             setState("clash")
             return
         end
@@ -220,26 +206,36 @@ local function updateClashDetection(newTargetID, ballPos, ballVel)
     if newTargetID == lp.UserId and dist < Config.clashCriticalDist and ballComing and spd >= Config.clashMinSpeed then
         ClashState.Active             = true
         ClashState.LastActivationTime = now
-        clashSpamOn                   = true
         setState("clash")
     end
+end
+
+local function performClashBurst()
+    if ClashState.IsBursting then return end
+    ClashState.IsBursting = true
+    task.spawn(function()
+        for i = 1, Config.clashBurstCount do
+            if not ClashState.Active and not spamOn then break end
+            sendParry()
+task.wait(getgenv().__deltaV3_spamInterval or Config.clashBurstInterval)
+        end
+        ClashState.IsBursting = false
+    end)
 end
 
 local function stopClash()
     if ClashState.Active then
         ClashState.Active          = false
         ClashState.CurrentOpponent = nil
-        clashSpamOn                = false
         ballProcessed              = false
         if State.current == "clash" then setState("normal") end
     end
 end
 
--- ================== SPAM — 30 CPS ==================
-local SPAM_INTERVAL = 1 / 30  -- 30 clicks por segundo
-local lastSpam      = 0
-local toggleButton
-local spamConn = nil
+-- ================== SPAM MANUAL ==================
+local spamOn          = false
+local manualSpamToken = 0
+local toggleButton    = nil
 
 local function updateGUI()
     if not toggleButton then return end
@@ -249,28 +245,26 @@ local function updateGUI()
         or  Color3.fromRGB(220, 50, 50)
 end
 
-local function startSpamLoop()
-    if spamConn then spamConn:Disconnect() end
-    spamConn = RS.Heartbeat:Connect(function()
-        if not (spamOn or clashSpamOn) then return end
-        local now = tick()
-        if (now - lastSpam) < SPAM_INTERVAL then return end
-        lastSpam = now
-        sendParry()
-    end)
-end
-
 local function setSpam(v)
     if spamOn == v then return end
     spamOn = v
     getgenv().__deltaV3_spamActive = v
     if not v then ballProcessed = false end
     setState(v and "spam" or "normal")
+    if v then
+        manualSpamToken = manualSpamToken + 1
+        local myToken = manualSpamToken
+        task.spawn(function()
+            while spamOn and manualSpamToken == myToken do
+                for _ = 1, Config.clashBurstSize do sendParry() end
+                task.wait(Config.clashBurstInterval)
+            end
+        end)
+    end
     updateGUI()
 end
 
 getgenv().__deltaV3_setSpam = setSpam
-startSpamLoop()
 
 UIS.InputBegan:Connect(function(inp, gpe)
     if not gpe and inp.KeyCode == Enum.KeyCode.X then setSpam(not spamOn) end
@@ -302,10 +296,9 @@ task.spawn(function()
     end
 
     local stroke = Instance.new("UIStroke")
-    stroke.Color = Color3.fromRGB(70, 90, 200)
+    stroke.Color     = Color3.fromRGB(70, 90, 200)
     stroke.Thickness = 1.5
-    stroke.Parent = mainFrame
-
+    stroke.Parent    = mainFrame
     task.spawn(function()
         local t = 0
         while stroke.Parent do
@@ -313,8 +306,7 @@ task.spawn(function()
             stroke.Color = Color3.fromRGB(
                 math.floor(70 + 70 * math.sin(t)),
                 math.floor(90 + 80 * math.sin(t + 2.1)),
-                255
-            )
+                255)
             task.wait(0.05)
         end
     end)
@@ -348,6 +340,10 @@ task.spawn(function()
     toggleButton.Parent           = mainFrame
     Instance.new("UICorner", toggleButton).CornerRadius = UDim.new(0, 10)
 
+    toggleButton.Activated:Connect(function() setSpam(not spamOn) end)
+    updateGUI()
+
+    -- drag
     local dragging, dragStart, startPos = false, nil, nil
     local function updateDrag(input)
         if not dragStart or not startPos then return end
@@ -359,7 +355,6 @@ task.spawn(function()
         mainFrame.Position = UDim2.new(0, nx, 0, ny)
         getgenv().__deltaV3_savedSpamGuiPos = { x = nx, y = ny }
     end
-
     titleBar.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1
         or input.UserInputType == Enum.UserInputType.Touch then
@@ -370,16 +365,12 @@ task.spawn(function()
         end
     end)
     titleBar.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            updateDrag(input)
-        end
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch) then updateDrag(input) end
     end)
     UIS.InputChanged:Connect(function(input)
         if dragging and input.UserInputType == Enum.UserInputType.Touch then updateDrag(input) end
     end)
-
-    toggleButton.Activated:Connect(function() setSpam(not spamOn) end)
-    updateGUI()
 end)
 
 -- ================== AURA ==================
@@ -397,7 +388,6 @@ local function createAuraPart(name)
     p.Transparency = 1 p.Color = AREA_COLOR p.Parent = WS
     return p
 end
-
 local auraOuter        = createAuraPart("DeltaAuraOuter")
 local auraInner        = createAuraPart("DeltaAuraInner")
 local lastVisualUpdate = 0
@@ -427,9 +417,9 @@ local auraConn = RS.RenderStepped:Connect(function()
     auraOuter.Size   = Vector3.new(rad * 2, rad * 2, rad * 2)
     auraInner.Size   = Vector3.new((rad - 0.5) * 2, (rad - 0.5) * 2, (rad - 0.5) * 2)
 
-    local targetColor = clashSpamOn and CLASH_COLOR
-                     or spamOn      and SPAM_COLOR
-                     or grace       and GRACE_COLOR
+    local targetColor = ClashState.Active and CLASH_COLOR
+                     or spamOn            and SPAM_COLOR
+                     or grace             and GRACE_COLOR
                      or AREA_COLOR
     auraOuter.Color        = auraOuter.Color:Lerp(targetColor, 0.3)
     auraOuter.Transparency = OUTER_TRANSPARENCY
@@ -497,6 +487,11 @@ local function bind(ch)
                 updateClashDetection(currentTarget, bp, getBallVel(b))
             end
 
+            if ClashState.Active then
+                performClashBurst()
+                continue
+            end
+
             if spamOn then continue end
             if not getgenv().__deltaV3_autoParryOn then continue end
             if isLocked() then continue end
@@ -529,7 +524,6 @@ local function bind(ch)
                 local killThresh = Config.killDistance + (ping * (syncSpd or 45)) + 2
                 if d <= graceRad or d <= killThresh then
                     sendParry()
-                    if touchTapEvent then touchTapEvent:Fire() end
                     ballProcessed    = true
                     lastProcessReset = now
                     setState("normal")
@@ -544,7 +538,6 @@ local function bind(ch)
 
             if can and not ballProcessed then
                 sendParry()
-                if touchTapEvent then touchTapEvent:Fire() end
                 ballProcessed    = true
                 lastProcessReset = now
                 setState("normal")
@@ -577,7 +570,6 @@ CoreGui.ChildRemoved:Connect(function(c)
         if auraConn then auraConn:Disconnect() end
         pcall(function() auraOuter:Destroy() auraInner:Destroy() end)
         getgenv().__na_aex = nil
-        if spamConn then spamConn:Disconnect() end
         setSpam(false) stopClash()
         if getgenv().__na_aex_conn then
             getgenv().__na_aex_conn:Disconnect()
@@ -585,3 +577,5 @@ CoreGui.ChildRemoved:Connect(function(c)
         end
     end
 end)
+
+print("Delta ΔV5 + Phantom Spam ✅")
