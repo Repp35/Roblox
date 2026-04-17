@@ -215,9 +215,9 @@ local function performClashBurst()
     ClashState.IsBursting = true
     task.spawn(function()
         for i = 1, Config.clashBurstCount do
-            if not ClashState.Active and not spamOn then break end
+            if not ClashState.Active then break end
             sendParry()
-task.wait(getgenv().__deltaV3_spamInterval or Config.clashBurstInterval)
+            task.wait(getgenv().__deltaV3_spamInterval or Config.clashBurstInterval)
         end
         ClashState.IsBursting = false
     end)
@@ -256,8 +256,8 @@ local function setSpam(v)
         local myToken = manualSpamToken
         task.spawn(function()
             while spamOn and manualSpamToken == myToken do
-                for _ = 1, Config.clashBurstSize do sendParry() end
-                task.wait(Config.clashBurstInterval)
+                sendParry()
+                task.wait(getgenv().__deltaV3_spamInterval or Config.clashBurstInterval)
             end
         end)
     end
@@ -343,7 +343,6 @@ task.spawn(function()
     toggleButton.Activated:Connect(function() setSpam(not spamOn) end)
     updateGUI()
 
-    -- drag
     local dragging, dragStart, startPos = false, nil, nil
     local function updateDrag(input)
         if not dragStart or not startPos then return end
@@ -488,7 +487,7 @@ local function bind(ch)
             end
 
             if ClashState.Active then
-                performClashBurst()
+                if not spamOn then performClashBurst() end
                 continue
             end
 
