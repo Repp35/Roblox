@@ -1,11 +1,8 @@
--- DELTA ΔV5 FIXED
+-- DELTA ΔV5
 local math_clamp = math.clamp
 local typeof     = typeof
 
-if getgenv().__na_aex_conn then
-    getgenv().__na_aex_conn:Disconnect()
-    getgenv().__na_aex_conn = nil
-end
+if getgenv().__na_aex_conn then getgenv().__na_aex_conn:Disconnect() getgenv().__na_aex_conn = nil end
 if getgenv().__na_aex then return end
 getgenv().__na_aex = true
 
@@ -29,16 +26,15 @@ local Config = {
     minSpeed      = 5,
     maxImpactTime = 0.35,
 
-    ballResetThresh   = 50,
-    ballResetLockout  = 0.6,
-    -- processResetInt alto para não liberar ballProcessed cedo demais (anti-double)
-    processResetInt   = 3.5,
+    ballResetThresh  = 50,
+    ballResetLockout = 0.6,
+    processResetInt  = 3.5,
 
-    pingSmooth        = 0.15,
-    pingMultiplier    = 1.1,
-    pingOffset        = 0.02,
-    pingMin           = 0.02,
-    pingMax           = 0.25,
+    pingSmooth      = 0.15,
+    pingMultiplier  = 1.1,
+    pingOffset      = 0.02,
+    pingMin         = 0.02,
+    pingMax         = 0.25,
 
     clashHistorySize  = 6,
     clashTimeWindow   = 0.6,
@@ -68,7 +64,7 @@ task.spawn(function() PNotif:Fire("Delta ΔV5 ✅ | Super Auto Parry | Spam Fixa
 local spamOn      = false
 local clashSpamOn = false
 
--- ================== REMOTE ÚNICO ==================
+-- ================== REMOTE DIRETO ==================
 local _parryRemote
 do
     local ts  = RSrv:WaitForChild("TS", 10)
@@ -76,7 +72,6 @@ do
     _parryRemote = net and net:FindFirstChild("RE_4.6848415795802784e+76")
 end
 
--- UMA função sendParry usada em todo o script
 local function sendParry()
     if _parryRemote then
         _parryRemote:FireServer(2.933813859058389e+76)
@@ -100,9 +95,7 @@ do
     if ok and mod and mod.GameInfo then gi = mod.GameInfo end
 end
 do
-    local ok, mod = pcall(function()
-        return require(RSrv:WaitForChild("TS"):WaitForChild("BallReplicator"):WaitForChild("BallReplicator"))
-    end)
+    local ok, mod = pcall(function() return require(RSrv:WaitForChild("TS"):WaitForChild("BallReplicator"):WaitForChild("BallReplicator")) end)
     if ok and mod and mod.BallReplicator then br = mod.BallReplicator end
 end
 
@@ -125,8 +118,8 @@ local function getBall()
     return Cache.Ball
 end
 
-local function getSyncData()   return br and br.syncData end
-local function isGraceActive() local sd = getSyncData() return sd and sd.Grace  == true end
+local function getSyncData()  return br and br.syncData end
+local function isGraceActive() local sd = getSyncData() return sd and sd.Grace == true end
 local function isLocked()      local sd = getSyncData() return sd and sd.Locked == true end
 local function getSyncSpeed()  local sd = getSyncData() if sd and sd.Speed and sd.Speed > 0 then return sd.Speed end return nil end
 local function getSyncTarget() local sd = getSyncData() if sd then return sd.TargetPlayerID end return nil end
@@ -162,22 +155,15 @@ local lastProcessReset = 0
 local ballResetAt      = 0
 local lastSyncTarget   = -99999
 
--- Reseta ballProcessed APENAS quando a bola realmente muda de alvo (saiu de mim → voltou)
--- Isso previne o double click: não libera processado durante o mesmo ciclo
 RS.Heartbeat:Connect(function()
-    local sd = getSyncData()
-    if not sd then return end
-    local newID = sd.TargetPlayerID
-    if newID == lastSyncTarget then return end
-    -- bola saiu de mim
-    if lastSyncTarget == lp.UserId and newID ~= lp.UserId then
-        -- não libera aqui, espera voltar
+    if not br or not br.syncData then return end
+    local newID = br.syncData.TargetPlayerID
+    if newID ~= lastSyncTarget then
+        if newID == lp.UserId then
+            ballProcessed = false
+        end
+        lastSyncTarget = newID
     end
-    -- bola voltou pra mim depois de sair
-    if newID == lp.UserId and lastSyncTarget ~= lp.UserId then
-        ballProcessed = false
-    end
-    lastSyncTarget = newID
 end)
 
 -- ================== STATE ==================
@@ -294,7 +280,7 @@ task.spawn(function()
     screenGui.Name           = "ParrySpamToggleGui"
     screenGui.ResetOnSpawn   = false
     screenGui.IgnoreGuiInset = true
-    screenGui.Enabled        = true   -- CORRIGIDO: estava false
+    screenGui.Enabled        = true
     screenGui.Parent         = CoreGui
 
     local mainFrame = Instance.new("Frame")
@@ -311,9 +297,9 @@ task.spawn(function()
     end
 
     local stroke = Instance.new("UIStroke")
-    stroke.Color     = Color3.fromRGB(70, 90, 200)
+    stroke.Color = Color3.fromRGB(70, 90, 200)
     stroke.Thickness = 1.5
-    stroke.Parent    = mainFrame
+    stroke.Parent = mainFrame
 
     task.spawn(function()
         local t = 0
@@ -379,8 +365,7 @@ task.spawn(function()
         end
     end)
     titleBar.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
-        or input.UserInputType == Enum.UserInputType.Touch) then
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
             updateDrag(input)
         end
     end)
@@ -454,7 +439,6 @@ local function bind(ch)
     local vel     = Vector3.zero
     local lastBP, lastBT = nil, nil
     local lastBallPos    = nil
-    local ballResetAt    = 0
     local pingTimer      = 0
 
     local function getBallVel(b)
@@ -473,32 +457,15 @@ local function bind(ch)
             pingTimer = pingTimer + dt
             if pingTimer >= 2 then pingTimer = 0 task.spawn(updatePing) end
 
-            -- clash decay
             if ClashState.Active and (now - ClashState.LastActivationTime) > Config.clashDecayTime then
                 stopClash()
             end
 
-            -- fallback de segurança: libera ballProcessed após tempo longo
-            -- (só se a bola não trocou de alvo pelo evento acima)
             if ballProcessed and (now - lastProcessReset) >= Config.processResetInt then
                 ballProcessed = false
             end
 
-            -- CLASH DETECTION roda SEMPRE, independente de spamOn
             local b = getBall()
-            if b and b.Parent then
-                local currentTarget = getSyncTarget()
-                if currentTarget and currentTarget > 0 then
-                    updateClashDetection(currentTarget, b.Position, getBallVel(b))
-                end
-            end
-
-            -- Auto parry só roda se spam manual desligado
-            if spamOn then continue end
-            if not getgenv().__deltaV3_autoParryOn then continue end
-            if isLocked() then continue end
-            if (now - ballResetAt) < Config.ballResetLockout then continue end
-
             if not (b and b.Parent) then continue end
 
             local bp     = b.Position
@@ -517,6 +484,19 @@ local function bind(ch)
                 end
             end
             lastBallPos = bp
+
+            if (now - ballResetAt) < Config.ballResetLockout then continue end
+
+            -- ========== CLASH DETECTION AQUI (ANTES DO SPAM GUARD) ==========
+            local currentTarget = getSyncTarget() or WS:GetAttribute("GameBallTarget")
+            if currentTarget and currentTarget > 0 then
+                updateClashDetection(currentTarget, bp, getBallVel(b))
+            end
+
+            -- ========== AUTO PARRY COMEÇA AQUI ==========
+            if spamOn then continue end
+            if not getgenv().__deltaV3_autoParryOn then continue end
+            if isLocked() then continue end
 
             local av = getBallVel(b)
             if av then
@@ -591,7 +571,6 @@ end
 lp.CharacterAdded:Connect(bind)
 if lp.Character then bind(lp.Character) end
 
--- CORRIGIDO: nome correto da GUI no listener de cleanup
 CoreGui.ChildRemoved:Connect(function(c)
     if c.Name == "ParrySpamToggleGui" then
         if auraConn then auraConn:Disconnect() end
