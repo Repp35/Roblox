@@ -1,7 +1,6 @@
 -- DELTA ΔV20
--- Fix crítico: remote correto pr_<UserId> + buffer(1) — bypassa CPS gate do client
--- Remove: _parryRemote RE_ falso + TouchTap indireto
--- Base: V19 + spam 80% CPS + GUI oculto + ballProcessed + ballLeftMe + sliding window + ping manual + clash V11
+-- Reverte remote para TouchTap (pr_UserId não replica pro client)
+-- Mantém: spam 80% CPS + GUI oculto + ballProcessed + ballLeftMe + sliding window + ping manual + clash V11
 local math_clamp = math.clamp
 local typeof     = typeof
 
@@ -79,10 +78,9 @@ if getgenv().__deltaV3_auraOn       == nil then getgenv().__deltaV3_auraOn      
 if getgenv().__deltaV3_spamInterval == nil then getgenv().__deltaV3_spamInterval = 0.00167 end
 
 -- ================== REMOTE ==================
--- Remote real: pr_<UserId> em RSrv.Remotes (dinâmico por jogador)
--- Argumento: buffer 1 byte — valor 1 = parry real, bypassa CPS gate do client
-local _parryRemote = RSrv:WaitForChild("Remotes", 10)
-                         :WaitForChild("pr_" .. lp.UserId, math.huge)
+local TS_Folder     = RSrv:WaitForChild("TS", 10)
+local NetRemotes    = TS_Folder and TS_Folder:WaitForChild("GeneratedNetworkRemotes", 10)
+local touchTapEvent = RSrv:FindFirstChild("TouchTap")
 
 -- ================== CPS DINÂMICO (sliding window) ==================
 local function getRealCPSLimit()
@@ -124,11 +122,7 @@ end
 local function sendParry()
     if not canFire() then return false end
     table.insert(fireTimestamps, tick())
-    if _parryRemote then
-        local buf = buffer.create(1)
-        buffer.writeu8(buf, 0, 1)  -- 1 = parry real, nunca fake
-        _parryRemote:FireServer(buf)
-    end
+    if touchTapEvent then touchTapEvent:Fire() end
     return true
 end
 
@@ -688,7 +682,7 @@ CoreGui.ChildRemoved:Connect(function(c)
     end
 end)
 
-print("Delta ΔV20 ✅ | remote pr_UserId + buffer(1) bypass CPS gate + spam 80% + GUI oculto + fix ballProcessed + ballLeftMe + sliding window + ping manual + clash V11")cestryChanged:Connect(function(_, p)
+print("Delta ΔV20 ✅ | TouchTap restaurado + spam 80% CPS + GUI oculto + fix ballProcessed + ballLeftMe + sliding window + ping manual + clash V11")cestryChanged:Connect(function(_, p)
         if not p then
             running        = false
             setSpam(false)
