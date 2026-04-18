@@ -1,6 +1,7 @@
--- DELTA ΔV18
--- Fix crítico: ballProcessed só seta se sendParry() realmente enviou (canFire check)
--- Base: V17 + ballLeftMe + CPS dinâmico + sliding window + ping manual + clash V11
+-- DELTA ΔV20
+-- Fix crítico: remote correto pr_<UserId> + buffer(1) — bypassa CPS gate do client
+-- Remove: _parryRemote RE_ falso + TouchTap indireto
+-- Base: V19 + spam 80% CPS + GUI oculto + ballProcessed + ballLeftMe + sliding window + ping manual + clash V11
 local math_clamp = math.clamp
 local typeof     = typeof
 
@@ -78,16 +79,16 @@ if getgenv().__deltaV3_auraOn       == nil then getgenv().__deltaV3_auraOn      
 if getgenv().__deltaV3_spamInterval == nil then getgenv().__deltaV3_spamInterval = 0.00167 end
 
 -- ================== REMOTE ==================
-local TS_Folder    = RSrv:WaitForChild("TS", 10)
-local NetRemotes   = TS_Folder and TS_Folder:WaitForChild("GeneratedNetworkRemotes", 10)
-local _parryRemote = NetRemotes and NetRemotes:FindFirstChild("RE_4.6848415795802784e+76")
-local touchTapEvent = RSrv:FindFirstChild("TouchTap")
+-- Remote real: pr_<UserId> em RSrv.Remotes (dinâmico por jogador)
+-- Argumento: buffer 1 byte — valor 1 = parry real, bypassa CPS gate do client
+local _parryRemote = RSrv:WaitForChild("Remotes", 10)
+                         :WaitForChild("pr_" .. lp.UserId, math.huge)
 
 -- ================== CPS DINÂMICO (sliding window) ==================
 local function getRealCPSLimit()
     local v = WS:GetAttribute("CPS_LIMIT")
     if v and type(v) == "number" and v > 0 then return v end
-    return 15
+    return 25
 end
 
 local fireTimestamps = {}
@@ -105,13 +106,29 @@ local function canFire()
     return #fireTimestamps < limit
 end
 
+-- spam loop: usa só 80% do CPS, deixa 20% pro parry real
+local function canSpam()
+    local now   = tick()
+    local limit = getRealCPSLimit()
+    local i = 1
+    while i <= #fireTimestamps do
+        if now - fireTimestamps[i] >= 1 then
+            table.remove(fireTimestamps, i)
+        else
+            i = i + 1
+        end
+    end
+    return #fireTimestamps < math.floor(limit * 0.80)
+end
+
 local function sendParry()
     if not canFire() then return false end
     table.insert(fireTimestamps, tick())
     if _parryRemote then
-        _parryRemote:FireServer(2.933813859058389e+76)
+        local buf = buffer.create(1)
+        buffer.writeu8(buf, 0, 1)  -- 1 = parry real, nunca fake
+        _parryRemote:FireServer(buf)
     end
-    if touchTapEvent then touchTapEvent:Fire() end
     return true
 end
 
@@ -327,7 +344,7 @@ local function startSpamLoop()
         spamAccum = math.min(spamAccum + dt, interval * cap)
         local fired = 0
         while spamAccum >= interval and fired < cap do
-            sendParry()
+            if canSpam() then sendParry() end
             spamAccum = spamAccum - interval
             fired     = fired + 1
         end
@@ -359,7 +376,7 @@ UIS.InputBegan:Connect(function(inp, gpe)
 end)
 
 -- ================== GUI ==================
-task.spawn(function()
+local function buildGui()
     local old = CoreGui:FindFirstChild("ParrySpamToggleGui")
     if old then old:Destroy() end
 
@@ -375,6 +392,7 @@ task.spawn(function()
     mainFrame.Position         = UDim2.new(1, -130, 0.5, -47)
     mainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 30)
     mainFrame.BorderSizePixel  = 0
+    mainFrame.Visible          = false   -- oculto até showGui() ser chamado
     mainFrame.Parent           = screenGui
     Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 14)
 
@@ -410,7 +428,7 @@ task.spawn(function()
     titleLabel.Size                   = UDim2.new(1, -6, 1, 0)
     titleLabel.Position               = UDim2.new(0, 6, 0, 0)
     titleLabel.BackgroundTransparency = 1
-    titleLabel.Text                   = "Δ V18"
+    titleLabel.Text                   = "Δ V20"
     titleLabel.TextColor3             = Color3.fromRGB(180, 195, 255)
     titleLabel.TextScaled             = true
     titleLabel.Font                   = Enum.Font.GothamBold
@@ -458,7 +476,14 @@ task.spawn(function()
     UIS.InputChanged:Connect(function(input)
         if dragging and input.UserInputType == Enum.UserInputType.Touch then updateDrag(input) end
     end)
-end)
+
+    -- expõe função pra mostrar/ocultar o frame
+    getgenv().__deltaV3_showGui = function(visible)
+        mainFrame.Visible = visible ~= false
+    end
+end
+
+task.spawn(buildGui)
 
 -- ================== AURA ==================
 local OUTER_TRANSPARENCY = 0.18
@@ -663,4 +688,39 @@ CoreGui.ChildRemoved:Connect(function(c)
     end
 end)
 
-print("Delta ΔV18 ✅ | fix ballProcessed + ballLeftMe + CPS dinâmico + sliding window + ping manual + clash V11")
+print("Delta ΔV20 ✅ | remote pr_UserId + buffer(1) bypass CPS gate + spam 80% + GUI oculto + fix ballProcessed + ballLeftMe + sliding window + ping manual + clash V11")cestryChanged:Connect(function(_, p)
+        if not p then
+            running        = false
+            setSpam(false)
+            stopClash()
+            ballProcessed  = false
+            lastBallPos    = nil
+            ballResetAt    = 0
+            lastSyncTarget = -99999
+            auraOuter.Transparency = 1
+            auraInner.Transparency = 1
+            updateGUI()
+        end
+    end)
+
+    getgenv().__na_aex_conn = { Disconnect = function() running = false end }
+end
+
+lp.CharacterAdded:Connect(bind)
+if lp.Character then bind(lp.Character) end
+
+CoreGui.ChildRemoved:Connect(function(c)
+    if c.Name == "ParrySpamToggleGui" then
+        if auraConn then auraConn:Disconnect() end
+        pcall(function() auraOuter:Destroy() auraInner:Destroy() end)
+        getgenv().__na_aex = nil
+        if spamConn then spamConn:Disconnect() end
+        setSpam(false) stopClash()
+        if getgenv().__na_aex_conn then
+            getgenv().__na_aex_conn:Disconnect()
+            getgenv().__na_aex_conn = nil
+        end
+    end
+end)
+
+print("Delta ΔV12 ✅ | auto parry V5 + clash V11 + CPS dinâmico (15 fallback) + ping manual")
