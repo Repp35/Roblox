@@ -1,4 +1,5 @@
--- DELTA ΔV5 + Phantom Spam
+-- DELTA ΔV6 — Base V5 + Lógica Real do Servidor
+-- Melhorias: deflection window dinâmica, ping formula real, CPS do workspace
 local math_clamp = math.clamp
 local typeof     = typeof
 
@@ -17,30 +18,44 @@ local UIS     = game:GetService("UserInputService")
 local Stats   = game:GetService("Stats")
 local CoreGui = game:GetService("CoreGui")
 
+-- ================== VALORES REAIS DO SERVIDOR (dump) ==================
+local SERVER = {
+    killDistance     = 4,      -- studs
+    parryDistance    = 8.5,    -- studs
+    baseSpeed        = 16,
+    maxSpeed         = 600,
+    deflectCooldown  = 1.45,   -- segundos
+    deflectWindowMin = 0.200,  -- janela bola rápida (ms->s)
+    deflectWindowMax = 0.850,  -- janela bola lenta  (ms->s)
+}
+
 -- ================== CONFIG ==================
 local Config = {
-    velSmooth     = 0.05,
-    minRadius     = 9,
-    maxRadius     = 90,
-    radiusWin     = 0.40,
-    radiusOff     = 6,
-    radiusPre     = 10,
-    minSpeed      = 5,
-    maxImpactTime = 0.35,
+    velSmooth    = 0.05,
+    minRadius    = 9,
+    maxRadius    = 90,
+    radiusWin    = 0.40,
+    radiusOff    = 6,
+    radiusPre    = 10,
+    minSpeed     = 5,
+    killDistance = SERVER.killDistance,
+
+    graceRadiusMult          = 1.4,
+    clashRadMult             = 1.5,
+    activationDistanceOffset = 7,
 
     ballResetThresh  = 50,
     ballResetLockout = 0.6,
     processResetInt  = 3.5,
 
-    spamInterval    = 0.00167,
-    spamCapPerFrame = 10,
+    -- Spam: padrão 25 CPS (lido do jogo em runtime)
+    spamInterval    = 1/25,
+    spamCapPerFrame = 3,
 
-    pingSmooth      = 0.15,
-    pingMultiplier  = 1.1,
-    pingOffset      = 0.02,
-    pingMin         = 0.02,
-    pingMax         = 0.25,
+    -- Ping
+    pingSmooth = 0.15,
 
+    -- Clash
     clashHistorySize  = 6,
     clashTimeWindow   = 0.9,
     clashMinDist      = 55,
@@ -49,17 +64,12 @@ local Config = {
     clashDecayTime    = 0.8,
     clashDotThresh    = 0.10,
     clashResetGuard   = 1.2,
-
-    clashRadMult             = 1.5,
-    activationDistanceOffset = 7,
-    killDistance             = 4,
-    graceRadiusMult          = 1.4,
 }
 
+-- ================== GLOBAIS ==================
 if getgenv().__deltaV3_autoParryOn  == nil then getgenv().__deltaV3_autoParryOn  = true    end
 if getgenv().__deltaV3_autoClashOn  == nil then getgenv().__deltaV3_autoClashOn  = true    end
 if getgenv().__deltaV3_auraOn       == nil then getgenv().__deltaV3_auraOn       = false   end
-if getgenv().__deltaV3_spamInterval == nil then getgenv().__deltaV3_spamInterval = 0.00167 end
 
 -- ================== REMOTE ==================
 local _parryRemote
@@ -108,6 +118,7 @@ local function getBall()
     return Cache.Ball
 end
 
+-- ================== SYNC HELPERS ==================
 local function getSyncData()   return br and br.syncData end
 local function isGraceActive() local sd = getSyncData() return sd and sd.Grace == true end
 local function isLocked()      local sd = getSyncData() return sd and sd.Locked == true end
@@ -125,7 +136,19 @@ local function tgtOn()
     return false
 end
 
--- ================== PING ==================
+-- ================== DEFLECTION WINDOW DINÂMICA (V10) ==================
+-- Fórmula real do servidor: lerp entre 850ms (bola lenta) e 200ms (bola rápida)
+local function getRealDeflectionWindow(speed)
+    if not speed or speed <= 0 then return SERVER.deflectWindowMax end
+    local t = math_clamp(
+        (speed - SERVER.baseSpeed) / (SERVER.maxSpeed - SERVER.baseSpeed),
+        0, 1
+    )
+    return SERVER.deflectWindowMax - (SERVER.deflectWindowMax - SERVER.deflectWindowMin) * t
+end
+
+-- ================== PING REAL DO SERVIDOR (V10) ==================
+-- Fórmula confirmada no dump: ping × 2 + 35ms, cap 200ms
 local smoothedPing = 0.05
 local function updatePing()
     local ok, raw = pcall(function() return Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000 end)
@@ -134,7 +157,15 @@ local function updatePing()
     end
 end
 local function getPingCompensation()
-    return math_clamp(smoothedPing * Config.pingMultiplier + Config.pingOffset, Config.pingMin, Config.pingMax)
+    return math_clamp(smoothedPing * 2 + 0.035, 0, 0.200)
+end
+
+-- ================== CPS LIMIT DO WORKSPACE (V10) ==================
+local function updateCPSLimit()
+    local limit = WS:GetAttribute("CPS_LIMIT")
+    if limit and limit > 0 then
+        Config.spamInterval = 1 / limit
+    end
 end
 
 -- ================== BALL STATE ==================
@@ -159,7 +190,7 @@ local function setState(s)
     State.current = s State.lastTransition = tick()
 end
 
--- ================== CLASH ==================
+-- ================== CLASH (V5 — funciona) ==================
 local ClashState    = { Active = false, LastActivationTime = 0, CurrentOpponent = nil }
 local TargetHistory = {}
 local lastTarget    = nil
@@ -199,8 +230,7 @@ local function updateClashDetection(newTargetID, ballPos, ballVel)
 
         if isAlternating and timeGap < Config.clashTimeWindow and distOk and speedOk and ballComing then
             if not ClashState.Active then
-                spamAccum = (getgenv().__deltaV3_spamInterval or Config.spamInterval)
-                          * (getgenv().__deltaV3_spamCapPerFrame or Config.spamCapPerFrame)
+                spamAccum = Config.spamInterval * Config.spamCapPerFrame
             end
             ClashState.Active             = true
             ClashState.LastActivationTime = now
@@ -213,8 +243,7 @@ local function updateClashDetection(newTargetID, ballPos, ballVel)
 
     if newTargetID == lp.UserId and dist < Config.clashCriticalDist and ballComing and spd >= Config.clashMinSpeed then
         if not ClashState.Active then
-            spamAccum = (getgenv().__deltaV3_spamInterval or Config.spamInterval)
-                      * (getgenv().__deltaV3_spamCapPerFrame or Config.spamCapPerFrame)
+            spamAccum = Config.spamInterval * Config.spamCapPerFrame
         end
         ClashState.Active             = true
         ClashState.LastActivationTime = now
@@ -234,7 +263,7 @@ local function stopClash()
     end
 end
 
--- ================== SPAM — Heartbeat acumulador ==================
+-- ================== SPAM LOOP ==================
 local toggleButton = nil
 local spamConn     = nil
 
@@ -251,8 +280,8 @@ local function startSpamLoop()
     spamConn = RS.Heartbeat:Connect(function(dt)
         local active = spamOn or clashSpamOn
         if not active then spamAccum = 0 return end
-        local interval = getgenv().__deltaV3_spamInterval    or Config.spamInterval
-        local cap      = getgenv().__deltaV3_spamCapPerFrame or Config.spamCapPerFrame
+        local interval = Config.spamInterval
+        local cap      = Config.spamCapPerFrame
         spamAccum = math.min(spamAccum + dt, interval * cap)
         local fired = 0
         while spamAccum >= interval and fired < cap do
@@ -268,8 +297,7 @@ local function setSpam(v)
     spamOn = v
     getgenv().__deltaV3_spamActive = v
     if v then
-        spamAccum = (getgenv().__deltaV3_spamInterval    or Config.spamInterval)
-                  * (getgenv().__deltaV3_spamCapPerFrame or Config.spamCapPerFrame)
+        spamAccum = Config.spamInterval * Config.spamCapPerFrame
         setState("spam")
     else
         spamAccum     = 0
@@ -286,7 +314,7 @@ UIS.InputBegan:Connect(function(inp, gpe)
     if not gpe and inp.KeyCode == Enum.KeyCode.X then setSpam(not spamOn) end
 end)
 
--- ================== GUI ==================
+-- ================== GUI (V5 — simples e limpa) ==================
 task.spawn(function()
     local old = CoreGui:FindFirstChild("ParrySpamToggleGui")
     if old then old:Destroy() end
@@ -338,7 +366,7 @@ task.spawn(function()
     titleLabel.Size                   = UDim2.new(1, -6, 1, 0)
     titleLabel.Position               = UDim2.new(0, 6, 0, 0)
     titleLabel.BackgroundTransparency = 1
-    titleLabel.Text                   = "Δ V5"
+    titleLabel.Text                   = "Δ V6"
     titleLabel.TextColor3             = Color3.fromRGB(180, 195, 255)
     titleLabel.TextScaled             = true
     titleLabel.Font                   = Enum.Font.GothamBold
@@ -356,6 +384,7 @@ task.spawn(function()
     toggleButton.Parent           = mainFrame
     Instance.new("UICorner", toggleButton).CornerRadius = UDim.new(0, 10)
 
+    -- Activated previne double-click (Pointer Event unificado)
     toggleButton.Activated:Connect(function() setSpam(not spamOn) end)
     updateGUI()
 
@@ -388,7 +417,7 @@ task.spawn(function()
     end)
 end)
 
--- ================== AURA ==================
+-- ================== AURA (V5) ==================
 local OUTER_TRANSPARENCY = 0.18
 local INNER_TRANSPARENCY = 0.9
 local AREA_COLOR         = Color3.fromRGB(255, 255, 255)
@@ -465,7 +494,11 @@ local function bind(ch)
             if not (ch and ch.Parent and hrp and hrp.Parent) then continue end
 
             pingTimer = pingTimer + dt
-            if pingTimer >= 2 then pingTimer = 0 task.spawn(updatePing) end
+            if pingTimer >= 2 then
+                pingTimer = 0
+                task.spawn(updatePing)
+                task.spawn(updateCPSLimit)  -- atualiza CPS do workspace a cada 2s
+            end
 
             if ClashState.Active and (now - ClashState.LastActivationTime) > Config.clashDecayTime then
                 stopClash()
@@ -523,13 +556,16 @@ local function bind(ch)
             local grace   = isGraceActive()
             local syncSpd = getSyncSpeed()
             local spd     = syncSpd or vel.Magnitude
-            local ping    = getPingCompensation()
+            local ping    = getPingCompensation()   -- ping×2+35ms, cap 200ms
             local d       = (bp - hrpPos).Magnitude
             local tgt     = tgtOn()
 
+            -- GRACE: bola vindo direto em você
             if grace and tgt and not ballProcessed then
-                local graceRad = math_clamp((syncSpd or 45) * Config.radiusWin + Config.radiusOff,
-                    Config.minRadius, Config.maxRadius) * Config.graceRadiusMult + Config.radiusPre
+                local graceRad   = math_clamp(
+                    (syncSpd or 45) * Config.radiusWin + Config.radiusOff,
+                    Config.minRadius, Config.maxRadius
+                ) * Config.graceRadiusMult + Config.radiusPre
                 local killThresh = Config.killDistance + (ping * (syncSpd or 45)) + 2
                 if d <= graceRad or d <= killThresh then
                     sendParry()
@@ -540,10 +576,12 @@ local function bind(ch)
                 continue
             end
 
+            -- PARRY NORMAL: janela de deflect dinâmica baseada na velocidade real
+            local deflectionWindow = getRealDeflectionWindow(spd)  -- 850ms→200ms por velocidade
             local rad  = math_clamp(spd * Config.radiusWin + Config.radiusOff, Config.minRadius, Config.maxRadius) + Config.radiusPre
             local app  = vel.Magnitude > 0.1 and vel:Dot(hrpPos - bp) > 0
             local tImp = spd > 1 and (d / spd) or 1000000
-            local can  = tgt and app and spd > Config.minSpeed and d <= rad and tImp <= (Config.maxImpactTime + ping)
+            local can  = tgt and app and spd > Config.minSpeed and d <= rad and tImp <= (deflectionWindow + ping)
 
             if can and not ballProcessed then
                 sendParry()
@@ -588,4 +626,4 @@ CoreGui.ChildRemoved:Connect(function(c)
     end
 end)
 
-print("Delta ΔV5 + Phantom Spam ✅")
+print("Delta ΔV6 ✅ | CPS: " .. math.floor(1/Config.spamInterval) .. " | Ping formula: ping×2+35ms | Window: dinâmica")
