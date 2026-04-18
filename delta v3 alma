@@ -1,6 +1,6 @@
--- DELTA ΔV13
--- Auto parry: target change instantâneo (sem delay)
--- Resto: clash V11, CPS dinâmico, Resilience hitbox, ping MANUAL (via controle)
+-- DELTA ΔV15
+-- Auto parry: Heartbeat V5 (só reseta flag) + loop principal clica | clash: instantâneo
+-- Melhorias: CPS dinâmico, sliding window, ping manual, clash V11
 local math_clamp = math.clamp
 local typeof     = typeof
 
@@ -226,15 +226,20 @@ local lastProcessReset = 0
 local ballResetAt      = 0
 local lastSyncTarget   = -99999
 
--- Auto parry instantâneo: dispara no Heartbeat quando target muda pra você
--- Sem delay: o servidor já calculou que a bola entrou na sua hitbox
+-- Heartbeat V5: só reseta ballProcessed quando target muda pra você
+-- O clique é 100% responsabilidade do loop principal (raio + tImp)
+-- Exceção: clash ativo dispara instantâneo (target change = bola já chegou)
 RS.Heartbeat:Connect(function()
     if not br or not br.syncData then return end
     local newID = br.syncData.TargetPlayerID
     if newID ~= lastSyncTarget then
         lastSyncTarget = newID
-        if newID == lp.UserId and getgenv().__deltaV3_autoParryOn then
-            sendParry()
+        if newID == lp.UserId then
+            if ClashState.Active and getgenv().__deltaV3_autoParryOn then
+                sendParry()
+            else
+                ballProcessed = false
+            end
         end
     end
 end)
@@ -429,7 +434,7 @@ task.spawn(function()
     titleLabel.Size                   = UDim2.new(1, -6, 1, 0)
     titleLabel.Position               = UDim2.new(0, 6, 0, 0)
     titleLabel.BackgroundTransparency = 1
-    titleLabel.Text                   = "Δ V13"
+    titleLabel.Text                   = "Δ V15"
     titleLabel.TextColor3             = Color3.fromRGB(180, 195, 255)
     titleLabel.TextScaled             = true
     titleLabel.Font                   = Enum.Font.GothamBold
@@ -683,4 +688,4 @@ CoreGui.ChildRemoved:Connect(function(c)
     end
 end)
 
-print("Delta ΔV13 ✅ | auto parry instantâneo (target change) + clash V11 + CPS dinâmico + ping manual")
+print("Delta ΔV15 ✅ | parry V5 (loop) + clash instantâneo + CPS dinâmico + sliding window + ping manual")
