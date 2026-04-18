@@ -1,9 +1,8 @@
--- DELTA V3 — CONTROLE v3.5
--- [UPD] CPS atualizado: 1600 padrão (igual ALMA v5.1), opções 2000/3000
--- [UPD] spamCapPerFrame sincroniza automaticamente com CPS selecionado
+-- DELTA V3 — CONTROLE v4.0
+-- [UPD] CPS VAR: usa limite real do servidor automaticamente (padrão)
+-- [UPD] Spam GUI oculta por padrão, ativada pelo botão no controle
 -- [UPD] Badge "DUAL" no card CPS indica dual-queue ativo
--- [UPD] Status bar: versão e CPS atualizados
--- [FIX] Default selectedCps = 8 (1600 CPS, padrão do ALMA)
+-- [UPD] Status bar atualizada
 
 local Players          = game:GetService("Players")
 local TweenService     = game:GetService("TweenService")
@@ -20,7 +19,7 @@ local MainFrame  -- forward ref
 -- SAVE / LOAD
 -- ============================================================
 local SAVE_FILE   = "delta_v3_config.json"
-local selectedCps = 8   -- [UPD] padrão 1600 CPS (índice 8)
+local selectedCps = 9   -- padrão VAR (índice 9)
 local selectedKey = 1
 
 local function saveConfig()
@@ -67,7 +66,7 @@ if getgenv().__deltaV3_autoClashOn == nil then getgenv().__deltaV3_autoClashOn =
 if getgenv().__deltaV3_auraOn      == nil then getgenv().__deltaV3_auraOn      = sv("auraOn",      false) end
 if getgenv().__deltaV3_spamKeyMode == nil then getgenv().__deltaV3_spamKeyMode = sv("keyMode",     "hold") end
 
-selectedCps = sv("cpsIndex", 8)   -- [UPD] padrão 8 = 1600 CPS
+selectedCps = sv("cpsIndex", 9)   -- padrão 9 = VAR
 selectedKey = sv("keyIndex", 1)
 
 getgenv().__deltaV3_savedSpamGuiPos = { x = sv("spamGuiX", nil), y = sv("spamGuiY", nil) }
@@ -535,7 +534,7 @@ CpsUIGrid.CellPadding = UDim2.new(0, 4, 0, 4)
 CpsUIGrid.SortOrder   = Enum.SortOrder.LayoutOrder
 CpsUIGrid.Parent      = CpsGrid
 
--- [UPD] Opções reorganizadas: 1600 é o padrão (index 8)
+-- cpsMain: opções fixas | cpsExtra: 2000 + VAR (padrão)
 local cpsMain  = {
     {v=10},
     {v=20},
@@ -544,12 +543,11 @@ local cpsMain  = {
     {v=300},
     {v=600},
     {v=1000, warn=true},
-    {v=1600, warn=true},   -- padrão do ALMA v5.1
+    {v=1600, warn=true},
 }
--- [UPD] Extra: 2000 e 3000 (removido 10000 — muito alto para uso normal)
 local cpsExtra = {
     {v=2000, warn=true},
-    {v=3000, warn2=true},
+    {var=true, label="VAR"},   -- usa getRealCPSLimit() do servidor em tempo real
 }
 
 local allCpsCache = {}
@@ -572,11 +570,10 @@ ExtraList.Parent            = CpsExtraRow
 local cpsBtns, cpsExtraBtns = {}, {}
 
 local EXTRA_COLOR = {
-    [1] = Color3.fromRGB(150, 60, 15),   -- 2000: laranja-vermelho
-    [2] = Color3.fromRGB(200, 20, 10),   -- 3000: vermelho forte
+    [1] = Color3.fromRGB(150, 60, 15),    -- 2000: laranja-vermelho
+    [2] = Color3.fromRGB(30, 120, 80),    -- VAR: verde-teal
 }
 
--- [UPD] spamCapPerFrame calculado automaticamente (1 frame @ 60fps)
 local function calcCapPerFrame(cps)
     return math.max(1, math.ceil(cps / 60))
 end
@@ -584,12 +581,18 @@ end
 local function selectCps(idx)
     selectedCps = idx
     local all    = getAllCps()
-    local chosen = all[idx] or all[8]   -- fallback para 1600
+    local chosen = all[idx] or all[9]   -- fallback para VAR
 
-    -- [UPD] Sincroniza intervalo E cap por frame com o ALMA
-    getgenv().__deltaV3_spamInterval     = 1 / chosen.v
-    getgenv().__deltaV3_spamIntervalRaw  = 1 / chosen.v
-    getgenv().__deltaV3_spamCapPerFrame  = calcCapPerFrame(chosen.v)  -- [UPD] novo
+    if chosen.var then
+        -- VAR: limpa intervalo fixo, delta vai usar getRealCPSLimit() sozinho
+        getgenv().__deltaV3_spamInterval    = nil
+        getgenv().__deltaV3_spamIntervalRaw = nil
+        getgenv().__deltaV3_spamCapPerFrame = nil
+    else
+        getgenv().__deltaV3_spamInterval     = 1 / chosen.v
+        getgenv().__deltaV3_spamIntervalRaw  = 1 / chosen.v
+        getgenv().__deltaV3_spamCapPerFrame  = calcCapPerFrame(chosen.v)
+    end
 
     for i, d in ipairs(cpsMain) do
         local s = (i == idx)
@@ -608,12 +611,13 @@ local function selectCps(idx)
             BackgroundColor3       = s and Color3.fromRGB(60,100,200) or EXTRA_COLOR[i],
             BackgroundTransparency = s and 0.3 or 0.4,
         }):Play()
-        cpsExtraBtns[i].TextColor3 = s and Color3.fromRGB(170,210,255) or Color3.fromRGB(255,130,100)
-        cpsExtraBtns[i].Text = tostring(d.v) .. (s and "★" or "")
+        cpsExtraBtns[i].TextColor3 = s and Color3.fromRGB(170,210,255) or (d.var and Color3.fromRGB(100,235,170) or Color3.fromRGB(255,130,100))
+        local label = d.var and ("VAR" .. (s and "★" or "")) or (tostring(d.v) .. (s and "★" or ""))
+        cpsExtraBtns[i].Text = label
     end
 
-    CpsValue.Text = tostring(chosen.v) .. " /s"
-    tw(CpsValue, 0.14, {BackgroundColor3 = (chosen.warn or chosen.warn2) and Color3.fromRGB(140,60,15) or Color3.fromRGB(50,90,200)}):Play()
+    CpsValue.Text = chosen.var and "VAR /s" or (tostring(chosen.v) .. " /s")
+    tw(CpsValue, 0.14, {BackgroundColor3 = chosen.var and Color3.fromRGB(30,100,65) or ((chosen.warn or chosen.warn2) and Color3.fromRGB(140,60,15) or Color3.fromRGB(50,90,200))}):Play()
     saveConfig()
 end
 
@@ -664,11 +668,18 @@ for i, d in ipairs(cpsExtra) do
 end
 
 do
-    local chosen = allCpsCache[selectedCps] or allCpsCache[8]
-    getgenv().__deltaV3_spamInterval    = 1 / chosen.v
-    getgenv().__deltaV3_spamIntervalRaw = 1 / chosen.v
-    getgenv().__deltaV3_spamCapPerFrame = calcCapPerFrame(chosen.v)  -- [UPD]
-    CpsValue.Text = tostring(chosen.v) .. " /s"
+    local chosen = allCpsCache[selectedCps] or allCpsCache[9]
+    if chosen.var then
+        getgenv().__deltaV3_spamInterval    = nil
+        getgenv().__deltaV3_spamIntervalRaw = nil
+        getgenv().__deltaV3_spamCapPerFrame = nil
+        CpsValue.Text = "VAR /s"
+    else
+        getgenv().__deltaV3_spamInterval    = 1 / chosen.v
+        getgenv().__deltaV3_spamIntervalRaw = 1 / chosen.v
+        getgenv().__deltaV3_spamCapPerFrame = calcCapPerFrame(chosen.v)
+        CpsValue.Text = tostring(chosen.v) .. " /s"
+    end
 end
 
 -- ============================================================
@@ -1018,7 +1029,7 @@ end
 local dotParry, dotParryD = makeDot("Parry OFF", Color3.fromRGB(50,220,80))
 local dotClash, dotClashD = makeDot("Clash OFF", Color3.fromRGB(80,130,255))
 local dotCps,   _         = makeDot("1600 CPS",  Color3.fromRGB(255,160,50))  -- [UPD] 1600 padrão
-makeDot("DELTA v5.1β", Color3.fromRGB(180,100,255))  -- [UPD] versão correta
+makeDot("DELTA v4.0", Color3.fromRGB(180,100,255))
 
 task.spawn(function()
     while dotParry.Parent do
@@ -1029,7 +1040,7 @@ task.spawn(function()
         dotClash.Text = cOn and "Clash ON" or "Clash OFF"
         tw(dotClashD, 0.2, {BackgroundColor3 = cOn and Color3.fromRGB(80,130,255) or Color3.fromRGB(180,50,50)}):Play()
         local c = allCpsCache[selectedCps]
-        dotCps.Text = c and (tostring(c.v) .. " CPS") or "? CPS"
+        dotCps.Text = c and (c.var and "VAR CPS" or (tostring(c.v) .. " CPS")) or "? CPS"
         task.wait(1)
     end
 end)
