@@ -1,9 +1,6 @@
--- CONTROLE primeiro (GUI)
 loadstring(game:HttpGet("https://raw.githubusercontent.com/Repp35/Roblox/refs/heads/main/delta%20v3%20gui"))()
 
 task.wait(0.2)
 
--- ALMA depois (engine)
-task.spawn(function()
-    loadstring(game:HttpGet("https://raw.githubusercontent.com/Repp35/Roblox/refs/heads/main/delta%20v3%20alma"))()
+task.spawn(function()    loadstring(game:HttpGet("https://raw.githubusercontent.com/Repp35/Roblox/refs/heads/main/delta%20v3%20alma"))()
 end)
