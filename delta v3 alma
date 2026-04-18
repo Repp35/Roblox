@@ -1,5 +1,5 @@
--- DELTA ΔV12
--- Auto parry: lógica do V5+Phantom Spam (timer 3.5s + target reset simples)
+-- DELTA ΔV13
+-- Auto parry: target change instantâneo (sem delay)
 -- Resto: clash V11, CPS dinâmico, Resilience hitbox, ping MANUAL (via controle)
 local math_clamp = math.clamp
 local typeof     = typeof
@@ -226,33 +226,15 @@ local lastProcessReset = 0
 local ballResetAt      = 0
 local lastSyncTarget   = -99999
 
--- Auto parry instantâneo: dispara direto no Heartbeat quando target muda pra você
+-- Auto parry instantâneo: dispara no Heartbeat quando target muda pra você
+-- Sem delay: o servidor já calculou que a bola entrou na sua hitbox
 RS.Heartbeat:Connect(function()
     if not br or not br.syncData then return end
     local newID = br.syncData.TargetPlayerID
     if newID ~= lastSyncTarget then
         lastSyncTarget = newID
         if newID == lp.UserId and getgenv().__deltaV3_autoParryOn then
-            -- Calcula tempo até impacto e agenda o fire
-            local hrp = Cache.RootPart
-            local b   = getBall()
-            if hrp and b and b.Parent then
-                local d    = (b.Position - hrp.Position).Magnitude
-                local spd  = getSyncSpeed() or b.AssemblyLinearVelocity.Magnitude
-                local ping = getPingCompensation()
-                local t    = math.max(0, (spd > 1 and (d / spd) or 0) - ping)
-                if t <= 0 then
-                    sendParry()
-                else
-                    task.delay(t, function()
-                        if getgenv().__deltaV3_autoParryOn then
-                            sendParry()
-                        end
-                    end)
-                end
-            else
-                sendParry()
-            end
+            sendParry()
         end
     end
 end)
@@ -447,7 +429,7 @@ task.spawn(function()
     titleLabel.Size                   = UDim2.new(1, -6, 1, 0)
     titleLabel.Position               = UDim2.new(0, 6, 0, 0)
     titleLabel.BackgroundTransparency = 1
-    titleLabel.Text                   = "Δ V11"
+    titleLabel.Text                   = "Δ V13"
     titleLabel.TextColor3             = Color3.fromRGB(180, 195, 255)
     titleLabel.TextScaled             = true
     titleLabel.Font                   = Enum.Font.GothamBold
@@ -701,4 +683,4 @@ CoreGui.ChildRemoved:Connect(function(c)
     end
 end)
 
-print("Delta ΔV12 ✅ | auto parry V5 + clash V11 + CPS dinâmico (15 fallback) + ping manual")
+print("Delta ΔV13 ✅ | auto parry instantâneo (target change) + clash V11 + CPS dinâmico + ping manual")
