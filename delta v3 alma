@@ -80,7 +80,8 @@ if getgenv().__deltaV3_spamInterval == nil then getgenv().__deltaV3_spamInterval
 -- ================== REMOTE ==================
 local TS_Folder     = RSrv:WaitForChild("TS", 10)
 local NetRemotes    = TS_Folder and TS_Folder:WaitForChild("GeneratedNetworkRemotes", 10)
-local touchTapEvent = RSrv:FindFirstChild("TouchTap")
+local _parryRemote  = NetRemotes and NetRemotes:FindFirstChild("RE_4.6848415795802784e+76")
+local touchTapEvent = RSrv:WaitForChild("TouchTap", 10)
 
 -- ================== CPS DINÂMICO (sliding window) ==================
 local function getRealCPSLimit()
@@ -122,6 +123,9 @@ end
 local function sendParry()
     if not canFire() then return false end
     table.insert(fireTimestamps, tick())
+    if _parryRemote then
+        _parryRemote:FireServer(2.933813859058389e+76)
+    end
     if touchTapEvent then touchTapEvent:Fire() end
     return true
 end
@@ -682,39 +686,4 @@ CoreGui.ChildRemoved:Connect(function(c)
     end
 end)
 
-print("Delta ΔV20 ✅ | TouchTap restaurado + spam 80% CPS + GUI oculto + fix ballProcessed + ballLeftMe + sliding window + ping manual + clash V11")cestryChanged:Connect(function(_, p)
-        if not p then
-            running        = false
-            setSpam(false)
-            stopClash()
-            ballProcessed  = false
-            lastBallPos    = nil
-            ballResetAt    = 0
-            lastSyncTarget = -99999
-            auraOuter.Transparency = 1
-            auraInner.Transparency = 1
-            updateGUI()
-        end
-    end)
-
-    getgenv().__na_aex_conn = { Disconnect = function() running = false end }
-end
-
-lp.CharacterAdded:Connect(bind)
-if lp.Character then bind(lp.Character) end
-
-CoreGui.ChildRemoved:Connect(function(c)
-    if c.Name == "ParrySpamToggleGui" then
-        if auraConn then auraConn:Disconnect() end
-        pcall(function() auraOuter:Destroy() auraInner:Destroy() end)
-        getgenv().__na_aex = nil
-        if spamConn then spamConn:Disconnect() end
-        setSpam(false) stopClash()
-        if getgenv().__na_aex_conn then
-            getgenv().__na_aex_conn:Disconnect()
-            getgenv().__na_aex_conn = nil
-        end
-    end
-end)
-
-print("Delta ΔV12 ✅ | auto parry V5 + clash V11 + CPS dinâmico (15 fallback) + ping manual")
+print("Delta ΔV20 ✅ | TouchTap restaurado + spam 80% CPS + GUI oculto + fix ballProcessed + ballLeftMe + sliding window + ping manual + clash V11")
