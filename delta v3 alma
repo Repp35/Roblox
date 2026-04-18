@@ -233,7 +233,26 @@ RS.Heartbeat:Connect(function()
     if newID ~= lastSyncTarget then
         lastSyncTarget = newID
         if newID == lp.UserId and getgenv().__deltaV3_autoParryOn then
-            sendParry()
+            -- Calcula tempo até impacto e agenda o fire
+            local hrp = Cache.RootPart
+            local b   = getBall()
+            if hrp and b and b.Parent then
+                local d    = (b.Position - hrp.Position).Magnitude
+                local spd  = getSyncSpeed() or b.AssemblyLinearVelocity.Magnitude
+                local ping = getPingCompensation()
+                local t    = math.max(0, (spd > 1 and (d / spd) or 0) - ping)
+                if t <= 0 then
+                    sendParry()
+                else
+                    task.delay(t, function()
+                        if getgenv().__deltaV3_autoParryOn then
+                            sendParry()
+                        end
+                    end)
+                end
+            else
+                sendParry()
+            end
         end
     end
 end)
