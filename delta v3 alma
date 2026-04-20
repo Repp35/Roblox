@@ -1,9 +1,13 @@
--- DELTA ΔV23
--- Base: V22
--- Fixes: fireTimestamps O(n²) → pointer | canFire/canSpam unificados
---        grace respeita spam | ballLeftMe usado | dt real no loop
---        clashSpamOn travado → stopClash no Heartbeat
---        deflectWindowFloor removido (dead code)
+-- DELTA ΔV24
+-- Base: V23
+-- Fixes/Improvements:
+--   clash renewal inteligente com múltiplos sinais (dist, troca, velocidade, terceiro)
+--   clash NÃO para por micro-flutuação — só para com evidência real
+--   distância adaptativa sutil (bola lenta = ativa um pouco mais perto)
+--   watchdog timeout aumentado pra 4s (safety net apenas)
+--   hasNearbyOpponent com speed gate no fallback
+--   clashSpamOn nunca fica travado sozinho
+
 local math_clamp = math.clamp
 local typeof     = typeof
 
@@ -51,11 +55,22 @@ local Config = {
     clashMinDist      = 55,
     clashMinSpeed     = 20,
     clashCriticalDist = 30,
-    clashDecayTime    = 0.8,
+    clashDecayTime    = 4.0,   -- V24: safety net apenas, renovação inteligente cuida do resto
     clashDotThresh    = 0.10,
-    clashResetGuard   = 1.2,
 
-    clashRadMult             = 1.5,
+    -- V24: parâmetros de renovação inteligente
+    clashRenewOpDist      = 60,   -- oponente tem q estar dentro disso pra renovar
+    clashRenewBallDist    = 70,   -- bola tem q estar dentro disso (troca ainda acontecendo)
+    clashHijackFrames     = 3,    -- quantos frames consecutivos indo pra terceiro = para clash
+    clashMissFrames       = 5,    -- frames sem condição = para (não 1, não para por micro-flutuação)
+
+    -- V24: distância adaptativa (sutil — não muda muito, só evita falso-positivo com bola lenta)
+    clashAdaptiveDistReduction = 10, -- máximo de studs que reduz quando bola lenta
+    clashAdaptiveSpeedRef      = 20, -- velocidade de referência (clashMinSpeed)
+
+    clashResetGuard   = 1.2,
+    clashRadMult      = 1.5,
+
     activationDistanceOffset = 7,
     graceRadiusMult          = 1.4,
     clashOpponentDist        = 15,
@@ -78,17 +93,14 @@ local function getRealCPSLimit()
     return 25
 end
 
--- FIX: sliding window com pointer em vez de table.remove
--- Evita O(n²) em CPS alto — só avança o índice de início
 local fireTimestamps = {}
-local tsHead = 1  -- pointer pro início da janela válida
+local tsHead = 1
 
 local function _cleanTimestamps()
     local now = tick()
     while tsHead <= #fireTimestamps and now - fireTimestamps[tsHead] >= 1 do
         tsHead = tsHead + 1
     end
-    -- reset da tabela quando ficar grande demais (evita crescimento infinito)
     if tsHead > 200 then
         local fresh = {}
         for i = tsHead, #fireTimestamps do
@@ -99,7 +111,6 @@ local function _cleanTimestamps()
     end
 end
 
--- FIX: canFire e canSpam unificados — limpeza acontece uma vez só
 local function canFireWith(fraction)
     _cleanTimestamps()
     local active = #fireTimestamps - tsHead + 1
@@ -188,7 +199,7 @@ local ballProcessed    = false
 local lastProcessReset = 0
 local ballResetAt      = 0
 local lastSyncTarget   = -99999
-local ballLeftMe       = false  -- bola saiu de mim → parry imediato na volta
+local ballLeftMe       = false
 
 RS.Heartbeat:Connect(function()
     if not br or not br.syncData then return end
@@ -198,8 +209,6 @@ RS.Heartbeat:Connect(function()
             ballLeftMe = true
         end
         if newID == lp.UserId then
-            -- FIX: ballLeftMe agora é usado — se bola voltou após sair,
-            -- reseta ballProcessed imediatamente independente do timer
             ballProcessed = false
             ballLeftMe    = false
         end
@@ -215,24 +224,52 @@ local function setState(s)
 end
 
 -- ================== CLASH ==================
-local ClashState    = { Active = false, LastActivationTime = 0, CurrentOpponent = nil }
+local ClashState = {
+    Active             = false,
+    LastActivationTime = 0,
+    CurrentOpponent    = nil,
+
+    -- V24: contadores de frames para decisão robusta
+    hijackFrames       = 0,   -- frames consecutivos com bola indo pra terceiro
+    missFrames         = 0,   -- frames consecutivos sem condição de clash
+    lastKnownOpDist    = 999, -- distância do oponente no último frame válido
+}
+
 local TargetHistory = {}
 local lastTarget    = nil
 local spamOn        = false
 local clashSpamOn   = false
 local spamAccum     = 0
 
-local function hasNearbyOpponent()
+local function hasNearbyOpponent(distLimit)
+    distLimit = distLimit or Config.clashOpponentDist
     local hrp = Cache.RootPart
-    if not hrp then return false end
-    local myPos = hrp.Position
+    if not hrp then return false, nil, 999 end
+    local myPos    = hrp.Position
+    local bestDist = 999
+    local bestID   = nil
     for _, player in ipairs(Plrs:GetPlayers()) do
         if player == lp then continue end
         local ch = player.Character if not ch then continue end
         local root = ch:FindFirstChild("HumanoidRootPart") if not root then continue end
-        if (myPos - root.Position).Magnitude <= Config.clashOpponentDist then return true end
+        local d = (myPos - root.Position).Magnitude
+        if d < bestDist then
+            bestDist = d
+            bestID   = player.UserId
+        end
     end
-    return false
+    return bestDist <= distLimit, bestID, bestDist
+end
+
+-- V24: distância adaptativa sutil
+-- Bola rápida → ativa em distância normal
+-- Bola lenta  → reduz levemente o threshold (evita falso-positivo de longe)
+local function getAdaptiveClashDist(spd)
+    local speedRef = Config.clashAdaptiveSpeedRef
+    local maxRed   = Config.clashAdaptiveDistReduction
+    -- quanto mais lenta a bola vs referência, mais reduz (até maxRed studs)
+    local factor = math_clamp(1 - (spd / speedRef), 0, 1)
+    return Config.clashMinDist - (factor * maxRed)
 end
 
 local function activateClash(opponentID)
@@ -243,12 +280,87 @@ local function activateClash(opponentID)
     end
     ClashState.Active             = true
     ClashState.LastActivationTime = tick()
-    ClashState.CurrentOpponent    = opponentID
+    ClashState.CurrentOpponent    = opponentID or ClashState.CurrentOpponent
+    ClashState.hijackFrames       = 0
+    ClashState.missFrames         = 0
     clashSpamOn                   = true
     setState("clash")
 end
 
-local function updateClashDetection(newTargetID, ballPos, ballVel)
+-- V24: renovação inteligente
+-- Renova se: oponente ainda perto E bola ainda entre nós (não foi pra terceiro)
+-- Para se: evidência real de que o clash terminou (múltiplos frames, não 1)
+local function evaluateClashRenewal(currentTarget, ballPos, spd)
+    if not ClashState.Active then return end
+    local hrp = Cache.RootPart
+    if not hrp then return end
+
+    local opNear, opID, opDist = hasNearbyOpponent(Config.clashRenewOpDist)
+    ClashState.lastKnownOpDist = opDist
+
+    -- bola indo pra terceiro (nem eu nem meu oponente)?
+    local isThird = (currentTarget ~= lp.UserId)
+               and (currentTarget ~= ClashState.CurrentOpponent)
+               and (currentTarget ~= nil)
+               and (currentTarget > 0)
+
+    -- bola ainda perto (troca pode estar acontecendo)?
+    local bp         = ballPos
+    local hrpPos     = hrp.Position
+    local ballNear   = bp and (bp - hrpPos).Magnitude <= Config.clashRenewBallDist
+
+    -- condição positiva: oponente perto e bola ainda em jogo entre nós
+    local renewOk = opNear and (ballNear or currentTarget == lp.UserId or currentTarget == ClashState.CurrentOpponent)
+
+    if renewOk and not isThird then
+        -- renova — clash continua
+        ClashState.LastActivationTime = tick()
+        ClashState.hijackFrames       = 0
+        ClashState.missFrames         = 0
+        if opID and not ClashState.CurrentOpponent then
+            ClashState.CurrentOpponent = opID
+        end
+    else
+        -- incrementa contadores de falha
+        if isThird then
+            ClashState.hijackFrames = ClashState.hijackFrames + 1
+        else
+            ClashState.missFrames = ClashState.missFrames + 1
+        end
+
+        -- só para com evidência acumulada, nunca por 1 frame
+        local hijackStop = ClashState.hijackFrames >= Config.clashHijackFrames
+        local missStop   = ClashState.missFrames   >= Config.clashMissFrames
+        local opGone     = opDist > Config.clashRenewOpDist * 1.3 -- oponente claramente foi embora
+
+        if hijackStop or (missStop and opGone) then
+            stopClash()
+        end
+        -- se miss mas oponente ainda perto: aguarda mais frames (pode ser micro-flutuação)
+    end
+end
+
+function stopClash()
+    if ClashState.Active then
+        ClashState.Active             = false
+        ClashState.CurrentOpponent    = nil
+        ClashState.hijackFrames       = 0
+        ClashState.missFrames         = 0
+        ClashState.lastKnownOpDist    = 999
+        clashSpamOn                   = false
+        spamAccum                     = 0
+        ballProcessed                 = false
+        if State.current == "clash" then setState("normal") end
+    end
+end
+
+local function updateClashDetection(newTargetID, ballPos, ballVel, spd)
+    -- V24: se clash ativo, delega pra renovação inteligente
+    if ClashState.Active then
+        evaluateClashRenewal(newTargetID, ballPos, spd)
+        return
+    end
+
     if newTargetID == lastTarget then return end
     lastTarget = newTargetID
     if not Cache.RootPart then return end
@@ -259,7 +371,9 @@ local function updateClashDetection(newTargetID, ballPos, ballVel)
     local hrpPos = Cache.RootPart.Position
     local dist   = (hrpPos - ballPos).Magnitude
     local now    = tick()
-    local spd    = getSyncSpeed() or (ballVel and ballVel.Magnitude) or 0
+
+    -- V24: distância adaptativa baseada na velocidade real
+    local adaptiveDist = getAdaptiveClashDist(spd)
 
     table.insert(TargetHistory, 1, { id = newTargetID, t = now })
     if #TargetHistory > Config.clashHistorySize then table.remove(TargetHistory) end
@@ -269,41 +383,38 @@ local function updateClashDetection(newTargetID, ballPos, ballVel)
         ballComing = ballVel.Unit:Dot((hrpPos - ballPos).Unit) >= Config.clashDotThresh
     end
 
+    -- detecção por alternância (padrão de troca de bola)
     if #TargetHistory >= 3 then
         local timeGap       = TargetHistory[1].t - TargetHistory[3].t
         local isAlternating = TargetHistory[1].id == lp.UserId
                            and TargetHistory[2].id ~= lp.UserId
                            and TargetHistory[3].id == lp.UserId
         local speedOk = spd >= Config.clashMinSpeed or dist < Config.clashCriticalDist
-        local distOk  = dist < Config.clashMinDist
+        local distOk  = dist < adaptiveDist
         if isAlternating and timeGap < Config.clashTimeWindow and distOk and speedOk and ballComing then
             activateClash(TargetHistory[2].id) return
         end
     end
 
+    -- detecção crítica (perto + rápido)
     if newTargetID == lp.UserId and dist < Config.clashCriticalDist and ballComing and spd >= Config.clashMinSpeed then
         activateClash(nil) return
     end
-    if newTargetID == lp.UserId and ballComing and hasNearbyOpponent() then
-        activateClash(nil)
+
+    -- detecção por proximidade de oponente — V24: com gate de velocidade mínima
+    -- (evita ativar longe com bola lenta e oponente por perto)
+    if newTargetID == lp.UserId and ballComing and spd >= Config.clashMinSpeed * 0.7 then
+        local opNear, opID = hasNearbyOpponent()
+        if opNear then
+            activateClash(opID)
+        end
     end
 end
 
-local function stopClash()
-    if ClashState.Active then
-        ClashState.Active          = false
-        ClashState.CurrentOpponent = nil
-        clashSpamOn                = false
-        spamAccum                  = 0
-        ballProcessed              = false
-        if State.current == "clash" then setState("normal") end
-    end
-end
-
--- FIX: watchdog no Heartbeat — garante que clashSpamOn nunca fica
--- travado se o loop principal pausar ou o personagem morrer no meio
+-- Watchdog: safety net apenas — renovação inteligente cuida do resto
+-- Timeout longo (4s) pra não matar clash legítimo
 RS.Heartbeat:Connect(function()
-    if ClashState.Active and (tick() - ClashState.LastActivationTime) > Config.clashDecayTime * 2 then
+    if ClashState.Active and (tick() - ClashState.LastActivationTime) > Config.clashDecayTime then
         stopClash()
     end
 end)
@@ -420,7 +531,7 @@ local function buildGui()
     titleLabel.Size                   = UDim2.new(1, -6, 1, 0)
     titleLabel.Position               = UDim2.new(0, 6, 0, 0)
     titleLabel.BackgroundTransparency = 1
-    titleLabel.Text                   = "Δ V23"
+    titleLabel.Text                   = "Δ V24"
     titleLabel.TextColor3             = Color3.fromRGB(180, 195, 255)
     titleLabel.TextScaled             = true
     titleLabel.Font                   = Enum.Font.GothamBold
@@ -547,8 +658,6 @@ local function bind(ch)
 
     task.spawn(function()
         while running do
-            -- FIX: usa o dt real retornado pelo task.wait
-            -- em vez de assumir 0.016 fixo
             local dt  = task.wait(0.016)
             local now = tick()
 
@@ -557,9 +666,8 @@ local function bind(ch)
             pingTimer = pingTimer + dt
             if pingTimer >= 2 then pingTimer = 0 task.spawn(updatePing) end
 
-            if ClashState.Active and (now - ClashState.LastActivationTime) > Config.clashDecayTime then
-                stopClash()
-            end
+            -- V24: watchdog do loop não para clash — renovação cuida disso
+            -- Timeout do Heartbeat (4s) é o safety net real
 
             if ballProcessed and (now - lastProcessReset) >= Config.processResetInt then
                 ballProcessed = false
@@ -587,17 +695,6 @@ local function bind(ch)
 
             if (now - ballResetAt) < Config.ballResetLockout then continue end
 
-            local currentTarget = getSyncTarget() or WS:GetAttribute("GameBallTarget")
-            if currentTarget and currentTarget > 0 then
-                updateClashDetection(currentTarget, bp, getBallVel(b))
-            end
-
-            if not getgenv().__deltaV3_autoParryOn then continue end
-            if isLocked() then continue end
-            -- FIX: parry dorme enquanto spam ativo (igual Phantom)
-            -- acorda no frame exato que spam para, sem delay
-            if spamOn or clashSpamOn then continue end
-
             local av = getBallVel(b)
             if av then
                 vel = av lastBT, lastBP = now, bp
@@ -613,9 +710,20 @@ local function bind(ch)
                 end
             end
 
-            local grace   = isGraceActive()
             local syncSpd = getSyncSpeed()
             local spd     = syncSpd or vel.Magnitude
+
+            local currentTarget = getSyncTarget() or WS:GetAttribute("GameBallTarget")
+            if currentTarget and currentTarget > 0 then
+                -- V24: passa spd para updateClashDetection usar distância adaptativa
+                updateClashDetection(currentTarget, bp, av, spd)
+            end
+
+            if not getgenv().__deltaV3_autoParryOn then continue end
+            if isLocked() then continue end
+            if spamOn or clashSpamOn then continue end
+
+            local grace   = isGraceActive()
             local ping    = getPingCompensation()
             local d       = (bp - hrpPos).Magnitude
             local tgt     = tgtOn()
@@ -684,4 +792,4 @@ CoreGui.ChildRemoved:Connect(function(c)
     end
 end)
 
-print("Delta ΔV23 ✅ | sliding window O(1) | canFire unificado | grace/spam fix | clash watchdog | dt real")
+print("Delta ΔV24 ✅ | clash renewal inteligente | adaptive dist | frame-count stop | watchdog 4s")
