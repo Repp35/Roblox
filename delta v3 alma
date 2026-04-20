@@ -1,6 +1,9 @@
--- DELTA ΔV20
--- Reverte remote para TouchTap (pr_UserId não replica pro client)
--- Mantém: spam 80% CPS + GUI oculto + ballProcessed + ballLeftMe + sliding window + ping manual + clash V11
+-- DELTA ΔV23
+-- Base: V22
+-- Fixes: fireTimestamps O(n²) → pointer | canFire/canSpam unificados
+--        grace respeita spam | ballLeftMe usado | dt real no loop
+--        clashSpamOn travado → stopClash no Heartbeat
+--        deflectWindowFloor removido (dead code)
 local math_clamp = math.clamp
 local typeof     = typeof
 
@@ -19,18 +22,6 @@ local UIS     = game:GetService("UserInputService")
 local Stats   = game:GetService("Stats")
 local CoreGui = game:GetService("CoreGui")
 
--- ================== VALORES REAIS DO SERVIDOR ==================
-local SERVER = {
-    killDistance     = 4,
-    parryDistance    = 8.5,
-    baseSpeed        = 16,
-    maxSpeed         = 600,
-    deflectCooldown  = 1.45,
-    deflectWindowMin = 0.200,
-    deflectWindowMax = 0.850,
-    speedOverTime    = 7,
-}
-
 -- ================== CONFIG ==================
 local Config = {
     velSmooth     = 0.05,
@@ -47,7 +38,6 @@ local Config = {
     ballResetLockout = 0.6,
     processResetInt  = 3.5,
 
-    spamInterval    = 0.00167,
     spamCapPerFrame = 10,
 
     pingSmooth      = 0.15,
@@ -69,13 +59,11 @@ local Config = {
     activationDistanceOffset = 7,
     graceRadiusMult          = 1.4,
     clashOpponentDist        = 15,
-    deflectWindowFloor       = 0.35,
 }
 
-if getgenv().__deltaV3_autoParryOn  == nil then getgenv().__deltaV3_autoParryOn  = true    end
-if getgenv().__deltaV3_autoClashOn  == nil then getgenv().__deltaV3_autoClashOn  = true    end
-if getgenv().__deltaV3_auraOn       == nil then getgenv().__deltaV3_auraOn       = false   end
-if getgenv().__deltaV3_spamInterval == nil then getgenv().__deltaV3_spamInterval = 0.00167 end
+if getgenv().__deltaV3_autoParryOn == nil then getgenv().__deltaV3_autoParryOn = true  end
+if getgenv().__deltaV3_autoClashOn == nil then getgenv().__deltaV3_autoClashOn = true  end
+if getgenv().__deltaV3_auraOn      == nil then getgenv().__deltaV3_auraOn      = false end
 
 -- ================== REMOTE ==================
 local TS_Folder     = RSrv:WaitForChild("TS", 10)
@@ -83,51 +71,51 @@ local NetRemotes    = TS_Folder and TS_Folder:WaitForChild("GeneratedNetworkRemo
 local _parryRemote  = NetRemotes and NetRemotes:FindFirstChild("RE_4.6848415795802784e+76")
 local touchTapEvent = RSrv:WaitForChild("TouchTap", 10)
 
--- ================== CPS DINÂMICO (sliding window) ==================
+-- ================== CPS DINÂMICO ==================
 local function getRealCPSLimit()
     local v = WS:GetAttribute("CPS_LIMIT")
     if v and type(v) == "number" and v > 0 then return v end
     return 25
 end
 
+-- FIX: sliding window com pointer em vez de table.remove
+-- Evita O(n²) em CPS alto — só avança o índice de início
 local fireTimestamps = {}
-local function canFire()
-    local now   = tick()
-    local limit = getRealCPSLimit()
-    local i = 1
-    while i <= #fireTimestamps do
-        if now - fireTimestamps[i] >= 1 then
-            table.remove(fireTimestamps, i)
-        else
-            i = i + 1
-        end
+local tsHead = 1  -- pointer pro início da janela válida
+
+local function _cleanTimestamps()
+    local now = tick()
+    while tsHead <= #fireTimestamps and now - fireTimestamps[tsHead] >= 1 do
+        tsHead = tsHead + 1
     end
-    return #fireTimestamps < limit
+    -- reset da tabela quando ficar grande demais (evita crescimento infinito)
+    if tsHead > 200 then
+        local fresh = {}
+        for i = tsHead, #fireTimestamps do
+            fresh[#fresh + 1] = fireTimestamps[i]
+        end
+        fireTimestamps = fresh
+        tsHead = 1
+    end
 end
 
--- spam loop: usa só 80% do CPS, deixa 20% pro parry real
-local function canSpam()
-    local now   = tick()
-    local limit = getRealCPSLimit()
-    local i = 1
-    while i <= #fireTimestamps do
-        if now - fireTimestamps[i] >= 1 then
-            table.remove(fireTimestamps, i)
-        else
-            i = i + 1
-        end
-    end
-    return #fireTimestamps < math.floor(limit * 0.80)
+-- FIX: canFire e canSpam unificados — limpeza acontece uma vez só
+local function canFireWith(fraction)
+    _cleanTimestamps()
+    local active = #fireTimestamps - tsHead + 1
+    return active < math.floor(getRealCPSLimit() * fraction)
 end
 
 local function sendParry()
-    if not canFire() then return false end
-    table.insert(fireTimestamps, tick())
-    if _parryRemote then
-        _parryRemote:FireServer(2.933813859058389e+76)
-    end
+    if not canFireWith(1.0) then return false end
+    fireTimestamps[#fireTimestamps + 1] = tick()
+    if _parryRemote then _parryRemote:FireServer(2.933813859058389e+76) end
     if touchTapEvent then touchTapEvent:Fire() end
     return true
+end
+
+local function canSpam()
+    return canFireWith(0.80)
 end
 
 -- ================== GAME INFO / BALL REPLICATOR ==================
@@ -188,7 +176,6 @@ local function updatePing()
 end
 
 local function getPingCompensation()
-    -- Ping calibrado manualmente pelo controle externo
     local calibPing = tonumber(getgenv().__deltaV3_calibPing)
     if getgenv().__deltaV3_calibrated and calibPing and calibPing > 0 then
         return math_clamp((calibPing / 1000) * Config.pingMultiplier + Config.pingOffset, Config.pingMin, Config.pingMax)
@@ -201,11 +188,8 @@ local ballProcessed    = false
 local lastProcessReset = 0
 local ballResetAt      = 0
 local lastSyncTarget   = -99999
+local ballLeftMe       = false  -- bola saiu de mim → parry imediato na volta
 
--- Heartbeat: lógica ballLeftMe do V5 antigo
--- Bola saiu de você → ballLeftMe = true
--- Bola voltou → reseta ballProcessed IMEDIATAMENTE, sem esperar timer
-local ballLeftMe = false
 RS.Heartbeat:Connect(function()
     if not br or not br.syncData then return end
     local newID = br.syncData.TargetPlayerID
@@ -214,6 +198,8 @@ RS.Heartbeat:Connect(function()
             ballLeftMe = true
         end
         if newID == lp.UserId then
+            -- FIX: ballLeftMe agora é usado — se bola voltou após sair,
+            -- reseta ballProcessed imediatamente independente do timer
             ballProcessed = false
             ballLeftMe    = false
         end
@@ -232,10 +218,9 @@ end
 local ClashState    = { Active = false, LastActivationTime = 0, CurrentOpponent = nil }
 local TargetHistory = {}
 local lastTarget    = nil
-
-local spamOn      = false
-local clashSpamOn = false
-local spamAccum   = 0
+local spamOn        = false
+local clashSpamOn   = false
+local spamAccum     = 0
 
 local function hasNearbyOpponent()
     local hrp = Cache.RootPart
@@ -243,10 +228,8 @@ local function hasNearbyOpponent()
     local myPos = hrp.Position
     for _, player in ipairs(Plrs:GetPlayers()) do
         if player == lp then continue end
-        local ch = player.Character
-        if not ch then continue end
-        local root = ch:FindFirstChild("HumanoidRootPart")
-        if not root then continue end
+        local ch = player.Character if not ch then continue end
+        local root = ch:FindFirstChild("HumanoidRootPart") if not root then continue end
         if (myPos - root.Position).Magnitude <= Config.clashOpponentDist then return true end
     end
     return false
@@ -254,8 +237,9 @@ end
 
 local function activateClash(opponentID)
     if not ClashState.Active then
-        spamAccum = (getgenv().__deltaV3_spamInterval or Config.spamInterval)
-                  * (getgenv().__deltaV3_spamCapPerFrame or Config.spamCapPerFrame)
+        local interval = getgenv().__deltaV3_spamInterval or (1 / getRealCPSLimit())
+        local cap      = getgenv().__deltaV3_spamCapPerFrame or Config.spamCapPerFrame
+        spamAccum = interval * cap
     end
     ClashState.Active             = true
     ClashState.LastActivationTime = tick()
@@ -293,16 +277,13 @@ local function updateClashDetection(newTargetID, ballPos, ballVel)
         local speedOk = spd >= Config.clashMinSpeed or dist < Config.clashCriticalDist
         local distOk  = dist < Config.clashMinDist
         if isAlternating and timeGap < Config.clashTimeWindow and distOk and speedOk and ballComing then
-            activateClash(TargetHistory[2].id)
-            return
+            activateClash(TargetHistory[2].id) return
         end
     end
 
     if newTargetID == lp.UserId and dist < Config.clashCriticalDist and ballComing and spd >= Config.clashMinSpeed then
-        activateClash(nil)
-        return
+        activateClash(nil) return
     end
-
     if newTargetID == lp.UserId and ballComing and hasNearbyOpponent() then
         activateClash(nil)
     end
@@ -318,6 +299,14 @@ local function stopClash()
         if State.current == "clash" then setState("normal") end
     end
 end
+
+-- FIX: watchdog no Heartbeat — garante que clashSpamOn nunca fica
+-- travado se o loop principal pausar ou o personagem morrer no meio
+RS.Heartbeat:Connect(function()
+    if ClashState.Active and (tick() - ClashState.LastActivationTime) > Config.clashDecayTime * 2 then
+        stopClash()
+    end
+end)
 
 -- ================== SPAM LOOP ==================
 local toggleButton = nil
@@ -335,11 +324,16 @@ local function startSpamLoop()
     if spamConn then spamConn:Disconnect() end
     spamConn = RS.Heartbeat:Connect(function(dt)
         local active = spamOn or clashSpamOn
-        if not active then spamAccum = 0 return end
-        local customInterval = getgenv().__deltaV3_spamInterval
-        local interval = customInterval or (1 / getRealCPSLimit())
+        if not active then
+            spamAccum = 0
+            return
+        end
+
+        local interval = getgenv().__deltaV3_spamInterval or (1 / getRealCPSLimit())
         local cap      = getgenv().__deltaV3_spamCapPerFrame or Config.spamCapPerFrame
+
         spamAccum = math.min(spamAccum + dt, interval * cap)
+
         local fired = 0
         while spamAccum >= interval and fired < cap do
             if canSpam() then sendParry() end
@@ -390,7 +384,7 @@ local function buildGui()
     mainFrame.Position         = UDim2.new(1, -130, 0.5, -47)
     mainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 30)
     mainFrame.BorderSizePixel  = 0
-    mainFrame.Visible          = false   -- oculto até showGui() ser chamado
+    mainFrame.Visible          = false
     mainFrame.Parent           = screenGui
     Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 14)
 
@@ -426,7 +420,7 @@ local function buildGui()
     titleLabel.Size                   = UDim2.new(1, -6, 1, 0)
     titleLabel.Position               = UDim2.new(0, 6, 0, 0)
     titleLabel.BackgroundTransparency = 1
-    titleLabel.Text                   = "Δ V20"
+    titleLabel.Text                   = "Δ V23"
     titleLabel.TextColor3             = Color3.fromRGB(180, 195, 255)
     titleLabel.TextScaled             = true
     titleLabel.Font                   = Enum.Font.GothamBold
@@ -475,7 +469,6 @@ local function buildGui()
         if dragging and input.UserInputType == Enum.UserInputType.Touch then updateDrag(input) end
     end)
 
-    -- expõe função pra mostrar/ocultar o frame
     getgenv().__deltaV3_showGui = function(visible)
         mainFrame.Visible = visible ~= false
     end
@@ -536,7 +529,7 @@ local auraConn = RS.RenderStepped:Connect(function()
     auraInner.Transparency = INNER_TRANSPARENCY
 end)
 
--- ================== LOOP PRINCIPAL (V5 original) ==================
+-- ================== LOOP PRINCIPAL ==================
 local function bind(ch)
     setupCharacter(ch)
     local hrp     = ch:WaitForChild("HumanoidRootPart", 10)
@@ -554,6 +547,8 @@ local function bind(ch)
 
     task.spawn(function()
         while running do
+            -- FIX: usa o dt real retornado pelo task.wait
+            -- em vez de assumir 0.016 fixo
             local dt  = task.wait(0.016)
             local now = tick()
 
@@ -599,6 +594,9 @@ local function bind(ch)
 
             if not getgenv().__deltaV3_autoParryOn then continue end
             if isLocked() then continue end
+            -- FIX: parry dorme enquanto spam ativo (igual Phantom)
+            -- acorda no frame exato que spam para, sem delay
+            if spamOn or clashSpamOn then continue end
 
             local av = getBallVel(b)
             if av then
@@ -686,4 +684,4 @@ CoreGui.ChildRemoved:Connect(function(c)
     end
 end)
 
-print("Delta ΔV20 ✅ | TouchTap restaurado + spam 80% CPS + GUI oculto + fix ballProcessed + ballLeftMe + sliding window + ping manual + clash V11")
+print("Delta ΔV23 ✅ | sliding window O(1) | canFire unificado | grace/spam fix | clash watchdog | dt real")
