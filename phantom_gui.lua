@@ -136,18 +136,7 @@ miniStroke.Color     = C.accent
 miniStroke.Thickness = 1.5
 miniStroke.Parent    = miniGui
 
-task.spawn(function()
-    local t = 0
-    while miniStroke.Parent do
-        t += 0.025
-        miniStroke.Color = Color3.fromRGB(
-            math.floor(55 + 75 * math.sin(t)),
-            math.floor(80 + 85 * math.sin(t + 2.1)),
-            255
-        )
-        task.wait(0.05)
-    end
-end)
+-- miniStroke RGB unificado no loop principal
 
 local miniTitleBar = Instance.new("Frame")
 miniTitleBar.Size             = UDim2.new(1, 0, 0, 22)
@@ -204,7 +193,9 @@ end)
 
 -- animação entrada/saída mini GUI
 local miniTweenIn, miniTweenOut
+local miniVisible = false
 local function showMini(v, visBtn)
+    miniVisible = v
     if v then
         miniGui.Visible = true
         miniGui.BackgroundTransparency = 1
@@ -293,13 +284,14 @@ task.spawn(function()
             math.floor(80 + 85 * math.sin(t + 2.09)),
             255
         )
-        -- RGB no painel só quando visível
+        miniStroke.Color = col
         if configPanel.Visible then
             panelStroke.Color = col
+            floatingStroke.Transparency = 1
+        else
+            floatingStroke.Transparency = 0
+            floatingStroke.Color = col
         end
-        -- raio da bolinha some quando painel tá aberto
-        floatingStroke.Transparency = configPanel.Visible and 1 or 0
-        floatingStroke.Color = col
         task.wait(0.05)
     end
 end)
@@ -602,7 +594,7 @@ local function createSpamPCCard(yPos, parent)
     visBtn.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1
         or input.UserInputType == Enum.UserInputType.Touch then
-            showMini(not miniGui.Visible, visBtn)
+            showMini(not miniVisible, visBtn)
         end
     end)
 
