@@ -56,6 +56,7 @@ local activeDragTarget = nil
 
 local function makeDraggable(handle, target, onDragEnd)
     local dragging  = false
+    local pressing  = false
     local dragOffX  = 0
     local dragOffY  = 0
     local startPosX = 0
@@ -65,8 +66,10 @@ local function makeDraggable(handle, target, onDragEnd)
         if input.UserInputType ~= Enum.UserInputType.MouseButton1
         and input.UserInputType ~= Enum.UserInputType.Touch then return end
         if activeDragTarget and activeDragTarget ~= target then return end
-        if dragging then return end
+        if pressing then return end
 
+        pressing = true
+        dragging = false
         local absPos = target.AbsolutePosition
         dragOffX  = input.Position.X - absPos.X
         dragOffY  = input.Position.Y - absPos.Y
@@ -76,6 +79,7 @@ local function makeDraggable(handle, target, onDragEnd)
         input.Changed:Connect(function()
             if input.UserInputState == Enum.UserInputState.End then
                 if dragging and onDragEnd then onDragEnd() end
+                pressing         = false
                 dragging         = false
                 activeDragTarget = nil
             end
@@ -83,6 +87,7 @@ local function makeDraggable(handle, target, onDragEnd)
     end)
 
     local function onMove(input)
+        if not pressing then return end
         if activeDragTarget and activeDragTarget ~= target then return end
         local delta = Vector2.new(
             input.Position.X - startPosX,
@@ -680,26 +685,37 @@ local btnWasDrag = makeDraggable(floatingButton, floatingButton, function()
 end)
 
 -- ==================== ABRIR / FECHAR PAINEL ====================
-local panelOpen = false
+local panelOpen   = false
+local tweenPanel  = nil
+local tweenBtn    = nil
 
 local function togglePanel()
     panelOpen = not panelOpen
+
+    -- cancela qualquer tween em andamento antes de iniciar novo
+    if tweenPanel then tweenPanel:Cancel() end
+    if tweenBtn   then tweenBtn:Cancel()   end
+
     if panelOpen then
-        twPlay(floatingButton, 0.18, {BackgroundTransparency = 1, TextTransparency = 1, Size = UDim2.new(0, 38, 0, 38)}, Enum.EasingStyle.Quint)
         floatingButton.Active = false
+        tweenBtn = tw(floatingButton, 0.18, {BackgroundTransparency = 1, TextTransparency = 1, Size = UDim2.new(0, 38, 0, 38)}, Enum.EasingStyle.Quint)
+        tweenBtn:Play()
 
-        configPanel.Visible = true
-        configPanel.Size    = UDim2.new(0, PW * 0.88, 0, PH * 0.88)
+        configPanel.Visible                = true
+        configPanel.Size                   = UDim2.new(0, PW * 0.88, 0, PH * 0.88)
         configPanel.BackgroundTransparency = 1
-        twPlay(configPanel, 0.28, {Size = UDim2.new(0, PW, 0, PH), BackgroundTransparency = 0.06}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+        tweenPanel = tw(configPanel, 0.28, {Size = UDim2.new(0, PW, 0, PH), BackgroundTransparency = 0.06}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+        tweenPanel:Play()
     else
-        floatingButton.Active = true
-        twPlay(floatingButton, 0.22, {BackgroundTransparency = 0, TextTransparency = 0, Size = UDim2.new(0, 54, 0, 54)}, Enum.EasingStyle.Back)
+        tweenBtn = tw(floatingButton, 0.22, {BackgroundTransparency = 0, TextTransparency = 0, Size = UDim2.new(0, 54, 0, 54)}, Enum.EasingStyle.Back)
+        tweenBtn:Play()
+        -- Active volta imediatamente, não espera o tween
+        tweenBtn.Completed:Connect(function() floatingButton.Active = true end)
 
-        local t = tw(configPanel, 0.22, {Size = UDim2.new(0, PW * 0.9, 0, PH * 0.9), BackgroundTransparency = 1}, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
-        t:Play()
+        tweenPanel = tw(configPanel, 0.22, {Size = UDim2.new(0, PW * 0.9, 0, PH * 0.9), BackgroundTransparency = 1}, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+        tweenPanel:Play()
         local conn
-        conn = t.Completed:Connect(function()
+        conn = tweenPanel.Completed:Connect(function()
             configPanel.Visible = false
             conn:Disconnect()
         end)
