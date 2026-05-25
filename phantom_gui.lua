@@ -216,14 +216,67 @@ local function showMini(v, visBtn)
     end
 end
 
--- salva posição do miniGui quando arrastado
-makeDraggable(miniTitleBar, miniGui, function()
-    miniVisibleX     = miniGui.Position.X.Offset
-    miniVisibleY     = miniGui.Position.Y.Offset
-    Config.MiniX     = miniVisibleX
-    Config.MiniY     = miniVisibleY
-    saveConfig(Config)
-end)
+-- drag do miniGui: inline com guard de miniVisible para não interferir quando está fora da tela
+do
+    local miniDragging  = false
+    local miniPressing  = false
+    local miniDragOffX  = 0
+    local miniDragOffY  = 0
+    local miniStartX    = 0
+    local miniStartY    = 0
+
+    miniTitleBar.InputBegan:Connect(function(input)
+        if not miniVisible then return end
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1
+        and input.UserInputType ~= Enum.UserInputType.Touch then return end
+        if activeDragTarget and activeDragTarget ~= miniGui then return end
+        if miniPressing then return end
+
+        miniPressing = true
+        miniDragging = false
+        local absPos = miniGui.AbsolutePosition
+        miniDragOffX = input.Position.X - absPos.X
+        miniDragOffY = input.Position.Y - absPos.Y
+        miniStartX   = input.Position.X
+        miniStartY   = input.Position.Y
+
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                if miniDragging then
+                    miniVisibleX = miniGui.Position.X.Offset
+                    miniVisibleY = miniGui.Position.Y.Offset
+                    Config.MiniX = miniVisibleX
+                    Config.MiniY = miniVisibleY
+                    saveConfig(Config)
+                end
+                miniPressing     = false
+                miniDragging     = false
+                activeDragTarget = nil
+            end
+        end)
+    end)
+
+    trackConn(UIS.InputChanged:Connect(function(input)
+        if not miniVisible then return end
+        if not miniPressing then return end
+        if input.UserInputType ~= Enum.UserInputType.MouseMovement
+        and input.UserInputType ~= Enum.UserInputType.Touch then return end
+        if activeDragTarget and activeDragTarget ~= miniGui then return end
+
+        local delta = Vector2.new(input.Position.X - miniStartX, input.Position.Y - miniStartY)
+        if not miniDragging then
+            if delta.Magnitude >= 8 then
+                miniDragging     = true
+                activeDragTarget = miniGui
+            else return end
+        end
+        local vp   = Workspace.CurrentCamera.ViewportSize
+        local tSz  = miniGui.AbsoluteSize
+        local newX = math.clamp(input.Position.X - miniDragOffX, 0, vp.X - tSz.X)
+        local newY = math.clamp(input.Position.Y - miniDragOffY, 0, vp.Y - tSz.Y)
+        miniGui.Position = UDim2.new(0, newX, 0, newY)
+    end))
+end
 
 -- keybind spam
 trackConn(UIS.InputBegan:Connect(function(input, gpe)
