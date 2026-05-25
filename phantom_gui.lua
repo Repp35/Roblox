@@ -208,8 +208,9 @@ local function showMini(v, visBtn)
         miniTweenOut = tw(miniGui, 0.18, {BackgroundTransparency = 1}, Enum.EasingStyle.Quint)
         tw(miniUIScale, 0.18, {Scale = 0.85}, Enum.EasingStyle.Quint):Play()
         miniTweenOut:Play()
-        miniTweenOut.Completed:Connect(function()
+        local conn; conn = miniTweenOut.Completed:Connect(function()
             miniGui.Visible = false
+            conn:Disconnect()
         end)
     end
     if visBtn then
@@ -284,14 +285,10 @@ task.spawn(function()
             math.floor(80 + 85 * math.sin(t + 2.09)),
             255
         )
-        miniStroke.Color = col
-        if configPanel.Visible then
-            panelStroke.Color = col
-            floatingStroke.Transparency = 1
-        else
-            floatingStroke.Transparency = 0
-            floatingStroke.Color = col
-        end
+        miniStroke.Color     = col
+        panelStroke.Color    = col
+        floatingStroke.Color = col
+        floatingStroke.Transparency = configPanel.Visible and 1 or 0
         task.wait(0.05)
     end
 end)
@@ -703,7 +700,7 @@ local function togglePanel()
     if tweenClose then tweenClose:Cancel() end
 
     if panelOpen then
-        twPlay(floatingButton, 0.18, {BackgroundTransparency = 1, Size = UDim2.new(0, 38, 0, 38)}, Enum.EasingStyle.Quint)
+        twPlay(floatingButton, 0.18, {BackgroundTransparency = 1, TextTransparency = 1, Size = UDim2.new(0, 38, 0, 38)}, Enum.EasingStyle.Quint)
         floatingButton.Active = false
 
         configPanel.Visible = true
@@ -715,7 +712,7 @@ local function togglePanel()
         tweenOpen:Play()
     else
         floatingButton.Active = true
-        twPlay(floatingButton, 0.22, {BackgroundTransparency = 0, Size = UDim2.new(0, 54, 0, 54)}, Enum.EasingStyle.Back)
+        twPlay(floatingButton, 0.22, {BackgroundTransparency = 0, TextTransparency = 0, Size = UDim2.new(0, 54, 0, 54)}, Enum.EasingStyle.Back)
 
         tweenClose = tw(configPanel, 0.22,
             {Size = UDim2.new(0, PW * 0.9, 0, PH * 0.9), BackgroundTransparency = 1},
