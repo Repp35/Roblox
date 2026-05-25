@@ -1,4 +1,4 @@
--- Phantom Ball GUI v5.3
+-- Phantom Ball GUI v5.5
 -- Carregado automaticamente pelo phantom_final.lua via loadstring
 
 local timeout = 0
@@ -27,21 +27,21 @@ local function trackConn(c) State.connections[#State.connections + 1] = c end
 
 -- ==================== CORES ====================
 local C = {
-    bg       = Color3.fromRGB(10, 11, 24),
-    header   = Color3.fromRGB(16, 17, 36),
-    card     = Color3.fromRGB(20, 21, 40),
-    accent   = Color3.fromRGB(90, 110, 255),
-    green    = Color3.fromRGB(40, 210, 110),
-    red      = Color3.fromRGB(220, 50, 55),
-    redDark  = Color3.fromRGB(140, 28, 28),
-    text     = Color3.fromRGB(220, 225, 255),
-    subtext  = Color3.fromRGB(130, 140, 190),
-    divider  = Color3.fromRGB(35, 38, 70),
-    inputBg  = Color3.fromRGB(14, 15, 32),
-    btnBlue  = Color3.fromRGB(45, 55, 115),
-    btnDark  = Color3.fromRGB(30, 32, 60),
-    toggle   = Color3.fromRGB(50, 100, 200),
-    hold     = Color3.fromRGB(160, 80, 10),
+    bg      = Color3.fromRGB(10, 11, 24),
+    header  = Color3.fromRGB(16, 17, 36),
+    card    = Color3.fromRGB(20, 21, 40),
+    accent  = Color3.fromRGB(90, 110, 255),
+    green   = Color3.fromRGB(40, 210, 110),
+    red     = Color3.fromRGB(220, 50, 55),
+    redDark = Color3.fromRGB(140, 28, 28),
+    text    = Color3.fromRGB(220, 225, 255),
+    subtext = Color3.fromRGB(130, 140, 190),
+    divider = Color3.fromRGB(35, 38, 70),
+    inputBg = Color3.fromRGB(14, 15, 32),
+    btnBlue = Color3.fromRGB(45, 55, 115),
+    btnDark = Color3.fromRGB(30, 32, 60),
+    toggle  = Color3.fromRGB(50, 100, 200),
+    hold    = Color3.fromRGB(160, 80, 10),
 }
 
 -- ==================== SCREEN GUI ====================
@@ -52,43 +52,41 @@ screenGui.IgnoreGuiInset = true
 screenGui.Parent         = CoreGui
 
 -- ==================== DRAG ====================
--- flag global: só um drag ativo por vez
 local activeDragTarget = nil
 
 local function makeDraggable(handle, target, onDragEnd)
-    local dragging    = false
-    local activeInput = nil  -- só processa o input que iniciou o drag
-    local dragOffX    = 0
-    local dragOffY    = 0
+    local dragging  = false
+    local dragOffX  = 0
+    local dragOffY  = 0
+    local startPosX = 0
+    local startPosY = 0
 
     handle.InputBegan:Connect(function(input)
         if input.UserInputType ~= Enum.UserInputType.MouseButton1
         and input.UserInputType ~= Enum.UserInputType.Touch then return end
         if activeDragTarget and activeDragTarget ~= target then return end
-        if activeInput then return end  -- já tem um toque ativo
+        if dragging then return end
 
-        dragging         = false
-        activeDragTarget = nil
-        activeInput      = input
-        local absPos     = target.AbsolutePosition
-        dragOffX = input.Position.X - absPos.X
-        dragOffY = input.Position.Y - absPos.Y
+        local absPos = target.AbsolutePosition
+        dragOffX  = input.Position.X - absPos.X
+        dragOffY  = input.Position.Y - absPos.Y
+        startPosX = input.Position.X
+        startPosY = input.Position.Y
 
         input.Changed:Connect(function()
             if input.UserInputState == Enum.UserInputState.End then
                 if dragging and onDragEnd then onDragEnd() end
                 dragging         = false
                 activeDragTarget = nil
-                activeInput      = nil
             end
         end)
     end)
 
     local function onMove(input)
-        if input ~= activeInput then return end  -- ignora outros toques
+        if activeDragTarget and activeDragTarget ~= target then return end
         local delta = Vector2.new(
-            input.Position.X - (target.AbsolutePosition.X + dragOffX),
-            input.Position.Y - (target.AbsolutePosition.Y + dragOffY)
+            input.Position.X - startPosX,
+            input.Position.Y - startPosY
         )
         if not dragging then
             if delta.Magnitude >= 8 then
@@ -103,10 +101,6 @@ local function makeDraggable(handle, target, onDragEnd)
         target.Position = UDim2.new(0, newX, 0, newY)
     end
 
-    handle.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement
-        or input.UserInputType == Enum.UserInputType.Touch then onMove(input) end
-    end)
     trackConn(UIS.InputChanged:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseMovement
         or input.UserInputType == Enum.UserInputType.Touch then onMove(input) end
@@ -115,28 +109,24 @@ local function makeDraggable(handle, target, onDragEnd)
     return function() return dragging end
 end
 
--- ==================== MINI GUI SPAM (flutuante) ====================
+-- ==================== MINI GUI SPAM ====================
+-- Sempre visível na tela. showMini() só move ela pra dentro/fora da tela.
+local MINI_W = 110
+local MINI_H = 80
+
 local miniGui = Instance.new("Frame")
 miniGui.Name             = "PhantomSpamMini"
-miniGui.Size             = UDim2.new(0, 110, 0, 80)
-miniGui.Position         = UDim2.new(1, -120, 0.5, -40)
+miniGui.Size             = UDim2.new(0, MINI_W, 0, MINI_H)
 miniGui.BackgroundColor3 = C.header
 miniGui.BorderSizePixel  = 0
-miniGui.Visible          = false
 miniGui.ZIndex           = 15
 miniGui.Parent           = screenGui
 Instance.new("UICorner", miniGui).CornerRadius = UDim.new(0, 12)
-
-local miniUIScale = Instance.new("UIScale")
-miniUIScale.Scale  = 0.85
-miniUIScale.Parent = miniGui
 
 local miniStroke = Instance.new("UIStroke")
 miniStroke.Color     = C.accent
 miniStroke.Thickness = 1.5
 miniStroke.Parent    = miniGui
-
--- miniStroke RGB unificado no loop principal
 
 local miniTitleBar = Instance.new("Frame")
 miniTitleBar.Size             = UDim2.new(1, 0, 0, 22)
@@ -146,6 +136,7 @@ miniTitleBar.ZIndex           = 16
 miniTitleBar.Parent           = miniGui
 Instance.new("UICorner", miniTitleBar).CornerRadius = UDim.new(0, 12)
 
+-- preenche o gap arredondado do canto inferior da titlebar
 local miniTFill = Instance.new("Frame")
 miniTFill.Size             = UDim2.new(1, 0, 0, 10)
 miniTFill.Position         = UDim2.new(0, 0, 1, -10)
@@ -183,7 +174,7 @@ local function setSpam(v)
     spamOn           = v
     _G.PhantomManual = v
     spamBtn.Text     = v and "ON" or "OFF"
-    tw(spamBtn, 0.18, {BackgroundColor3 = v and C.green or C.red}, Enum.EasingStyle.Back):Play()
+    twPlay(spamBtn, 0.18, {BackgroundColor3 = v and C.green or C.red}, Enum.EasingStyle.Back)
 end
 
 spamBtn.Activated:Connect(function()
@@ -191,27 +182,28 @@ spamBtn.Activated:Connect(function()
     setSpam(not spamOn)
 end)
 
--- animação entrada/saída mini GUI
-local miniTweenIn, miniTweenOut
+-- Posição visível: salva quando o usuário arrasta o miniGui
+local miniVisibleX = Config.MiniX or (Workspace.CurrentCamera.ViewportSize.X - MINI_W - 10)
+local miniVisibleY = Config.MiniY or (Workspace.CurrentCamera.ViewportSize.Y / 2 - MINI_H / 2)
+
+-- Posição oculta: fora da tela pra direita
+local function getMiniHiddenX()
+    return Workspace.CurrentCamera.ViewportSize.X + 20
+end
+
+-- começa fora da tela
+miniGui.Position = UDim2.new(0, getMiniHiddenX(), 0, miniVisibleY)
+
 local miniVisible = false
+
 local function showMini(v, visBtn)
     miniVisible = v
     if v then
-        miniGui.Visible = true
-        miniGui.BackgroundTransparency = 1
-        if miniTweenOut then miniTweenOut:Cancel() end
-        miniTweenIn = tw(miniGui, 0.22, {BackgroundTransparency = 0}, Enum.EasingStyle.Quint)
-        miniTweenIn:Play()
-        tw(miniUIScale, 0.22, {Scale = 1}, Enum.EasingStyle.Back, Enum.EasingDirection.Out):Play()
+        -- traz pra posição visível
+        twPlay(miniGui, 0.22, {Position = UDim2.new(0, miniVisibleX, 0, miniVisibleY)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
     else
-        if miniTweenIn then miniTweenIn:Cancel() end
-        miniTweenOut = tw(miniGui, 0.18, {BackgroundTransparency = 1}, Enum.EasingStyle.Quint)
-        tw(miniUIScale, 0.18, {Scale = 0.85}, Enum.EasingStyle.Quint):Play()
-        miniTweenOut:Play()
-        local conn; conn = miniTweenOut.Completed:Connect(function()
-            miniGui.Visible = false
-            conn:Disconnect()
-        end)
+        -- manda pra fora da tela
+        twPlay(miniGui, 0.18, {Position = UDim2.new(0, getMiniHiddenX(), 0, miniVisibleY)}, Enum.EasingStyle.Quint)
     end
     if visBtn then
         visBtn.Text = v and "Mini UI: Visível" or "Mini UI: Oculto"
@@ -219,7 +211,16 @@ local function showMini(v, visBtn)
     end
 end
 
--- keybind Hold/Toggle
+-- salva posição do miniGui quando arrastado
+makeDraggable(miniTitleBar, miniGui, function()
+    miniVisibleX     = miniGui.Position.X.Offset
+    miniVisibleY     = miniGui.Position.Y.Offset
+    Config.MiniX     = miniVisibleX
+    Config.MiniY     = miniVisibleY
+    saveConfig(Config)
+end)
+
+-- keybind spam
 trackConn(UIS.InputBegan:Connect(function(input, gpe)
     if gpe then return end
     if not Config.SpamKeybind then return end
@@ -232,8 +233,6 @@ trackConn(UIS.InputEnded:Connect(function(input)
     if input.KeyCode ~= Config.SpamKeybind then return end
     if Config.SpamMode == "Hold" then setSpam(false) end
 end))
-
-makeDraggable(miniTitleBar, miniGui, nil)
 
 -- ==================== BOTÃO FLUTUANTE ====================
 local floatingButton = Instance.new("TextButton")
@@ -275,20 +274,15 @@ panelStroke.Color     = C.accent
 panelStroke.Thickness = 1.6
 panelStroke.Parent    = configPanel
 
--- RGB animado painel + botão flutuante (declarado aqui pois precisa dos dois strokes)
+-- ==================== RGB LOOP ====================
 task.spawn(function()
     local t = 0
     while screenGui.Parent do
-        t += 0.02
-        local col = Color3.fromRGB(
-            math.floor(55 + 75 * math.sin(t)),
-            math.floor(80 + 85 * math.sin(t + 2.09)),
-            255
-        )
-        miniStroke.Color     = col
+        t = (t + 0.004) % 1
+        local col = Color3.fromHSV(t, 0.65, 1)
         panelStroke.Color    = col
         floatingStroke.Color = col
-        floatingStroke.Transparency = configPanel.Visible and 1 or 0
+        miniStroke.Color     = col
         task.wait(0.05)
     end
 end)
@@ -465,7 +459,7 @@ local function createToggle(labelText, configKey, yPos, parent)
     btn.Activated:Connect(function()
         Config[configKey] = not Config[configKey]
         local v = Config[configKey]
-        tw(btn, 0.18, {BackgroundColor3 = v and C.green or C.divider}, Enum.EasingStyle.Back):Play()
+        twPlay(btn, 0.18, {BackgroundColor3 = v and C.green or C.divider}, Enum.EasingStyle.Back)
         btn.Text = v and "ON" or "OFF"
         saveConfig(Config)
     end)
@@ -475,23 +469,15 @@ end
 
 -- ==================== CPS SPAM ====================
 local function createCPSSelector(yPos, parent)
-    local f = cardFrame(yPos, 56, parent)
-
-    local sectionLbl = Instance.new("TextLabel")
-    sectionLbl.Size                   = UDim2.new(1, -10, 0, 14)
-    sectionLbl.Position               = UDim2.new(0, 10, 0, 3)
-    sectionLbl.BackgroundTransparency = 1
-    sectionLbl.Text                   = "CPS Spam"
-    sectionLbl.TextColor3             = C.subtext
-    sectionLbl.TextSize               = 10
-    sectionLbl.Font                   = Enum.Font.GothamBold
-    sectionLbl.TextXAlignment         = Enum.TextXAlignment.Left
-    sectionLbl.ZIndex                 = 7
-    sectionLbl.Parent                 = f
+    local CARD_H = 64
+    local ROW_Y  = 26
+    local ROW_H  = 28
+    local f = cardFrame(yPos, CARD_H, parent)
+    cardLabel("CPS Spam", f)
 
     local lbl = Instance.new("TextLabel")
-    lbl.Size                   = UDim2.new(0, 36, 0, 30)
-    lbl.Position               = UDim2.new(0, 14, 0, 20)
+    lbl.Size                   = UDim2.new(0, 36, 0, ROW_H)
+    lbl.Position               = UDim2.new(0, 14, 0, ROW_Y)
     lbl.BackgroundTransparency = 1
     lbl.Text                   = "CPS:"
     lbl.TextColor3             = C.text
@@ -501,13 +487,12 @@ local function createCPSSelector(yPos, parent)
     lbl.ZIndex                 = 7
     lbl.Parent                 = f
 
-    local defBtn = makeBtn("Padrão", 0, 0, 68, 30, f, C.btnBlue)
-    defBtn.Position = UDim2.new(0, 52, 0, 20)
+    local defBtn = makeBtn("Padrão", 52, ROW_Y, 64, ROW_H, f, C.btnBlue)
     defBtn.TextSize = 11
 
     local inputBox = Instance.new("TextBox")
-    inputBox.Size             = UDim2.new(0, 68, 0, 30)
-    inputBox.Position         = UDim2.new(1, -78, 0, 20)
+    inputBox.Size             = UDim2.new(0, 68, 0, ROW_H)
+    inputBox.Position         = UDim2.new(1, -78, 0, ROW_Y)
     inputBox.BackgroundColor3 = C.inputBg
     inputBox.BorderSizePixel  = 0
     inputBox.Text             = tostring(Config.CPS)
@@ -520,8 +505,9 @@ local function createCPSSelector(yPos, parent)
     Instance.new("UICorner", inputBox).CornerRadius = UDim.new(0, 8)
 
     defBtn.Activated:Connect(function()
-        Config.CustomCPS = false; Config.CPS = 22
-        inputBox.Text = "22"
+        Config.CustomCPS = false
+        Config.CPS       = 22
+        inputBox.Text    = "22"
         twPlay(defBtn, 0.15, {BackgroundColor3 = C.green})
         task.delay(0.5, function() twPlay(defBtn, 0.15, {BackgroundColor3 = C.btnBlue}) end)
         saveConfig(Config)
@@ -529,12 +515,16 @@ local function createCPSSelector(yPos, parent)
 
     inputBox.FocusLost:Connect(function()
         local v = tonumber(inputBox.Text)
-        if v and v > 0 and v <= 1000 then Config.CPS = v; Config.CustomCPS = true
-        else inputBox.Text = tostring(Config.CPS) end
+        if v and v > 0 and v <= 1000 then
+            Config.CPS       = v
+            Config.CustomCPS = true
+        else
+            inputBox.Text = tostring(Config.CPS)
+        end
         saveConfig(Config)
     end)
 
-    return yPos + 56 + CARD_GAP
+    return yPos + CARD_H + CARD_GAP
 end
 
 -- ==================== KEYBIND DO PAINEL ====================
@@ -579,7 +569,7 @@ local function createKeybindSelector(yPos, parent)
     return yPos + 48 + CARD_GAP
 end
 
--- ==================== CARD SPAM PC ====================
+-- ==================== CARD SPAM ====================
 local function createSpamPCCard(yPos, parent)
     local CARD_H = 106
     local f = cardFrame(yPos, CARD_H, parent)
@@ -588,11 +578,8 @@ local function createSpamPCCard(yPos, parent)
     local visBtn = makeBtn("Mini UI: Oculto", 8, 22, COL_W - 16, 28, f, C.btnDark)
     visBtn.TextSize = 11
 
-    visBtn.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
-            showMini(not miniVisible, visBtn)
-        end
+    visBtn.Activated:Connect(function()
+        showMini(not miniVisible, visBtn)
     end)
 
     local halfW = math.floor((COL_W - 28) / 2)
@@ -635,7 +622,7 @@ local function createSpamPCCard(yPos, parent)
     modeBtn.Activated:Connect(function()
         Config.SpamMode = (Config.SpamMode == "Toggle") and "Hold" or "Toggle"
         modeBtn.Text = Config.SpamMode
-        tw(modeBtn, 0.18, {BackgroundColor3 = getModeColor(Config.SpamMode)}, Enum.EasingStyle.Back):Play()
+        twPlay(modeBtn, 0.18, {BackgroundColor3 = getModeColor(Config.SpamMode)}, Enum.EasingStyle.Back)
         if Config.SpamMode == "Toggle" and _G.PhantomManual then setSpam(false) end
         saveConfig(Config)
     end)
@@ -649,8 +636,11 @@ local yL, yR = 4, 4
 yL = createToggle("Auto Parry",  "AutoParry", yL, colLeft)
 yL = createToggle("Aura Visual", "Aura",      yL, colLeft)
 
+-- Auto Clash (inline pq não usa createToggle — tem estado próprio em _G)
 local clashOn = false
 local fClash  = cardFrame(yL, 48, colLeft)
+yL = yL + 48 + CARD_GAP  -- incrementa yL corretamente
+
 local clashLbl = Instance.new("TextLabel")
 clashLbl.Size                   = UDim2.new(0.6, 0, 1, 0)
 clashLbl.Position               = UDim2.new(0, 14, 0, 0)
@@ -668,7 +658,7 @@ clashBtn.Position = UDim2.new(1, -92, 0.5, -15)
 clashBtn.Activated:Connect(function()
     clashOn             = not clashOn
     _G.PhantomAutoClash = clashOn
-    tw(clashBtn, 0.18, {BackgroundColor3 = clashOn and C.green or C.divider}, Enum.EasingStyle.Back):Play()
+    twPlay(clashBtn, 0.18, {BackgroundColor3 = clashOn and C.green or C.divider}, Enum.EasingStyle.Back)
     clashBtn.Text = clashOn and "ON" or "OFF"
 end)
 
@@ -691,14 +681,9 @@ end)
 
 -- ==================== ABRIR / FECHAR PAINEL ====================
 local panelOpen = false
-local tweenOpen, tweenClose
 
 local function togglePanel()
-    if activeDragTarget then return end  -- não abre/fecha se tava arrastando
     panelOpen = not panelOpen
-    if tweenOpen  then tweenOpen:Cancel()  end
-    if tweenClose then tweenClose:Cancel() end
-
     if panelOpen then
         twPlay(floatingButton, 0.18, {BackgroundTransparency = 1, TextTransparency = 1, Size = UDim2.new(0, 38, 0, 38)}, Enum.EasingStyle.Quint)
         floatingButton.Active = false
@@ -706,19 +691,18 @@ local function togglePanel()
         configPanel.Visible = true
         configPanel.Size    = UDim2.new(0, PW * 0.88, 0, PH * 0.88)
         configPanel.BackgroundTransparency = 1
-        tweenOpen = tw(configPanel, 0.38,
-            {Size = UDim2.new(0, PW, 0, PH), BackgroundTransparency = 0.06},
-            Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-        tweenOpen:Play()
+        twPlay(configPanel, 0.28, {Size = UDim2.new(0, PW, 0, PH), BackgroundTransparency = 0.06}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
     else
         floatingButton.Active = true
         twPlay(floatingButton, 0.22, {BackgroundTransparency = 0, TextTransparency = 0, Size = UDim2.new(0, 54, 0, 54)}, Enum.EasingStyle.Back)
 
-        tweenClose = tw(configPanel, 0.22,
-            {Size = UDim2.new(0, PW * 0.9, 0, PH * 0.9), BackgroundTransparency = 1},
-            Enum.EasingStyle.Quint, Enum.EasingDirection.In)
-        tweenClose:Play()
-        tweenClose.Completed:Connect(function() configPanel.Visible = false end)
+        local t = tw(configPanel, 0.22, {Size = UDim2.new(0, PW * 0.9, 0, PH * 0.9), BackgroundTransparency = 1}, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+        t:Play()
+        local conn
+        conn = t.Completed:Connect(function()
+            configPanel.Visible = false
+            conn:Disconnect()
+        end)
     end
 end
 
@@ -726,15 +710,14 @@ floatingButton.Activated:Connect(function()
     if btnWasDrag() then return end
     togglePanel()
 end)
-closeButton.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-    or input.UserInputType == Enum.UserInputType.Touch then
-        togglePanel()
-    end
+
+closeButton.Activated:Connect(function()
+    if panelOpen then togglePanel() end
 end)
 
 trackConn(UIS.InputBegan:Connect(function(input, gpe)
     if gpe then return end
+    if activeDragTarget then return end
     if input.KeyCode == Config.Keybind then togglePanel() end
 end))
 
@@ -746,7 +729,7 @@ killBtn.Activated:Connect(function()
     saveConfig(Config)
 
     twPlay(configPanel,    0.25, {BackgroundTransparency = 1, Size = UDim2.new(0, PW * 0.85, 0, PH * 0.85)}, Enum.EasingStyle.Quint)
-    twPlay(floatingButton, 0.25, {BackgroundTransparency = 1, Size = UDim2.new(0, 0, 0, 0)})
+    twPlay(floatingButton, 0.25, {BackgroundTransparency = 1, TextTransparency = 1, Size = UDim2.new(0, 0, 0, 0)})
 
     task.wait(0.3)
     for _, c in ipairs(State.connections) do pcall(function() c:Disconnect() end) end
@@ -756,5 +739,5 @@ killBtn.Activated:Connect(function()
     print("🛑 Phantom Script encerrado.")
 end)
 
-print("✅ Phantom GUI v5.3 carregada!")
+print("✅ Phantom GUI v5.5 carregada!")
 print("   • Botão ⚡ para configurar | tecla: " .. Config.Keybind.Name)
