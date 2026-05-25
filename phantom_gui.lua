@@ -57,7 +57,7 @@ floatingButton.MouseEnter:Connect(function() twPlay(floatingButton, 0.15, {Size 
 floatingButton.MouseLeave:Connect(function() twPlay(floatingButton, 0.15, {Size = UDim2.new(0, 58, 0, 58), BackgroundColor3 = Color3.fromRGB(28, 28, 48)}) end)
 
 -- ==================== PAINEL ====================
-local PANEL_W, PANEL_H = 560, 310
+local PANEL_W, PANEL_H = 560, 360
 
 local configPanel = Instance.new("Frame")
 configPanel.Size                   = UDim2.new(0, PANEL_W, 0, PANEL_H)
@@ -174,7 +174,7 @@ divider.Parent                = configPanel
 -- ==================== KILL BTN ====================
 local killBtn = Instance.new("TextButton")
 killBtn.Size             = UDim2.new(0, 160, 0, 34)
-killBtn.Position         = UDim2.new(0.5, -80, 1, -44)
+killBtn.Position         = UDim2.new(0.5, -80, 1, -42)
 killBtn.BackgroundColor3 = Color3.fromRGB(130, 25, 25)
 killBtn.BorderSizePixel  = 0
 killBtn.Text             = "🛑  Fechar Script"
@@ -269,69 +269,6 @@ local btnWasDrag = makeDraggable(floatingButton, floatingButton, function()
     Config.BtnY = floatingButton.Position.Y.Offset
     saveConfig(Config)
 end)
-
--- ==================== SPAM UI (aparece na tela ao ativar) ====================
-local spamUiVisible = false
-local spamUiFrame   = nil
-
-local function createSpamUI()
-    if spamUiFrame then spamUiFrame:Destroy() end
-
-    local f = Instance.new("Frame")
-    f.Name                   = "PhantomSpamUI"
-    f.Size                   = UDim2.new(0, 140, 0, 44)
-    f.Position               = UDim2.new(0.5, -70, 0, 80)
-    f.BackgroundColor3       = Color3.fromRGB(12, 14, 30)
-    f.BackgroundTransparency = 0.1
-    f.BorderSizePixel        = 0
-    f.ZIndex                 = 20
-    f.Parent                 = screenGui
-    Instance.new("UICorner", f).CornerRadius = UDim.new(0, 12)
-
-    local fStroke = Instance.new("UIStroke")
-    fStroke.Color     = Color3.fromRGB(50, 220, 50)
-    fStroke.Thickness = 1.5
-    fStroke.Parent    = f
-
-    local lbl = Instance.new("TextLabel")
-    lbl.Size                   = UDim2.new(1, 0, 1, 0)
-    lbl.BackgroundTransparency = 1
-    lbl.Text                   = "● SPAM ON"
-    lbl.TextColor3             = Color3.fromRGB(80, 255, 120)
-    lbl.TextSize               = 16
-    lbl.Font                   = Enum.Font.GothamBold
-    lbl.ZIndex                 = 21
-    lbl.Parent                 = f
-
-    -- animação de entrada (slide de cima)
-    f.Position = UDim2.new(0.5, -70, 0, 50)
-    f.BackgroundTransparency = 1
-    lbl.TextTransparency     = 1
-    twPlay(f,   0.35, {Position = UDim2.new(0.5, -70, 0, 80), BackgroundTransparency = 0.1}, Enum.EasingStyle.Back)
-    twPlay(lbl, 0.3,  {TextTransparency = 0})
-
-    spamUiFrame = f
-end
-
-local function destroySpamUI()
-    if not spamUiFrame then return end
-    local f = spamUiFrame
-    spamUiFrame = nil
-    twPlay(f, 0.25, {Position = UDim2.new(0.5, -70, 0, 50), BackgroundTransparency = 1}, Enum.EasingStyle.Quint)
-    local lbl = f:FindFirstChildOfClass("TextLabel")
-    if lbl then twPlay(lbl, 0.2, {TextTransparency = 1}) end
-    task.delay(0.3, function() pcall(function() f:Destroy() end) end)
-end
-
-local function setSpamUI(on)
-    if on and not spamUiVisible then
-        spamUiVisible = true
-        createSpamUI()
-    elseif not on and spamUiVisible then
-        spamUiVisible = false
-        destroySpamUI()
-    end
-end
 
 -- ==================== HELPERS DE CARD ====================
 local function cardFrame(yPos, h, parent)
@@ -532,42 +469,128 @@ local function createKeybindSelector(yPos, parentFrame)
     return yPos + 60
 end
 
--- ==================== CARD 1 — MANUAL SPAM ====================
-local function createManualSpamCard(yPos, parentFrame)
-    local CARD_H = 135
-    local f = cardFrame(yPos, CARD_H, parentFrame)
-    cardLabel("Manual Spam", f)
+-- ==================== MINI GUI (spam ON/OFF arrastável) ====================
+local miniGui = Instance.new("Frame")
+miniGui.Name             = "PhantomSpamMini"
+miniGui.Size             = UDim2.new(0, 120, 0, 95)
+miniGui.Position         = UDim2.new(1, -130, 0.5, -47)
+miniGui.BackgroundColor3 = Color3.fromRGB(18, 18, 30)
+miniGui.BorderSizePixel  = 0
+miniGui.Visible          = false
+miniGui.ZIndex           = 15
+miniGui.Parent           = screenGui
+Instance.new("UICorner", miniGui).CornerRadius = UDim.new(0, 14)
 
-    -- linha 1: toggle ON/OFF + capturar keybind
-    local toggleBtn = smallBtn("OFF", 8, 28, 105, 36, f)
-    toggleBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+local miniStroke = Instance.new("UIStroke")
+miniStroke.Color     = Color3.fromRGB(70, 90, 200)
+miniStroke.Thickness = 1.5
+miniStroke.Parent    = miniGui
 
-    local kbBtn = smallBtn(Config.SpamKeybind and Config.SpamKeybind.Name or "X", 120, 28, 118, 36, f)
-    kbBtn.BackgroundColor3 = Color3.fromRGB(50, 60, 110)
-
-    -- linha 2: modo Hold / Toggle
-    local modeBtn = smallBtn(Config.SpamMode or "Toggle", 8, 72, 230, 34, f)
-    modeBtn.BackgroundColor3 = Color3.fromRGB(40, 55, 100)
-
-    -- estado spam
-    local spamOn = false
-    local holdConn = nil
-
-    local function setSpam(v)
-        spamOn = v
-        _G.PhantomManual = v
-        toggleBtn.Text             = v and "ON" or "OFF"
-        toggleBtn.BackgroundColor3 = v and Color3.fromRGB(50, 220, 50) or Color3.fromRGB(200, 50, 50)
-        setSpamUI(v)
+task.spawn(function()
+    local t = 0
+    while miniStroke.Parent do
+        t = t + 0.025
+        miniStroke.Color = Color3.fromRGB(
+            math.floor(70 + 70 * math.sin(t)),
+            math.floor(90 + 80 * math.sin(t + 2.1)),
+            255
+        )
+        task.wait(0.05)
     end
+end)
 
-    -- toggle ON/OFF
-    toggleBtn.Activated:Connect(function()
-        if Config.SpamMode == "Hold" then return end -- hold é por keybind
+local miniTitleBar = Instance.new("Frame")
+miniTitleBar.Size             = UDim2.new(1, 0, 0, 24)
+miniTitleBar.BackgroundColor3 = Color3.fromRGB(30, 30, 55)
+miniTitleBar.BorderSizePixel  = 0
+miniTitleBar.ZIndex           = 16
+miniTitleBar.Parent           = miniGui
+Instance.new("UICorner", miniTitleBar).CornerRadius = UDim.new(0, 14)
+
+local miniTitle = Instance.new("TextLabel")
+miniTitle.Size                   = UDim2.new(1, -6, 1, 0)
+miniTitle.Position               = UDim2.new(0, 6, 0, 0)
+miniTitle.BackgroundTransparency = 1
+miniTitle.Text                   = "Spam"
+miniTitle.TextColor3             = Color3.fromRGB(180, 195, 255)
+miniTitle.TextScaled             = true
+miniTitle.Font                   = Enum.Font.GothamBold
+miniTitle.ZIndex                 = 16
+miniTitle.Parent                 = miniTitleBar
+
+local spamBtn = Instance.new("TextButton")
+spamBtn.Size             = UDim2.new(0.85, 0, 0, 52)
+spamBtn.Position         = UDim2.new(0.075, 0, 0, 30)
+spamBtn.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+spamBtn.BorderSizePixel  = 0
+spamBtn.Text             = "OFF"
+spamBtn.TextColor3       = Color3.fromRGB(255, 255, 255)
+spamBtn.TextScaled       = true
+spamBtn.Font             = Enum.Font.GothamBold
+spamBtn.ZIndex           = 16
+spamBtn.Parent           = miniGui
+Instance.new("UICorner", spamBtn).CornerRadius = UDim.new(0, 10)
+
+local spamOn = false
+local function setSpam(v)
+    spamOn = v
+    _G.PhantomManual         = v
+    spamBtn.Text             = v and "ON" or "OFF"
+    spamBtn.BackgroundColor3 = v and Color3.fromRGB(50, 220, 50) or Color3.fromRGB(220, 50, 50)
+end
+
+spamBtn.Activated:Connect(function() setSpam(not spamOn) end)
+
+-- keybind hold/toggle via UIS
+trackConn(UIS.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if not Config.SpamKeybind then return end
+    if input.KeyCode ~= Config.SpamKeybind then return end
+    if Config.SpamMode == "Hold" then
+        setSpam(true)
+    else
         setSpam(not spamOn)
+    end
+end))
+trackConn(UIS.InputEnded:Connect(function(input)
+    if not Config.SpamKeybind then return end
+    if input.KeyCode ~= Config.SpamKeybind then return end
+    if Config.SpamMode == "Hold" then setSpam(false) end
+end))
+
+-- drag da mini GUI
+makeDraggable(miniTitleBar, miniGui, nil)
+
+-- ==================== CARD — SPAM CONFIG ====================
+local function createSpamConfigCard(yPos, parentFrame)
+    local f = cardFrame(yPos, 120, parentFrame)
+    cardLabel("Spam Config", f)
+
+    -- show/hide mini GUI
+    local visBtn = smallBtn("Spam: Oculto", 8, 28, 230, 34, f)
+    visBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 90)
+
+    visBtn.Activated:Connect(function()
+        miniGui.Visible          = not miniGui.Visible
+        visBtn.Text              = miniGui.Visible and "Spam: Visível" or "Spam: Oculto"
+        visBtn.BackgroundColor3  = miniGui.Visible and Color3.fromRGB(0, 150, 80) or Color3.fromRGB(80, 80, 90)
     end)
 
-    -- capturar keybind do spam
+    -- modo Hold/Toggle
+    local modeBtn = smallBtn(Config.SpamMode or "Toggle", 8, 70, 110, 34, f)
+    modeBtn.BackgroundColor3 = Color3.fromRGB(40, 55, 100)
+
+    modeBtn.Activated:Connect(function()
+        Config.SpamMode = (Config.SpamMode == "Toggle") and "Hold" or "Toggle"
+        modeBtn.Text = Config.SpamMode
+        if Config.SpamMode == "Hold" and spamOn then setSpam(false) end
+        saveConfig(Config)
+    end)
+
+    -- keybind
+    local kbBtn = smallBtn(Config.SpamKeybind and Config.SpamKeybind.Name or "X", 126, 70, 112, 34, f)
+    kbBtn.BackgroundColor3 = Color3.fromRGB(50, 60, 110)
+
     local listeningKb = false
     kbBtn.Activated:Connect(function()
         if listeningKb then return end
@@ -578,7 +601,7 @@ local function createManualSpamCard(yPos, parentFrame)
         conn = UIS.InputBegan:Connect(function(input, gpe)
             if gpe then return end
             if input.UserInputType == Enum.UserInputType.Keyboard then
-                Config.SpamKeybind = input.KeyCode
+                Config.SpamKeybind     = input.KeyCode
                 kbBtn.Text             = input.KeyCode.Name
                 kbBtn.BackgroundColor3 = Color3.fromRGB(50, 60, 110)
                 listeningKb = false
@@ -588,66 +611,38 @@ local function createManualSpamCard(yPos, parentFrame)
         end)
     end)
 
-    -- alternar modo
-    modeBtn.Activated:Connect(function()
-        Config.SpamMode = (Config.SpamMode == "Toggle") and "Hold" or "Toggle"
-        modeBtn.Text = Config.SpamMode
-        -- se muda pra Hold enquanto spam ON via toggle, desliga
-        if Config.SpamMode == "Hold" and spamOn then setSpam(false) end
-        saveConfig(Config)
-    end)
-
-    -- keybind hold/toggle via UIS
-    trackConn(UIS.InputBegan:Connect(function(input, gpe)
-        if gpe then return end
-        if not Config.SpamKeybind then return end
-        if input.KeyCode ~= Config.SpamKeybind then return end
-        if Config.SpamMode == "Hold" then
-            setSpam(true)
-        else
-            setSpam(not spamOn)
-        end
-    end))
-    trackConn(UIS.InputEnded:Connect(function(input)
-        if not Config.SpamKeybind then return end
-        if input.KeyCode ~= Config.SpamKeybind then return end
-        if Config.SpamMode == "Hold" then
-            setSpam(false)
-        end
-    end))
-
-    return yPos + CARD_H + 10
+    return yPos + 130
 end
 
--- ==================== CARD 2 — AUTO CLASH ====================
+-- ==================== CARD — AUTO CLASH ====================
 local function createAutoClashCard(yPos, parentFrame)
-    local f = cardFrame(yPos, 80, parentFrame)
+    local f = cardFrame(yPos, 60, parentFrame)
     cardLabel("Auto Clash", f)
 
     local clashOn = false
-    local btn = smallBtn("OFF", 8, 28, 230, 36, f)
+    local btn = smallBtn("OFF", 8, 28, 230, 26, f)
     btn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
 
     btn.Activated:Connect(function()
         clashOn = not clashOn
-        _G.PhantomAutoClash = clashOn
+        _G.PhantomAutoClash  = clashOn
         btn.Text             = clashOn and "ON" or "OFF"
         btn.BackgroundColor3 = clashOn and Color3.fromRGB(50, 220, 50) or Color3.fromRGB(200, 50, 50)
     end)
 
-    return yPos + 90
+    return yPos + 70
 end
 
 -- ==================== CRIANDO ELEMENTOS ====================
 local yL, yR = 5, 5
--- Coluna esquerda: Auto Parry + Aura + Card Manual Spam
+-- Coluna esquerda: Auto Parry + Aura
 yL = createToggle("Auto Parry",  "AutoParry", yL, colLeft)
 yL = createToggle("Aura Visual", "Aura",      yL, colLeft)
-yL = createManualSpamCard(yL, colLeft)
 
--- Coluna direita: CPS + Keybind + Card Auto Clash
+-- Coluna direita: CPS + Keybind painel + Spam Config + Auto Clash
 yR = createCPSSelector(yR, colRight)
 yR = createKeybindSelector(yR, colRight)
+yR = createSpamConfigCard(yR, colRight)
 yR = createAutoClashCard(yR, colRight)
 
 -- ==================== ABRIR / FECHAR PAINEL ====================
@@ -689,11 +684,10 @@ end))
 
 -- ==================== FECHAR SCRIPT ====================
 killBtn.Activated:Connect(function()
-    State.scriptActive = false
+    State.scriptActive  = false
     _G.PhantomManual    = false
     _G.PhantomAutoClash = false
     saveConfig(Config)
-    setSpamUI(false)
 
     twPlay(configPanel,    0.3, {BackgroundTransparency = 1, Size = UDim2.new(0, PANEL_W * 0.85, 0, PANEL_H * 0.85)}, Enum.EasingStyle.Quint)
     twPlay(floatingButton, 0.3, {BackgroundTransparency = 1, Size = UDim2.new(0, 0, 0, 0)})
