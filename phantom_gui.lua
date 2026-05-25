@@ -574,8 +574,10 @@ local function createCPSSelector(yPos, parent)
     inputBox.FocusLost:Connect(function()
         local v = tonumber(inputBox.Text)
         if v and v > 0 and v <= 1000 then
-            Config.CPS       = v
-            Config.CustomCPS = true
+            if v ~= Config.CPS then
+                Config.CPS       = v
+                Config.CustomCPS = true
+            end
         else
             inputBox.Text = tostring(Config.CPS)
         end
@@ -695,7 +697,8 @@ yL = createToggle("Auto Parry",  "AutoParry", yL, colLeft)
 yL = createToggle("Aura Visual", "Aura",      yL, colLeft)
 
 -- Auto Clash (inline pq não usa createToggle — tem estado próprio em _G)
-local clashOn = false
+local clashOn = Config.AutoClash or false
+_G.PhantomAutoClash = clashOn  -- restaura estado no logic imediatamente
 local fClash  = cardFrame(yL, 48, colLeft)
 yL = yL + 48 + CARD_GAP  -- incrementa yL corretamente
 
@@ -711,13 +714,15 @@ clashLbl.TextXAlignment         = Enum.TextXAlignment.Left
 clashLbl.ZIndex                 = 7
 clashLbl.Parent                 = fClash
 
-local clashBtn = makeBtn("OFF", 0, 0, 80, 30, fClash, C.divider)
+local clashBtn = makeBtn(clashOn and "ON" or "OFF", 0, 0, 80, 30, fClash, clashOn and C.green or C.divider)
 clashBtn.Position = UDim2.new(1, -92, 0.5, -15)
 clashBtn.Activated:Connect(function()
     clashOn             = not clashOn
     _G.PhantomAutoClash = clashOn
+    Config.AutoClash    = clashOn
     twPlay(clashBtn, 0.18, {BackgroundColor3 = clashOn and C.green or C.divider}, Enum.EasingStyle.Back)
     clashBtn.Text = clashOn and "ON" or "OFF"
+    saveConfig(Config)
 end)
 
 yR = createCPSSelector(yR, colRight)
