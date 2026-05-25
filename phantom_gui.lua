@@ -56,20 +56,21 @@ screenGui.Parent         = CoreGui
 local activeDragTarget = nil
 
 local function makeDraggable(handle, target, onDragEnd)
-    local dragging  = false
-    local dragOffX  = 0
-    local dragOffY  = 0
+    local dragging    = false
+    local activeInput = nil  -- só processa o input que iniciou o drag
+    local dragOffX    = 0
+    local dragOffY    = 0
 
     handle.InputBegan:Connect(function(input)
         if input.UserInputType ~= Enum.UserInputType.MouseButton1
         and input.UserInputType ~= Enum.UserInputType.Touch then return end
-        -- bloqueia se outro elemento já tá sendo arrastado
         if activeDragTarget and activeDragTarget ~= target then return end
+        if activeInput then return end  -- já tem um toque ativo
 
-        dragging       = false
+        dragging         = false
         activeDragTarget = nil
-        -- offset = posição absoluta do target em relação ao toque
-        local absPos = target.AbsolutePosition
+        activeInput      = input
+        local absPos     = target.AbsolutePosition
         dragOffX = input.Position.X - absPos.X
         dragOffY = input.Position.Y - absPos.Y
 
@@ -78,12 +79,13 @@ local function makeDraggable(handle, target, onDragEnd)
                 if dragging and onDragEnd then onDragEnd() end
                 dragging         = false
                 activeDragTarget = nil
+                activeInput      = nil
             end
         end)
     end)
 
     local function onMove(input)
-        if activeDragTarget and activeDragTarget ~= target then return end
+        if input ~= activeInput then return end  -- ignora outros toques
         local delta = Vector2.new(
             input.Position.X - (target.AbsolutePosition.X + dragOffX),
             input.Position.Y - (target.AbsolutePosition.Y + dragOffY)
@@ -110,7 +112,6 @@ local function makeDraggable(handle, target, onDragEnd)
         or input.UserInputType == Enum.UserInputType.Touch then onMove(input) end
     end))
 
-    -- retorna se foi drag (pra distinguir clique)
     return function() return dragging end
 end
 
@@ -292,7 +293,10 @@ task.spawn(function()
             math.floor(80 + 85 * math.sin(t + 2.09)),
             255
         )
-        panelStroke.Color    = col
+        -- RGB no painel só quando visível
+        if configPanel.Visible then
+            panelStroke.Color = col
+        end
         floatingStroke.Color = col
         task.wait(0.05)
     end
@@ -480,12 +484,23 @@ end
 
 -- ==================== CPS SPAM ====================
 local function createCPSSelector(yPos, parent)
-    local f = cardFrame(yPos, 48, parent)
-    cardLabel("CPS Spam", f)
+    local f = cardFrame(yPos, 56, parent)
+
+    local sectionLbl = Instance.new("TextLabel")
+    sectionLbl.Size                   = UDim2.new(1, -10, 0, 14)
+    sectionLbl.Position               = UDim2.new(0, 10, 0, 3)
+    sectionLbl.BackgroundTransparency = 1
+    sectionLbl.Text                   = "CPS Spam"
+    sectionLbl.TextColor3             = C.subtext
+    sectionLbl.TextSize               = 10
+    sectionLbl.Font                   = Enum.Font.GothamBold
+    sectionLbl.TextXAlignment         = Enum.TextXAlignment.Left
+    sectionLbl.ZIndex                 = 7
+    sectionLbl.Parent                 = f
 
     local lbl = Instance.new("TextLabel")
     lbl.Size                   = UDim2.new(0, 36, 0, 30)
-    lbl.Position               = UDim2.new(0, 14, 0.5, -15)
+    lbl.Position               = UDim2.new(0, 14, 0, 20)
     lbl.BackgroundTransparency = 1
     lbl.Text                   = "CPS:"
     lbl.TextColor3             = C.text
@@ -496,12 +511,12 @@ local function createCPSSelector(yPos, parent)
     lbl.Parent                 = f
 
     local defBtn = makeBtn("Padrão", 0, 0, 68, 30, f, C.btnBlue)
-    defBtn.Position = UDim2.new(0, 52, 0.5, -15)
+    defBtn.Position = UDim2.new(0, 52, 0, 20)
     defBtn.TextSize = 11
 
     local inputBox = Instance.new("TextBox")
     inputBox.Size             = UDim2.new(0, 68, 0, 30)
-    inputBox.Position         = UDim2.new(1, -78, 0.5, -15)
+    inputBox.Position         = UDim2.new(1, -78, 0, 20)
     inputBox.BackgroundColor3 = C.inputBg
     inputBox.BorderSizePixel  = 0
     inputBox.Text             = tostring(Config.CPS)
@@ -528,7 +543,7 @@ local function createCPSSelector(yPos, parent)
         saveConfig(Config)
     end)
 
-    return yPos + 48 + CARD_GAP
+    return yPos + 56 + CARD_GAP
 end
 
 -- ==================== KEYBIND DO PAINEL ====================
@@ -717,7 +732,12 @@ floatingButton.Activated:Connect(function()
     if btnWasDrag() then return end
     togglePanel()
 end)
-closeButton.Activated:Connect(togglePanel)
+closeButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+    or input.UserInputType == Enum.UserInputType.Touch then
+        togglePanel()
+    end
+end)
 
 trackConn(UIS.InputBegan:Connect(function(input, gpe)
     if gpe then return end
