@@ -1,4 +1,4 @@
--- Phantom Ball GUI v5.2
+-- Phantom Ball GUI v5.3
 -- Carregado automaticamente pelo phantom_final.lua via loadstring
 
 local timeout = 0
@@ -40,9 +40,8 @@ local C = {
     inputBg  = Color3.fromRGB(14, 15, 32),
     btnBlue  = Color3.fromRGB(45, 55, 115),
     btnDark  = Color3.fromRGB(30, 32, 60),
-    -- modo spam
-    toggle   = Color3.fromRGB(50, 100, 200),   -- azul  → Toggle
-    hold     = Color3.fromRGB(160, 80, 10),    -- laranja → Hold
+    toggle   = Color3.fromRGB(50, 100, 200),
+    hold     = Color3.fromRGB(160, 80, 10),
 }
 
 -- ==================== SCREEN GUI ====================
@@ -52,43 +51,54 @@ screenGui.ResetOnSpawn   = false
 screenGui.IgnoreGuiInset = true
 screenGui.Parent         = CoreGui
 
--- ==================== DRAG (threshold 8px, baseado em InputEnded) ====================
-local DRAG_THRESHOLD = 8
+-- ==================== DRAG ====================
+-- flag global: só um drag ativo por vez
+local activeDragTarget = nil
 
 local function makeDraggable(handle, target, onDragEnd)
-    local dragging, didDrag, dragStart, startPos = false, false, nil, nil
+    local dragging  = false
+    local dragOffX  = 0
+    local dragOffY  = 0
 
     handle.InputBegan:Connect(function(input)
         if input.UserInputType ~= Enum.UserInputType.MouseButton1
         and input.UserInputType ~= Enum.UserInputType.Touch then return end
-        dragging  = false
-        didDrag   = false
-        dragStart = input.Position
-        startPos  = target.Position
+        -- bloqueia se outro elemento já tá sendo arrastado
+        if activeDragTarget and activeDragTarget ~= target then return end
+
+        dragging       = false
+        activeDragTarget = nil
+        -- offset = posição absoluta do target em relação ao toque
+        local absPos = target.AbsolutePosition
+        dragOffX = input.Position.X - absPos.X
+        dragOffY = input.Position.Y - absPos.Y
 
         input.Changed:Connect(function()
             if input.UserInputState == Enum.UserInputState.End then
                 if dragging and onDragEnd then onDragEnd() end
-                dragging = false
-                task.defer(function() didDrag = false end)
+                dragging         = false
+                activeDragTarget = nil
             end
         end)
     end)
 
     local function onMove(input)
-        if not dragStart then return end
-        local delta = input.Position - dragStart
+        if activeDragTarget and activeDragTarget ~= target then return end
+        local delta = Vector2.new(
+            input.Position.X - (target.AbsolutePosition.X + dragOffX),
+            input.Position.Y - (target.AbsolutePosition.Y + dragOffY)
+        )
         if not dragging then
-            if delta.Magnitude >= DRAG_THRESHOLD then
-                dragging = true
-                didDrag  = true
+            if delta.Magnitude >= 8 then
+                dragging         = true
+                activeDragTarget = target
             else return end
         end
         local vp  = Workspace.CurrentCamera.ViewportSize
         local tSz = target.AbsoluteSize
-        target.Position = UDim2.new(0,
-            math.clamp(startPos.X.Offset + delta.X, 0, vp.X - tSz.X), 0,
-            math.clamp(startPos.Y.Offset + delta.Y, 0, vp.Y - tSz.Y))
+        local newX = math.clamp(input.Position.X - dragOffX, 0, vp.X - tSz.X)
+        local newY = math.clamp(input.Position.Y - dragOffY, 0, vp.Y - tSz.Y)
+        target.Position = UDim2.new(0, newX, 0, newY)
     end
 
     handle.InputChanged:Connect(function(input)
@@ -100,7 +110,8 @@ local function makeDraggable(handle, target, onDragEnd)
         or input.UserInputType == Enum.UserInputType.Touch then onMove(input) end
     end))
 
-    return function() return didDrag end
+    -- retorna se foi drag (pra distinguir clique)
+    return function() return dragging end
 end
 
 -- ==================== MINI GUI SPAM (flutuante) ====================
@@ -115,7 +126,6 @@ miniGui.ZIndex           = 15
 miniGui.Parent           = screenGui
 Instance.new("UICorner", miniGui).CornerRadius = UDim.new(0, 12)
 
--- escala inicial pra animação de entrada
 local miniUIScale = Instance.new("UIScale")
 miniUIScale.Scale  = 0.85
 miniUIScale.Parent = miniGui
@@ -186,9 +196,12 @@ local function setSpam(v)
     tw(spamBtn, 0.18, {BackgroundColor3 = v and C.green or C.red}, Enum.EasingStyle.Back):Play()
 end
 
-spamBtn.Activated:Connect(function() setSpam(not spamOn) end)
+spamBtn.Activated:Connect(function()
+    if activeDragTarget == miniGui then return end
+    setSpam(not spamOn)
+end)
 
--- animação de entrada/saída da mini GUI
+-- animação entrada/saída mini GUI
 local miniTweenIn, miniTweenOut
 local function showMini(v, visBtn)
     if v then
@@ -204,7 +217,6 @@ local function showMini(v, visBtn)
         tw(miniUIScale, 0.18, {Scale = 0.85}, Enum.EasingStyle.Quint):Play()
         miniTweenOut:Play()
         miniTweenOut.Completed:Connect(function()
-            if not miniGui.Visible then return end
             miniGui.Visible = false
         end)
     end
@@ -270,7 +282,7 @@ panelStroke.Color     = C.accent
 panelStroke.Thickness = 1.6
 panelStroke.Parent    = configPanel
 
--- RGB animado painel + botão flutuante
+-- RGB animado painel + botão flutuante (declarado aqui pois precisa dos dois strokes)
 task.spawn(function()
     local t = 0
     while screenGui.Parent do
@@ -567,17 +579,15 @@ local function createSpamPCCard(yPos, parent)
     local f = cardFrame(yPos, CARD_H, parent)
     cardLabel("Manual Spam", f)
 
-    -- btn mostrar/ocultar mini GUI (referência p/ showMini)
     local visBtn = makeBtn("Mini UI: Oculto", 8, 22, COL_W - 16, 28, f, C.btnDark)
     visBtn.TextSize = 11
 
     visBtn.Activated:Connect(function()
-        local next = not miniGui.Visible
-        showMini(next, visBtn)
+        showMini(not miniGui.Visible, visBtn)
     end)
 
-    -- keybind spam
     local halfW = math.floor((COL_W - 28) / 2)
+
     local kbBtn = makeBtn(
         Config.SpamKeybind and Config.SpamKeybind.Name or "X",
         8, 60, halfW, 30, f, C.btnBlue
@@ -603,7 +613,6 @@ local function createSpamPCCard(yPos, parent)
         end)
     end)
 
-    -- modo Toggle / Hold com cores diferentes
     local function getModeColor(mode)
         return mode == "Hold" and C.hold or C.toggle
     end
@@ -618,7 +627,6 @@ local function createSpamPCCard(yPos, parent)
         Config.SpamMode = (Config.SpamMode == "Toggle") and "Hold" or "Toggle"
         modeBtn.Text = Config.SpamMode
         tw(modeBtn, 0.18, {BackgroundColor3 = getModeColor(Config.SpamMode)}, Enum.EasingStyle.Back):Play()
-        -- se virou Toggle e spam tava em Hold ativo, desliga
         if Config.SpamMode == "Toggle" and _G.PhantomManual then setSpam(false) end
         saveConfig(Config)
     end)
@@ -632,7 +640,6 @@ local yL, yR = 4, 4
 yL = createToggle("Auto Parry",  "AutoParry", yL, colLeft)
 yL = createToggle("Aura Visual", "Aura",      yL, colLeft)
 
--- Auto Clash inline
 local clashOn = false
 local fClash  = cardFrame(yL, 48, colLeft)
 local clashLbl = Instance.new("TextLabel")
@@ -674,17 +681,16 @@ local btnWasDrag = makeDraggable(floatingButton, floatingButton, function()
 end)
 
 -- ==================== ABRIR / FECHAR PAINEL ====================
--- ao abrir: botão flutuante some; ao fechar: botão volta
-local panelOpen    = false
+local panelOpen = false
 local tweenOpen, tweenClose
 
 local function togglePanel()
+    if activeDragTarget then return end  -- não abre/fecha se tava arrastando
     panelOpen = not panelOpen
     if tweenOpen  then tweenOpen:Cancel()  end
     if tweenClose then tweenClose:Cancel() end
 
     if panelOpen then
-        -- some o botão flutuante
         twPlay(floatingButton, 0.18, {BackgroundTransparency = 1, Size = UDim2.new(0, 38, 0, 38)}, Enum.EasingStyle.Quint)
         floatingButton.Active = false
 
@@ -696,7 +702,6 @@ local function togglePanel()
             Enum.EasingStyle.Back, Enum.EasingDirection.Out)
         tweenOpen:Play()
     else
-        -- volta o botão flutuante
         floatingButton.Active = true
         twPlay(floatingButton, 0.22, {BackgroundTransparency = 0, Size = UDim2.new(0, 54, 0, 54)}, Enum.EasingStyle.Back)
 
@@ -709,7 +714,7 @@ local function togglePanel()
 end
 
 floatingButton.Activated:Connect(function()
-    if btnWasDrag and btnWasDrag() then return end
+    if btnWasDrag() then return end
     togglePanel()
 end)
 closeButton.Activated:Connect(togglePanel)
@@ -737,5 +742,5 @@ killBtn.Activated:Connect(function()
     print("🛑 Phantom Script encerrado.")
 end)
 
-print("✅ Phantom GUI v5.2 carregada!")
+print("✅ Phantom GUI v5.3 carregada!")
 print("   • Botão ⚡ para configurar | tecla: " .. Config.Keybind.Name)
