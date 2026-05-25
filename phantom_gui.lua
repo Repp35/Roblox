@@ -1,34 +1,30 @@
--- Phantom Ball ULTIMATE v3.0 | GUI
--- Carregado automaticamente pelo phantom_logic.lua via loadstring
+-- Phantom Ball GUI v4.0
+-- Carregado automaticamente pelo phantom_final.lua via loadstring
 
--- Aguarda a lógica terminar de popular o _G
 local timeout = 0
 while not _G.PhantomConfig and timeout < 10 do
-    task.wait(0.1)
-    timeout += 0.1
+    task.wait(0.1); timeout += 0.1
 end
 if not _G.PhantomConfig then
-    warn("Phantom GUI: lógica não encontrada em _G. Rode phantom_logic.lua primeiro.")
+    warn("Phantom GUI: lógica não encontrada em _G. Rode phantom_final.lua primeiro.")
     return
 end
 
-local Config    = _G.PhantomConfig
-local State     = _G.PhantomState
+local Config     = _G.PhantomConfig
+local State      = _G.PhantomState
 local saveConfig = _G.PhantomSaveConfig
 
-local Players       = game:GetService("Players")
-local Workspace     = game:GetService("Workspace")
-local UIS           = game:GetService("UserInputService")
-local CoreGui       = game:GetService("CoreGui")
-local TweenService  = game:GetService("TweenService")
+local Players      = game:GetService("Players")
+local Workspace    = game:GetService("Workspace")
+local UIS          = game:GetService("UserInputService")
+local CoreGui      = game:GetService("CoreGui")
+local TweenService = game:GetService("TweenService")
 
 local function tw(obj, t, props, style, dir)
     return TweenService:Create(obj, TweenInfo.new(t, style or Enum.EasingStyle.Quint, dir or Enum.EasingDirection.Out), props)
 end
-local function twPlay(obj, t, props, style, dir)
-    tw(obj, t, props, style, dir):Play()
-end
-local function trackConn(c) State.connections[#State.connections+1] = c end
+local function twPlay(obj, t, props, style, dir) tw(obj, t, props, style, dir):Play() end
+local function trackConn(c) State.connections[#State.connections + 1] = c end
 
 -- ==================== SCREEN GUI ====================
 local screenGui = Instance.new("ScreenGui")
@@ -39,19 +35,17 @@ screenGui.Parent         = CoreGui
 
 -- ==================== BOTÃO FLUTUANTE ====================
 local floatingButton = Instance.new("TextButton")
-floatingButton.Size              = UDim2.new(0, 58, 0, 58)
-floatingButton.Position          = Config.BtnX and UDim2.new(0, Config.BtnX, 0, Config.BtnY)
-                                   or UDim2.new(1, -68, 0.5, -29)
-floatingButton.BackgroundColor3  = Color3.fromRGB(28, 28, 48)
-floatingButton.BorderSizePixel   = 0
-floatingButton.Text              = "⚡"
-floatingButton.TextColor3        = Color3.new(1, 1, 1)
-floatingButton.TextSize          = 27
-floatingButton.Font              = Enum.Font.GothamBold
-floatingButton.Active            = true
-floatingButton.ZIndex            = 10
-floatingButton.Parent            = screenGui
-
+floatingButton.Size             = UDim2.new(0, 58, 0, 58)
+floatingButton.Position         = Config.BtnX and UDim2.new(0, Config.BtnX, 0, Config.BtnY) or UDim2.new(1, -68, 0.5, -29)
+floatingButton.BackgroundColor3 = Color3.fromRGB(28, 28, 48)
+floatingButton.BorderSizePixel  = 0
+floatingButton.Text             = "⚡"
+floatingButton.TextColor3       = Color3.new(1, 1, 1)
+floatingButton.TextSize         = 27
+floatingButton.Font             = Enum.Font.GothamBold
+floatingButton.Active           = true
+floatingButton.ZIndex           = 10
+floatingButton.Parent           = screenGui
 Instance.new("UICorner", floatingButton).CornerRadius = UDim.new(1, 0)
 
 local floatingStroke = Instance.new("UIStroke")
@@ -59,27 +53,21 @@ floatingStroke.Color     = Color3.fromRGB(70, 90, 200)
 floatingStroke.Thickness = 2
 floatingStroke.Parent    = floatingButton
 
-floatingButton.MouseEnter:Connect(function()
-    twPlay(floatingButton, 0.15, {Size = UDim2.new(0, 64, 0, 64), BackgroundColor3 = Color3.fromRGB(40, 40, 70)})
-end)
-floatingButton.MouseLeave:Connect(function()
-    twPlay(floatingButton, 0.15, {Size = UDim2.new(0, 58, 0, 58), BackgroundColor3 = Color3.fromRGB(28, 28, 48)})
-end)
+floatingButton.MouseEnter:Connect(function() twPlay(floatingButton, 0.15, {Size = UDim2.new(0, 64, 0, 64), BackgroundColor3 = Color3.fromRGB(40, 40, 70)}) end)
+floatingButton.MouseLeave:Connect(function() twPlay(floatingButton, 0.15, {Size = UDim2.new(0, 58, 0, 58), BackgroundColor3 = Color3.fromRGB(28, 28, 48)}) end)
 
 -- ==================== PAINEL ====================
-local PANEL_W, PANEL_H = 560, 280
+local PANEL_W, PANEL_H = 560, 310
 
 local configPanel = Instance.new("Frame")
-configPanel.Size                    = UDim2.new(0, PANEL_W, 0, PANEL_H)
-configPanel.Position                = Config.PanelX and UDim2.new(0, Config.PanelX, 0, Config.PanelY)
-                                      or UDim2.new(0.5, -PANEL_W/2, 0.5, -PANEL_H/2)
-configPanel.BackgroundColor3        = Color3.fromRGB(8, 10, 22)
-configPanel.BackgroundTransparency  = 0.12
-configPanel.BorderSizePixel         = 0
-configPanel.Visible                 = false
-configPanel.ZIndex                  = 5
-configPanel.Parent                  = screenGui
-
+configPanel.Size                   = UDim2.new(0, PANEL_W, 0, PANEL_H)
+configPanel.Position               = Config.PanelX and UDim2.new(0, Config.PanelX, 0, Config.PanelY) or UDim2.new(0.5, -PANEL_W/2, 0.5, -PANEL_H/2)
+configPanel.BackgroundColor3       = Color3.fromRGB(8, 10, 22)
+configPanel.BackgroundTransparency = 0.12
+configPanel.BorderSizePixel        = 0
+configPanel.Visible                = false
+configPanel.ZIndex                 = 5
+configPanel.Parent                 = screenGui
 Instance.new("UICorner", configPanel).CornerRadius = UDim.new(0, 16)
 
 local panelGrad = Instance.new("UIGradient")
@@ -96,14 +84,16 @@ panelStroke.Color     = Color3.fromRGB(70, 90, 200)
 panelStroke.Thickness = 1.8
 panelStroke.Parent    = configPanel
 
--- RGB animado (bolinha + painel)
+-- RGB animado
 task.spawn(function()
     local t = 0
     while screenGui.Parent do
         t = t + 0.022
-        local r   = math.floor(60 + 80 * math.sin(t))
-        local g   = math.floor(80 + 90 * math.sin(t + 2.09))
-        local col = Color3.fromRGB(r, g, 255)
+        local col = Color3.fromRGB(
+            math.floor(60 + 80 * math.sin(t)),
+            math.floor(80 + 90 * math.sin(t + 2.09)),
+            255
+        )
         panelStroke.Color    = col
         floatingStroke.Color = col
         task.wait(0.05)
@@ -118,33 +108,32 @@ titleBar.BackgroundTransparency = 0.2
 titleBar.BorderSizePixel        = 0
 titleBar.ZIndex                 = 6
 titleBar.Parent                 = configPanel
-
 Instance.new("UICorner", titleBar).CornerRadius = UDim.new(0, 16)
 
 local headerGlow = Instance.new("Frame")
-headerGlow.Size                 = UDim2.new(1, 0, 0, 1)
-headerGlow.Position             = UDim2.new(0, 0, 1, -1)
-headerGlow.BackgroundColor3     = Color3.fromRGB(100, 130, 255)
+headerGlow.Size                   = UDim2.new(1, 0, 0, 1)
+headerGlow.Position               = UDim2.new(0, 0, 1, -1)
+headerGlow.BackgroundColor3       = Color3.fromRGB(100, 130, 255)
 headerGlow.BackgroundTransparency = 0.5
-headerGlow.BorderSizePixel      = 0
-headerGlow.ZIndex               = 7
-headerGlow.Parent               = titleBar
+headerGlow.BorderSizePixel        = 0
+headerGlow.ZIndex                 = 7
+headerGlow.Parent                 = titleBar
 
 local titleLabel = Instance.new("TextLabel")
-titleLabel.Size             = UDim2.new(1, -20, 1, 0)
-titleLabel.Position         = UDim2.new(0, 10, 0, 0)
+titleLabel.Size                   = UDim2.new(1, -20, 1, 0)
+titleLabel.Position               = UDim2.new(0, 10, 0, 0)
 titleLabel.BackgroundTransparency = 1
-titleLabel.Text             = "⚡ Phantom UI Config"
-titleLabel.TextColor3       = Color3.fromRGB(180, 195, 255)
-titleLabel.TextSize         = 20
-titleLabel.Font             = Enum.Font.GothamBold
-titleLabel.TextXAlignment   = Enum.TextXAlignment.Left
-titleLabel.ZIndex           = 6
-titleLabel.Parent           = titleBar
+titleLabel.Text                   = "⚡ Phantom UI Config"
+titleLabel.TextColor3             = Color3.fromRGB(180, 195, 255)
+titleLabel.TextSize               = 20
+titleLabel.Font                   = Enum.Font.GothamBold
+titleLabel.TextXAlignment         = Enum.TextXAlignment.Left
+titleLabel.ZIndex                 = 6
+titleLabel.Parent                 = titleBar
 
 local closeButton = Instance.new("TextButton")
-closeButton.Size            = UDim2.new(0, 30, 0, 30)
-closeButton.Position        = UDim2.new(1, -40, 0, 10)
+closeButton.Size             = UDim2.new(0, 30, 0, 30)
+closeButton.Position         = UDim2.new(1, -40, 0, 10)
 closeButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
 closeButton.BorderSizePixel  = 0
 closeButton.Text             = "✕"
@@ -153,7 +142,6 @@ closeButton.TextSize         = 18
 closeButton.Font             = Enum.Font.GothamBold
 closeButton.ZIndex           = 6
 closeButton.Parent           = titleBar
-
 Instance.new("UICorner", closeButton).CornerRadius = UDim.new(0, 8)
 
 closeButton.MouseEnter:Connect(function() twPlay(closeButton, 0.15, {BackgroundColor3 = Color3.fromRGB(230, 60, 60)}) end)
@@ -161,32 +149,32 @@ closeButton.MouseLeave:Connect(function() twPlay(closeButton, 0.15, {BackgroundC
 
 -- ==================== COLUNAS ====================
 local colLeft = Instance.new("Frame")
-colLeft.Size                = UDim2.new(0, 250, 1, -60)
-colLeft.Position            = UDim2.new(0, 10, 0, 55)
+colLeft.Size                  = UDim2.new(0, 250, 1, -60)
+colLeft.Position              = UDim2.new(0, 10, 0, 55)
 colLeft.BackgroundTransparency = 1
-colLeft.ZIndex              = 6
-colLeft.Parent              = configPanel
+colLeft.ZIndex                = 6
+colLeft.Parent                = configPanel
 
 local colRight = Instance.new("Frame")
-colRight.Size               = UDim2.new(0, 250, 1, -60)
-colRight.Position           = UDim2.new(0, 300, 0, 55)
+colRight.Size                  = UDim2.new(0, 250, 1, -60)
+colRight.Position              = UDim2.new(0, 300, 0, 55)
 colRight.BackgroundTransparency = 1
-colRight.ZIndex             = 6
-colRight.Parent             = configPanel
+colRight.ZIndex                = 6
+colRight.Parent                = configPanel
 
 local divider = Instance.new("Frame")
-divider.Size                = UDim2.new(0, 1, 1, -70)
-divider.Position            = UDim2.new(0, 280, 0, 60)
-divider.BackgroundColor3    = Color3.fromRGB(70, 90, 200)
+divider.Size                  = UDim2.new(0, 1, 1, -70)
+divider.Position              = UDim2.new(0, 280, 0, 60)
+divider.BackgroundColor3      = Color3.fromRGB(70, 90, 200)
 divider.BackgroundTransparency = 0.6
-divider.BorderSizePixel     = 0
-divider.ZIndex              = 6
-divider.Parent              = configPanel
+divider.BorderSizePixel       = 0
+divider.ZIndex                = 6
+divider.Parent                = configPanel
 
 -- ==================== KILL BTN ====================
 local killBtn = Instance.new("TextButton")
-killBtn.Size            = UDim2.new(0, 160, 0, 34)
-killBtn.Position        = UDim2.new(0.5, -80, 1, -44)
+killBtn.Size             = UDim2.new(0, 160, 0, 34)
+killBtn.Position         = UDim2.new(0.5, -80, 1, -44)
 killBtn.BackgroundColor3 = Color3.fromRGB(130, 25, 25)
 killBtn.BorderSizePixel  = 0
 killBtn.Text             = "🛑  Fechar Script"
@@ -195,7 +183,6 @@ killBtn.TextSize         = 14
 killBtn.Font             = Enum.Font.GothamBold
 killBtn.ZIndex           = 7
 killBtn.Parent           = configPanel
-
 Instance.new("UICorner", killBtn).CornerRadius = UDim.new(0, 9)
 
 local killStroke = Instance.new("UIStroke")
@@ -206,117 +193,216 @@ killStroke.Parent    = killBtn
 killBtn.MouseEnter:Connect(function() twPlay(killBtn, 0.18, {BackgroundColor3 = Color3.fromRGB(195, 35, 35), Size = UDim2.new(0, 168, 0, 36)}, Enum.EasingStyle.Quint) end)
 killBtn.MouseLeave:Connect(function() twPlay(killBtn, 0.18, {BackgroundColor3 = Color3.fromRGB(130, 25, 25), Size = UDim2.new(0, 160, 0, 34)}, Enum.EasingStyle.Quint) end)
 
--- ==================== DRAG PAINEL ====================
-local panelDragging, panelDragStart, panelStartPos = false, nil, nil
+-- ==================== DRAG INTELIGENTE (threshold 5px) ====================
+local DRAG_THRESHOLD = 5
 
-titleBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        panelDragging  = true
-        panelDragStart = input.Position
-        panelStartPos  = configPanel.Position
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                panelDragging = false
-                Config.PanelX = configPanel.Position.X.Offset
-                Config.PanelY = configPanel.Position.Y.Offset
-                saveConfig(Config)
-            end
-        end)
-    end
-end)
+local function makeDraggable(handle, target, onDragEnd)
+    local dragging  = false
+    local didDrag   = false
+    local dragStart = nil
+    local startPos  = nil
 
-local function updatePanelDrag(input)
-    if not panelDragging or not panelDragStart or not panelStartPos then return end
-    local delta  = input.Position - panelDragStart
-    local vpSize = Workspace.CurrentCamera.ViewportSize
-    configPanel.Position = UDim2.new(0,
-        math.clamp(panelStartPos.X.Offset + delta.X, 0, vpSize.X - PANEL_W), 0,
-        math.clamp(panelStartPos.Y.Offset + delta.Y, 0, vpSize.Y - PANEL_H))
-end
-
-titleBar.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        updatePanelDrag(input)
-    end
-end)
-trackConn(UIS.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        updatePanelDrag(input)
-    end
-end))
-
--- ==================== DRAG BOTÃO FLUTUANTE ====================
-local dragging, dragStart, startPos = false, nil, nil
-
-floatingButton.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging  = true
+    handle.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1
+        and input.UserInputType ~= Enum.UserInputType.Touch then return end
+        dragging  = false
+        didDrag   = false
         dragStart = input.Position
-        startPos  = floatingButton.Position
+        startPos  = target.Position
+
         input.Changed:Connect(function()
             if input.UserInputState == Enum.UserInputState.End then
+                if dragging and onDragEnd then
+                    onDragEnd()
+                end
                 dragging = false
-                Config.BtnX = floatingButton.Position.X.Offset
-                Config.BtnY = floatingButton.Position.Y.Offset
-                saveConfig(Config)
+                task.defer(function() didDrag = false end)
             end
         end)
-    end
-end)
+    end)
 
-local function updateBtnDrag(input)
-    if not dragging or not dragStart or not startPos then return end
-    local delta  = input.Position - dragStart
-    local vpSize = Workspace.CurrentCamera.ViewportSize
-    local fSize  = floatingButton.AbsoluteSize
-    floatingButton.Position = UDim2.new(0,
-        math.clamp(startPos.X.Offset + delta.X, 0, vpSize.X - fSize.X), 0,
-        math.clamp(startPos.Y.Offset + delta.Y, 0, vpSize.Y - fSize.Y))
+    local function onMove(input)
+        if not dragStart then return end
+        local delta = input.Position - dragStart
+        if not dragging then
+            if delta.Magnitude >= DRAG_THRESHOLD then
+                dragging = true
+                didDrag  = true
+            else
+                return
+            end
+        end
+        local vpSize = Workspace.CurrentCamera.ViewportSize
+        local tSize  = target.AbsoluteSize
+        target.Position = UDim2.new(0,
+            math.clamp(startPos.X.Offset + delta.X, 0, vpSize.X - tSize.X), 0,
+            math.clamp(startPos.Y.Offset + delta.Y, 0, vpSize.Y - tSize.Y))
+    end
+
+    handle.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
+            onMove(input)
+        end
+    end)
+    trackConn(UIS.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
+            onMove(input)
+        end
+    end))
+
+    -- retorna função para checar se o último InputEnded foi drag (útil pra suprimir clique)
+    return function() return didDrag end
 end
 
-floatingButton.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        updateBtnDrag(input)
-    end
+-- Drag do painel
+makeDraggable(titleBar, configPanel, function()
+    Config.PanelX = configPanel.Position.X.Offset
+    Config.PanelY = configPanel.Position.Y.Offset
+    saveConfig(Config)
 end)
-trackConn(UIS.InputChanged:Connect(function(input)
-    if dragging and input.UserInputType == Enum.UserInputType.Touch then updateBtnDrag(input) end
-end))
 
--- ==================== TOGGLE / CPS / PING / KEYBIND ====================
+-- Drag do botão flutuante
+local btnWasDrag = makeDraggable(floatingButton, floatingButton, function()
+    Config.BtnX = floatingButton.Position.X.Offset
+    Config.BtnY = floatingButton.Position.Y.Offset
+    saveConfig(Config)
+end)
+
+-- ==================== SPAM UI (aparece na tela ao ativar) ====================
+local spamUiVisible = false
+local spamUiFrame   = nil
+
+local function createSpamUI()
+    if spamUiFrame then spamUiFrame:Destroy() end
+
+    local f = Instance.new("Frame")
+    f.Name                   = "PhantomSpamUI"
+    f.Size                   = UDim2.new(0, 140, 0, 44)
+    f.Position               = UDim2.new(0.5, -70, 0, 80)
+    f.BackgroundColor3       = Color3.fromRGB(12, 14, 30)
+    f.BackgroundTransparency = 0.1
+    f.BorderSizePixel        = 0
+    f.ZIndex                 = 20
+    f.Parent                 = screenGui
+    Instance.new("UICorner", f).CornerRadius = UDim.new(0, 12)
+
+    local fStroke = Instance.new("UIStroke")
+    fStroke.Color     = Color3.fromRGB(50, 220, 50)
+    fStroke.Thickness = 1.5
+    fStroke.Parent    = f
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size                   = UDim2.new(1, 0, 1, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text                   = "● SPAM ON"
+    lbl.TextColor3             = Color3.fromRGB(80, 255, 120)
+    lbl.TextSize               = 16
+    lbl.Font                   = Enum.Font.GothamBold
+    lbl.ZIndex                 = 21
+    lbl.Parent                 = f
+
+    -- animação de entrada (slide de cima)
+    f.Position = UDim2.new(0.5, -70, 0, 50)
+    f.BackgroundTransparency = 1
+    lbl.TextTransparency     = 1
+    twPlay(f,   0.35, {Position = UDim2.new(0.5, -70, 0, 80), BackgroundTransparency = 0.1}, Enum.EasingStyle.Back)
+    twPlay(lbl, 0.3,  {TextTransparency = 0})
+
+    spamUiFrame = f
+end
+
+local function destroySpamUI()
+    if not spamUiFrame then return end
+    local f = spamUiFrame
+    spamUiFrame = nil
+    twPlay(f, 0.25, {Position = UDim2.new(0.5, -70, 0, 50), BackgroundTransparency = 1}, Enum.EasingStyle.Quint)
+    local lbl = f:FindFirstChildOfClass("TextLabel")
+    if lbl then twPlay(lbl, 0.2, {TextTransparency = 1}) end
+    task.delay(0.3, function() pcall(function() f:Destroy() end) end)
+end
+
+local function setSpamUI(on)
+    if on and not spamUiVisible then
+        spamUiVisible = true
+        createSpamUI()
+    elseif not on and spamUiVisible then
+        spamUiVisible = false
+        destroySpamUI()
+    end
+end
+
+-- ==================== HELPERS DE CARD ====================
+local function cardFrame(yPos, h, parent)
+    local f = Instance.new("Frame")
+    f.Size             = UDim2.new(1, -10, 0, h)
+    f.Position         = UDim2.new(0, 5, 0, yPos)
+    f.BackgroundColor3 = Color3.fromRGB(22, 22, 38)
+    f.BorderSizePixel  = 0
+    f.ZIndex           = 6
+    f.Parent           = parent
+    Instance.new("UICorner", f).CornerRadius = UDim.new(0, 10)
+    return f
+end
+
+local function cardLabel(text, parent)
+    local l = Instance.new("TextLabel")
+    l.Size                   = UDim2.new(1, -10, 0, 20)
+    l.Position               = UDim2.new(0, 8, 0, 6)
+    l.BackgroundTransparency = 1
+    l.Text                   = text
+    l.TextColor3             = Color3.fromRGB(140, 155, 220)
+    l.TextSize               = 12
+    l.Font                   = Enum.Font.GothamBold
+    l.TextXAlignment         = Enum.TextXAlignment.Left
+    l.ZIndex                 = 6
+    l.Parent                 = parent
+end
+
+local function smallBtn(text, x, y, w, h, parent)
+    local b = Instance.new("TextButton")
+    b.Size             = UDim2.new(0, w, 0, h)
+    b.Position         = UDim2.new(0, x, 0, y)
+    b.BackgroundColor3 = Color3.fromRGB(50, 50, 75)
+    b.BorderSizePixel  = 0
+    b.Text             = text
+    b.TextColor3       = Color3.new(1, 1, 1)
+    b.TextSize         = 13
+    b.Font             = Enum.Font.GothamBold
+    b.ZIndex           = 6
+    b.Parent           = parent
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+    return b
+end
+
+-- ==================== TOGGLE HELPER ====================
 local function createToggle(name, configKey, yPos, parentFrame)
-    local frame = Instance.new("Frame")
-    frame.Size            = UDim2.new(1, -10, 0, 50)
-    frame.Position        = UDim2.new(0, 5, 0, yPos)
-    frame.BackgroundColor3 = Color3.fromRGB(25, 25, 40)
-    frame.BorderSizePixel  = 0
-    frame.ZIndex          = 6
-    frame.Parent          = parentFrame
-    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
+    local f = cardFrame(yPos, 50, parentFrame)
 
-    local label = Instance.new("TextLabel")
-    label.Size            = UDim2.new(0.6, 0, 1, 0)
-    label.Position        = UDim2.new(0, 15, 0, 0)
-    label.BackgroundTransparency = 1
-    label.Text            = name
-    label.TextColor3      = Color3.new(1, 1, 1)
-    label.TextSize        = 16
-    label.Font            = Enum.Font.Gotham
-    label.TextXAlignment  = Enum.TextXAlignment.Left
-    label.ZIndex          = 6
-    label.Parent          = frame
+    local lbl = Instance.new("TextLabel")
+    lbl.Size                   = UDim2.new(0.6, 0, 1, 0)
+    lbl.Position               = UDim2.new(0, 15, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text                   = name
+    lbl.TextColor3             = Color3.new(1, 1, 1)
+    lbl.TextSize               = 16
+    lbl.Font                   = Enum.Font.Gotham
+    lbl.TextXAlignment         = Enum.TextXAlignment.Left
+    lbl.ZIndex                 = 6
+    lbl.Parent                 = f
 
     local toggle = Instance.new("TextButton")
-    toggle.Size            = UDim2.new(0, 80, 0, 35)
-    toggle.Position        = UDim2.new(1, -90, 0.5, -17.5)
+    toggle.Size             = UDim2.new(0, 80, 0, 35)
+    toggle.Position         = UDim2.new(1, -90, 0.5, -17.5)
     toggle.BackgroundColor3 = Config[configKey] and Color3.fromRGB(0, 180, 100) or Color3.fromRGB(80, 80, 90)
     toggle.BorderSizePixel  = 0
-    toggle.Text            = Config[configKey] and "ON" or "OFF"
-    toggle.TextColor3      = Color3.new(1, 1, 1)
-    toggle.TextSize        = 14
-    toggle.Font            = Enum.Font.GothamBold
-    toggle.ZIndex          = 6
-    toggle.Parent          = frame
+    toggle.Text             = Config[configKey] and "ON" or "OFF"
+    toggle.TextColor3       = Color3.new(1, 1, 1)
+    toggle.TextSize         = 14
+    toggle.Font             = Enum.Font.GothamBold
+    toggle.ZIndex           = 6
+    toggle.Parent           = f
     Instance.new("UICorner", toggle).CornerRadius = UDim.new(0, 8)
 
     toggle.MouseEnter:Connect(function() twPlay(toggle, 0.12, {Size = UDim2.new(0, 84, 0, 37)}) end)
@@ -330,53 +416,47 @@ local function createToggle(name, configKey, yPos, parentFrame)
     return yPos + 60
 end
 
+-- ==================== CPS + KEYBIND (col esquerda, painel) ====================
 local function createInputRow(labelText, yPos, parentFrame, defaultVal, placeholderText, onDefault, onFocusLost)
-    local frame = Instance.new("Frame")
-    frame.Size            = UDim2.new(1, -10, 0, 50)
-    frame.Position        = UDim2.new(0, 5, 0, yPos)
-    frame.BackgroundColor3 = Color3.fromRGB(25, 25, 40)
-    frame.BorderSizePixel  = 0
-    frame.ZIndex          = 6
-    frame.Parent          = parentFrame
-    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
+    local f = cardFrame(yPos, 50, parentFrame)
 
     local label = Instance.new("TextLabel")
-    label.Size            = UDim2.new(0, 60, 1, 0)
-    label.Position        = UDim2.new(0, 15, 0, 0)
+    label.Size                   = UDim2.new(0, 60, 1, 0)
+    label.Position               = UDim2.new(0, 15, 0, 0)
     label.BackgroundTransparency = 1
-    label.Text            = labelText
-    label.TextColor3      = Color3.new(1, 1, 1)
-    label.TextSize        = 16
-    label.Font            = Enum.Font.Gotham
-    label.TextXAlignment  = Enum.TextXAlignment.Left
-    label.ZIndex          = 6
-    label.Parent          = frame
+    label.Text                   = labelText
+    label.TextColor3             = Color3.new(1, 1, 1)
+    label.TextSize               = 16
+    label.Font                   = Enum.Font.Gotham
+    label.TextXAlignment         = Enum.TextXAlignment.Left
+    label.ZIndex                 = 6
+    label.Parent                 = f
 
     local defaultBtn = Instance.new("TextButton")
-    defaultBtn.Size            = UDim2.new(0, 70, 0, 35)
-    defaultBtn.Position        = UDim2.new(0, 80, 0.5, -17.5)
+    defaultBtn.Size             = UDim2.new(0, 70, 0, 35)
+    defaultBtn.Position         = UDim2.new(0, 80, 0.5, -17.5)
     defaultBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 90)
     defaultBtn.BorderSizePixel  = 0
-    defaultBtn.Text            = "Padrão"
-    defaultBtn.TextColor3      = Color3.new(1, 1, 1)
-    defaultBtn.TextSize        = 12
-    defaultBtn.Font            = Enum.Font.GothamBold
-    defaultBtn.ZIndex          = 6
-    defaultBtn.Parent          = frame
+    defaultBtn.Text             = "Padrão"
+    defaultBtn.TextColor3       = Color3.new(1, 1, 1)
+    defaultBtn.TextSize         = 12
+    defaultBtn.Font             = Enum.Font.GothamBold
+    defaultBtn.ZIndex           = 6
+    defaultBtn.Parent           = f
     Instance.new("UICorner", defaultBtn).CornerRadius = UDim.new(0, 8)
 
     local customInput = Instance.new("TextBox")
-    customInput.Size            = UDim2.new(0, 80, 0, 35)
-    customInput.Position        = UDim2.new(1, -90, 0.5, -17.5)
+    customInput.Size             = UDim2.new(0, 80, 0, 35)
+    customInput.Position         = UDim2.new(1, -90, 0.5, -17.5)
     customInput.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
     customInput.BorderSizePixel  = 0
-    customInput.Text            = defaultVal or ""
-    customInput.PlaceholderText = placeholderText or ""
-    customInput.TextColor3      = Color3.new(1, 1, 1)
-    customInput.TextSize        = 14
-    customInput.Font            = Enum.Font.Gotham
-    customInput.ZIndex          = 6
-    customInput.Parent          = frame
+    customInput.Text             = defaultVal or ""
+    customInput.PlaceholderText  = placeholderText or ""
+    customInput.TextColor3       = Color3.new(1, 1, 1)
+    customInput.TextSize         = 14
+    customInput.Font             = Enum.Font.Gotham
+    customInput.ZIndex           = 6
+    customInput.Parent           = f
     Instance.new("UICorner", customInput).CornerRadius = UDim.new(0, 8)
 
     defaultBtn.Activated:Connect(function() onDefault(defaultBtn, customInput) end)
@@ -399,54 +479,32 @@ local function createCPSSelector(yPos, parentFrame)
         end)
 end
 
-local function createPingSelector(yPos, parentFrame)
-    return createInputRow("Ping:", yPos, parentFrame,
-        Config.CustomPing and tostring(Config.PingMS) or "", "ms",
-        function(btn, input)
-            Config.CustomPing = false; Config.PingMS = 80; input.Text = ""
-            tw(btn, 0.2, {BackgroundColor3 = Color3.fromRGB(0, 180, 100)}, Enum.EasingStyle.Back):Play(); saveConfig(Config)
-        end,
-        function(btn, input)
-            local v = tonumber(input.Text)
-            if v and v >= 1 and v <= 1000 then Config.PingMS = v; Config.CustomPing = true; tw(btn, 0.2, {BackgroundColor3 = Color3.fromRGB(80, 80, 90)}, Enum.EasingStyle.Back):Play()
-            else input.Text = Config.CustomPing and tostring(Config.PingMS) or "" end
-            saveConfig(Config)
-        end)
-end
-
 local function createKeybindSelector(yPos, parentFrame)
-    local frame = Instance.new("Frame")
-    frame.Size            = UDim2.new(1, -10, 0, 50)
-    frame.Position        = UDim2.new(0, 5, 0, yPos)
-    frame.BackgroundColor3 = Color3.fromRGB(25, 25, 40)
-    frame.BorderSizePixel  = 0
-    frame.ZIndex          = 6
-    frame.Parent          = parentFrame
-    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
+    local f = cardFrame(yPos, 50, parentFrame)
 
     local label = Instance.new("TextLabel")
-    label.Size            = UDim2.new(0.5, 0, 1, 0)
-    label.Position        = UDim2.new(0, 15, 0, 0)
+    label.Size                   = UDim2.new(0.5, 0, 1, 0)
+    label.Position               = UDim2.new(0, 15, 0, 0)
     label.BackgroundTransparency = 1
-    label.Text            = "Tecla de Atalho:"
-    label.TextColor3      = Color3.new(1, 1, 1)
-    label.TextSize        = 16
-    label.Font            = Enum.Font.Gotham
-    label.TextXAlignment  = Enum.TextXAlignment.Left
-    label.ZIndex          = 6
-    label.Parent          = frame
+    label.Text                   = "Tecla de Atalho:"
+    label.TextColor3             = Color3.new(1, 1, 1)
+    label.TextSize               = 16
+    label.Font                   = Enum.Font.Gotham
+    label.TextXAlignment         = Enum.TextXAlignment.Left
+    label.ZIndex                 = 6
+    label.Parent                 = f
 
     local keybindBtn = Instance.new("TextButton")
-    keybindBtn.Size            = UDim2.new(0, 100, 0, 35)
-    keybindBtn.Position        = UDim2.new(1, -110, 0.5, -17.5)
+    keybindBtn.Size             = UDim2.new(0, 100, 0, 35)
+    keybindBtn.Position         = UDim2.new(1, -110, 0.5, -17.5)
     keybindBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 100)
     keybindBtn.BorderSizePixel  = 0
-    keybindBtn.Text            = Config.Keybind.Name
-    keybindBtn.TextColor3      = Color3.new(1, 1, 1)
-    keybindBtn.TextSize        = 14
-    keybindBtn.Font            = Enum.Font.GothamBold
-    keybindBtn.ZIndex          = 6
-    keybindBtn.Parent          = frame
+    keybindBtn.Text             = Config.Keybind.Name
+    keybindBtn.TextColor3       = Color3.new(1, 1, 1)
+    keybindBtn.TextSize         = 14
+    keybindBtn.Font             = Enum.Font.GothamBold
+    keybindBtn.ZIndex           = 6
+    keybindBtn.Parent           = f
     Instance.new("UICorner", keybindBtn).CornerRadius = UDim.new(0, 8)
 
     keybindBtn.MouseEnter:Connect(function() twPlay(keybindBtn, 0.12, {BackgroundColor3 = Color3.fromRGB(75, 75, 125)}) end)
@@ -474,14 +532,123 @@ local function createKeybindSelector(yPos, parentFrame)
     return yPos + 60
 end
 
+-- ==================== CARD 1 — MANUAL SPAM ====================
+local function createManualSpamCard(yPos, parentFrame)
+    local CARD_H = 135
+    local f = cardFrame(yPos, CARD_H, parentFrame)
+    cardLabel("Manual Spam", f)
+
+    -- linha 1: toggle ON/OFF + capturar keybind
+    local toggleBtn = smallBtn("OFF", 8, 28, 105, 36, f)
+    toggleBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+
+    local kbBtn = smallBtn(Config.SpamKeybind and Config.SpamKeybind.Name or "X", 120, 28, 118, 36, f)
+    kbBtn.BackgroundColor3 = Color3.fromRGB(50, 60, 110)
+
+    -- linha 2: modo Hold / Toggle
+    local modeBtn = smallBtn(Config.SpamMode or "Toggle", 8, 72, 230, 34, f)
+    modeBtn.BackgroundColor3 = Color3.fromRGB(40, 55, 100)
+
+    -- estado spam
+    local spamOn = false
+    local holdConn = nil
+
+    local function setSpam(v)
+        spamOn = v
+        _G.PhantomManual = v
+        toggleBtn.Text             = v and "ON" or "OFF"
+        toggleBtn.BackgroundColor3 = v and Color3.fromRGB(50, 220, 50) or Color3.fromRGB(200, 50, 50)
+        setSpamUI(v)
+    end
+
+    -- toggle ON/OFF
+    toggleBtn.Activated:Connect(function()
+        if Config.SpamMode == "Hold" then return end -- hold é por keybind
+        setSpam(not spamOn)
+    end)
+
+    -- capturar keybind do spam
+    local listeningKb = false
+    kbBtn.Activated:Connect(function()
+        if listeningKb then return end
+        listeningKb = true
+        kbBtn.Text             = "..."
+        kbBtn.BackgroundColor3 = Color3.fromRGB(90, 90, 160)
+        local conn
+        conn = UIS.InputBegan:Connect(function(input, gpe)
+            if gpe then return end
+            if input.UserInputType == Enum.UserInputType.Keyboard then
+                Config.SpamKeybind = input.KeyCode
+                kbBtn.Text             = input.KeyCode.Name
+                kbBtn.BackgroundColor3 = Color3.fromRGB(50, 60, 110)
+                listeningKb = false
+                conn:Disconnect()
+                saveConfig(Config)
+            end
+        end)
+    end)
+
+    -- alternar modo
+    modeBtn.Activated:Connect(function()
+        Config.SpamMode = (Config.SpamMode == "Toggle") and "Hold" or "Toggle"
+        modeBtn.Text = Config.SpamMode
+        -- se muda pra Hold enquanto spam ON via toggle, desliga
+        if Config.SpamMode == "Hold" and spamOn then setSpam(false) end
+        saveConfig(Config)
+    end)
+
+    -- keybind hold/toggle via UIS
+    trackConn(UIS.InputBegan:Connect(function(input, gpe)
+        if gpe then return end
+        if not Config.SpamKeybind then return end
+        if input.KeyCode ~= Config.SpamKeybind then return end
+        if Config.SpamMode == "Hold" then
+            setSpam(true)
+        else
+            setSpam(not spamOn)
+        end
+    end))
+    trackConn(UIS.InputEnded:Connect(function(input)
+        if not Config.SpamKeybind then return end
+        if input.KeyCode ~= Config.SpamKeybind then return end
+        if Config.SpamMode == "Hold" then
+            setSpam(false)
+        end
+    end))
+
+    return yPos + CARD_H + 10
+end
+
+-- ==================== CARD 2 — AUTO CLASH ====================
+local function createAutoClashCard(yPos, parentFrame)
+    local f = cardFrame(yPos, 80, parentFrame)
+    cardLabel("Auto Clash", f)
+
+    local clashOn = false
+    local btn = smallBtn("OFF", 8, 28, 230, 36, f)
+    btn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+
+    btn.Activated:Connect(function()
+        clashOn = not clashOn
+        _G.PhantomAutoClash = clashOn
+        btn.Text             = clashOn and "ON" or "OFF"
+        btn.BackgroundColor3 = clashOn and Color3.fromRGB(50, 220, 50) or Color3.fromRGB(200, 50, 50)
+    end)
+
+    return yPos + 90
+end
+
 -- ==================== CRIANDO ELEMENTOS ====================
 local yL, yR = 5, 5
-yL = createToggle("Auto Parry",   "AutoParry",        yL, colLeft)
-yL = createToggle("Aura Visual",  "Aura",             yL, colLeft)
-yL = createToggle("Comp. de Ping","PingCompensation", yL, colLeft)
-yR = createPingSelector(yR, colRight)
+-- Coluna esquerda: Auto Parry + Aura + Card Manual Spam
+yL = createToggle("Auto Parry",  "AutoParry", yL, colLeft)
+yL = createToggle("Aura Visual", "Aura",      yL, colLeft)
+yL = createManualSpamCard(yL, colLeft)
+
+-- Coluna direita: CPS + Keybind + Card Auto Clash
 yR = createCPSSelector(yR, colRight)
 yR = createKeybindSelector(yR, colRight)
+yR = createAutoClashCard(yR, colRight)
 
 -- ==================== ABRIR / FECHAR PAINEL ====================
 local panelOpen = false
@@ -509,7 +676,10 @@ local function togglePanel()
     end
 end
 
-floatingButton.Activated:Connect(togglePanel)
+floatingButton.Activated:Connect(function()
+    if btnWasDrag and btnWasDrag() then return end
+    togglePanel()
+end)
 closeButton.Activated:Connect(togglePanel)
 
 trackConn(UIS.InputBegan:Connect(function(input, gpe)
@@ -520,21 +690,21 @@ end))
 -- ==================== FECHAR SCRIPT ====================
 killBtn.Activated:Connect(function()
     State.scriptActive = false
+    _G.PhantomManual    = false
+    _G.PhantomAutoClash = false
     saveConfig(Config)
+    setSpamUI(false)
 
-    twPlay(configPanel, 0.3, {BackgroundTransparency = 1, Size = UDim2.new(0, PANEL_W * 0.85, 0, PANEL_H * 0.85)}, Enum.EasingStyle.Quint)
+    twPlay(configPanel,    0.3, {BackgroundTransparency = 1, Size = UDim2.new(0, PANEL_W * 0.85, 0, PANEL_H * 0.85)}, Enum.EasingStyle.Quint)
     twPlay(floatingButton, 0.3, {BackgroundTransparency = 1, Size = UDim2.new(0, 0, 0, 0)})
 
     task.wait(0.35)
-
     for _, c in ipairs(State.connections) do pcall(function() c:Disconnect() end) end
     pcall(function() State.outer:Destroy() end)
     pcall(function() State.inner:Destroy() end)
     pcall(function() screenGui:Destroy() end)
-
     print("🛑 Phantom Script encerrado.")
 end)
 
-print("✅ Phantom GUI v3.0 carregada!")
-print("   • Clique no botão ⚡ para configurar")
-print("   • Tecla padrão: " .. Config.Keybind.Name)
+print("✅ Phantom GUI v4.0 carregada!")
+print("   • Botão ⚡ para configurar | tecla padrão: " .. Config.Keybind.Name)
