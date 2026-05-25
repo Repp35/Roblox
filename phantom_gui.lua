@@ -297,6 +297,8 @@ task.spawn(function()
         if configPanel.Visible then
             panelStroke.Color = col
         end
+        -- raio da bolinha some quando painel tá aberto
+        floatingStroke.Transparency = configPanel.Visible and 1 or 0
         floatingStroke.Color = col
         task.wait(0.05)
     end
@@ -597,8 +599,11 @@ local function createSpamPCCard(yPos, parent)
     local visBtn = makeBtn("Mini UI: Oculto", 8, 22, COL_W - 16, 28, f, C.btnDark)
     visBtn.TextSize = 11
 
-    visBtn.Activated:Connect(function()
-        showMini(not miniGui.Visible, visBtn)
+    visBtn.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            showMini(not miniGui.Visible, visBtn)
+        end
     end)
 
     local halfW = math.floor((COL_W - 28) / 2)
