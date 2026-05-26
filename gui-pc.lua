@@ -419,22 +419,28 @@ local function togglePanel()
     if panelOpen then
         floatingButton.Active = false
         tweenBtn = tw(floatingButton, 0.18, {BackgroundTransparency=1, TextTransparency=1, Size=UDim2.new(0,38,0,38)}, Enum.EasingStyle.Quint)
-        tweenBtn:Play()
+        if tweenBtn then tweenBtn:Play() end
         configPanel.Visible = true
         configPanel.Size    = UDim2.new(0, PW*0.88, 0, PH*0.88)
         configPanel.BackgroundTransparency = 1
         tweenPanel = tw(configPanel, 0.28, {Size=UDim2.new(0,PW,0,PH), BackgroundTransparency=0.06}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-        tweenPanel:Play()
+        if tweenPanel then tweenPanel:Play() end
     else
         tweenBtn = tw(floatingButton, 0.22, {BackgroundTransparency=0, TextTransparency=0, Size=UDim2.new(0,54,0,54)}, Enum.EasingStyle.Back)
-        tweenBtn:Play()
-        tweenBtn.Completed:Connect(function() floatingButton.Active = true end)
+        if tweenBtn then
+            tweenBtn:Play()
+            tweenBtn.Completed:Connect(function() floatingButton.Active = true end)
+        end
         tweenPanel = tw(configPanel, 0.22, {Size=UDim2.new(0,PW*0.9,0,PH*0.9), BackgroundTransparency=1}, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
-        tweenPanel:Play()
-        local conn
-        conn = tweenPanel.Completed:Connect(function()
-            configPanel.Visible = false; conn:Disconnect()
-        end)
+        if tweenPanel then
+            tweenPanel:Play()
+            local conn
+            conn = tweenPanel.Completed:Connect(function()
+                configPanel.Visible = false; conn:Disconnect()
+            end)
+        else
+            configPanel.Visible = false
+        end
     end
 end
 
@@ -813,26 +819,31 @@ local function togglePanel()
     if panelOpen then
         floatingButton.Active = false
         tweenBtn = tw(floatingButton, 0.18, {BackgroundTransparency = 1, TextTransparency = 1, Size = UDim2.new(0, 38, 0, 38)}, Enum.EasingStyle.Quint)
-        tweenBtn:Play()
+        if tweenBtn then tweenBtn:Play() end
 
         configPanel.Visible                = true
         configPanel.Size                   = UDim2.new(0, PW * 0.88, 0, PH * 0.88)
         configPanel.BackgroundTransparency = 1
         tweenPanel = tw(configPanel, 0.28, {Size = UDim2.new(0, PW, 0, PH), BackgroundTransparency = 0.06}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-        tweenPanel:Play()
+        if tweenPanel then tweenPanel:Play() end
     else
         tweenBtn = tw(floatingButton, 0.22, {BackgroundTransparency = 0, TextTransparency = 0, Size = UDim2.new(0, 54, 0, 54)}, Enum.EasingStyle.Back)
-        tweenBtn:Play()
-        -- Active volta imediatamente, não espera o tween
-        tweenBtn.Completed:Connect(function() floatingButton.Active = true end)
+        if tweenBtn then
+            tweenBtn:Play()
+            tweenBtn.Completed:Connect(function() floatingButton.Active = true end)
+        end
 
         tweenPanel = tw(configPanel, 0.22, {Size = UDim2.new(0, PW * 0.9, 0, PH * 0.9), BackgroundTransparency = 1}, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
-        tweenPanel:Play()
         local conn
-        conn = tweenPanel.Completed:Connect(function()
+        if tweenPanel then
+            tweenPanel:Play()
+            conn = tweenPanel.Completed:Connect(function()
+                configPanel.Visible = false
+                conn:Disconnect()
+            end)
+        else
             configPanel.Visible = false
-            conn:Disconnect()
-        end)
+        end
     end
 end
 
