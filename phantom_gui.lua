@@ -10,13 +10,16 @@ if not _G.PhantomConfig then
     return
 end
 
+local CoreGui = game:GetService("CoreGui")
+local existing = CoreGui:FindFirstChild("PhantomUISystem")
+if existing then existing:Destroy() end
+
 local Config     = _G.PhantomConfig
 local State      = _G.PhantomState
 local saveConfig = _G.PhantomSaveConfig
 
 local Workspace    = game:GetService("Workspace")
 local UIS          = game:GetService("UserInputService")
-local CoreGui      = game:GetService("CoreGui")
 local TweenService = game:GetService("TweenService")
 
 local function tw(obj, t, props, style, dir)
@@ -280,7 +283,6 @@ end
 
 -- keybind spam
 trackConn(UIS.InputBegan:Connect(function(input, gpe)
-    if gpe then return end
     if not Config.SpamKeybind then return end
     if input.KeyCode ~= Config.SpamKeybind then return end
     if Config.SpamMode == "Hold" then setSpam(true)
@@ -444,8 +446,10 @@ killBtn.Parent           = configPanel
 Instance.new("UICorner", killBtn).CornerRadius = UDim.new(0, 9)
 Instance.new("UIStroke", killBtn).Color        = C.red
 
-killBtn.MouseEnter:Connect(function() twPlay(killBtn, 0.15, {BackgroundColor3 = Color3.fromRGB(185, 35, 35), Size = UDim2.new(0, 188, 0, 36)}) end)
-killBtn.MouseLeave:Connect(function() twPlay(killBtn, 0.15, {BackgroundColor3 = C.redDark, Size = UDim2.new(0, 180, 0, 34)}) end)
+if not UIS.TouchEnabled then
+    killBtn.MouseEnter:Connect(function() twPlay(killBtn, 0.15, {BackgroundColor3 = Color3.fromRGB(185, 35, 35), Size = UDim2.new(0, 188, 0, 36)}) end)
+    killBtn.MouseLeave:Connect(function() twPlay(killBtn, 0.15, {BackgroundColor3 = C.redDark, Size = UDim2.new(0, 180, 0, 34)}) end)
+end
 
 -- ==================== HELPERS ====================
 local CARD_GAP = 7
@@ -789,8 +793,7 @@ closeButton.Activated:Connect(function()
     if panelOpen then togglePanel() end
 end)
 
-trackConn(UIS.InputBegan:Connect(function(input, gpe)
-    if gpe then return end
+trackConn(UIS.InputBegan:Connect(function(input)
     if activeDragTarget then return end
     if input.KeyCode == Config.Keybind then togglePanel() end
 end))
