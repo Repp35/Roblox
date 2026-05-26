@@ -427,20 +427,14 @@ local function togglePanel()
         if tweenPanel then tweenPanel:Play() end
     else
         tweenBtn = tw(floatingButton, 0.22, {BackgroundTransparency=0, TextTransparency=0, Size=UDim2.new(0,54,0,54)}, Enum.EasingStyle.Back)
-        if tweenBtn then
-            tweenBtn:Play()
-            tweenBtn.Completed:Connect(function() floatingButton.Active = true end)
-        end
+        if tweenBtn then tweenBtn:Play() end
+        tweenBtn.Completed:Connect(function() floatingButton.Active = true end)
         tweenPanel = tw(configPanel, 0.22, {Size=UDim2.new(0,PW*0.9,0,PH*0.9), BackgroundTransparency=1}, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
-        if tweenPanel then
-            tweenPanel:Play()
-            local conn
-            conn = tweenPanel.Completed:Connect(function()
-                configPanel.Visible = false; conn:Disconnect()
-            end)
-        else
-            configPanel.Visible = false
-        end
+        if tweenPanel then tweenPanel:Play() end
+        local conn
+        conn = tweenPanel.Completed:Connect(function()
+            configPanel.Visible = false; conn:Disconnect()
+        end)
     end
 end
 
@@ -819,7 +813,7 @@ local function togglePanel()
     if panelOpen then
         floatingButton.Active = false
         tweenBtn = tw(floatingButton, 0.18, {BackgroundTransparency = 1, TextTransparency = 1, Size = UDim2.new(0, 38, 0, 38)}, Enum.EasingStyle.Quint)
-        if tweenBtn then tweenBtn:Play() end
+        tweenBtn:Play()
 
         configPanel.Visible                = true
         configPanel.Size                   = UDim2.new(0, PW * 0.88, 0, PH * 0.88)
@@ -828,22 +822,17 @@ local function togglePanel()
         if tweenPanel then tweenPanel:Play() end
     else
         tweenBtn = tw(floatingButton, 0.22, {BackgroundTransparency = 0, TextTransparency = 0, Size = UDim2.new(0, 54, 0, 54)}, Enum.EasingStyle.Back)
-        if tweenBtn then
-            tweenBtn:Play()
-            tweenBtn.Completed:Connect(function() floatingButton.Active = true end)
-        end
+        tweenBtn:Play()
+        -- Active volta imediatamente, não espera o tween
+        tweenBtn.Completed:Connect(function() floatingButton.Active = true end)
 
         tweenPanel = tw(configPanel, 0.22, {Size = UDim2.new(0, PW * 0.9, 0, PH * 0.9), BackgroundTransparency = 1}, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+        if tweenPanel then tweenPanel:Play() end
         local conn
-        if tweenPanel then
-            tweenPanel:Play()
-            conn = tweenPanel.Completed:Connect(function()
-                configPanel.Visible = false
-                conn:Disconnect()
-            end)
-        else
+        conn = tweenPanel.Completed:Connect(function()
             configPanel.Visible = false
-        end
+            conn:Disconnect()
+        end)
     end
 end
 
@@ -881,3 +870,5 @@ end)
 
 print("✅ Phantom GUI v5.5 carregada!")
 print("   • Botão ⚡ para configurar | tecla: " .. Config.Keybind.Name)
+-- ==================== CARREGA A GUI ====================
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Repp35/Roblox/refs/heads/main/gui-pc.lua"))()
