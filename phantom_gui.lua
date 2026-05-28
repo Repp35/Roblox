@@ -10,8 +10,17 @@ if not _G.PhantomConfig then
     return
 end
 
-local CoreGui = game:GetService("CoreGui")
-local existing = CoreGui:FindFirstChild("PhantomUISystem")
+local guiParent
+do
+    local ok, cg = pcall(function() return game:GetService("CoreGui") end)
+    if ok and cg then
+        guiParent = cg
+    else
+        guiParent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+        warn("⚠️ Phantom: CoreGui bloqueado, usando PlayerGui como fallback")
+    end
+end
+local existing = guiParent:FindFirstChild("PhantomUISystem")
 if existing then existing:Destroy() end
 
 local Config     = _G.PhantomConfig
@@ -52,7 +61,7 @@ local screenGui = Instance.new("ScreenGui")
 screenGui.Name           = "PhantomUISystem"
 screenGui.ResetOnSpawn   = false
 screenGui.IgnoreGuiInset = true
-screenGui.Parent         = CoreGui
+screenGui.Parent         = guiParent
 
 -- ==================== DRAG ====================
 local activeDragTarget = nil
