@@ -12,12 +12,87 @@ end
 
 local guiParent
 do
-    local ok, cg = pcall(function() return game:GetService("CoreGui") end)
-    if ok and cg then
-        guiParent = cg
-    else
-        guiParent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
-        warn("⚠️ Phantom: CoreGui bloqueado, usando PlayerGui como fallback")
+    -- 1. gethui() — Xeno, Delta, Fluxus, Wave
+    local ok1, hui = pcall(function() return gethui() end)
+    if ok1 and hui then
+        guiParent = hui
+        warn("✅ Phantom: usando gethui()")
+    end
+
+    -- 2. CoreGui — Synapse X, executores com permissão total
+    if not guiParent then
+        local ok2, cg = pcall(function() return game:GetService("CoreGui") end)
+        if ok2 and cg then
+            guiParent = cg
+            warn("✅ Phantom: usando CoreGui")
+        end
+    end
+
+    -- 3. syn.protect_gui + PlayerGui — Synapse legado
+    if not guiParent then
+        local ok3, pg = pcall(function()
+            return game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui", 5)
+        end)
+        if ok3 and pg then
+            guiParent = pg
+            if syn and syn.protect_gui then
+                pcall(function() syn.protect_gui(screenGui) end)
+            end
+            warn("✅ Phantom: usando PlayerGui + syn.protect_gui")
+        end
+    end
+
+    -- 4. cloneref do PlayerGui — evita detecção em alguns jogos
+    if not guiParent then
+        local ok4, pg = pcall(function()
+            local lp = game:GetService("Players").LocalPlayer
+            return cloneref and cloneref(lp.PlayerGui) or lp.PlayerGui
+        end)
+        if ok4 and pg then
+            guiParent = pg
+            warn("✅ Phantom: usando cloneref(PlayerGui)")
+        end
+    end
+
+    -- 5. RenderStepped + PlayerGui — espera o PlayerGui existir
+    if not guiParent then
+        local ok5, pg = pcall(function()
+            local lp = game:GetService("Players").LocalPlayer
+            local found
+            for _ = 1, 50 do
+                found = lp:FindFirstChildOfClass("PlayerGui")
+                if found then break end
+                task.wait(0.1)
+            end
+            return found
+        end)
+        if ok5 and pg then
+            guiParent = pg
+            warn("✅ Phantom: usando PlayerGui via polling")
+        end
+    end
+
+    -- 6. Workspace como parent temporário (fallback extremo)
+    if not guiParent then
+        local ok6, ws = pcall(function() return game:GetService("Workspace") end)
+        if ok6 and ws then
+            guiParent = ws
+            warn("⚠️ Phantom: usando Workspace como parent (fallback extremo)")
+        end
+    end
+
+    -- 7. game direto — último recurso absoluto
+    if not guiParent then
+        local ok7 = pcall(function() guiParent = game end)
+        if ok7 and guiParent then
+            warn("⚠️ Phantom: usando game como parent (último recurso)")
+        end
+    end
+
+    -- 8. Falhou tudo
+    if not guiParent then
+        warn("❌ Phantom: nenhum guiParent disponível. GUI abortada.")
+        return
     end
 end
 local existing = guiParent:FindFirstChild("PhantomUISystem")
