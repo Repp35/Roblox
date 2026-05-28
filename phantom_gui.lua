@@ -283,12 +283,14 @@ end
 
 -- keybind spam
 trackConn(UIS.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
     if not Config.SpamKeybind then return end
     if input.KeyCode ~= Config.SpamKeybind then return end
     if Config.SpamMode == "Hold" then setSpam(true)
     else setSpam(not spamOn) end
 end))
-trackConn(UIS.InputEnded:Connect(function(input)
+trackConn(UIS.InputEnded:Connect(function(input, gpe)
+    if gpe then return end
     if not Config.SpamKeybind then return end
     if input.KeyCode ~= Config.SpamKeybind then return end
     if Config.SpamMode == "Hold" then setSpam(false) end
@@ -647,7 +649,7 @@ local function createSpamPCCard(yPos, parent)
     local halfW = math.floor((COL_W - 28) / 2)
 
     local kbBtn = makeBtn(
-        Config.SpamKeybind and Config.SpamKeybind.Name or "X",
+        (Config.SpamKeybind and Config.SpamKeybind.Name) or (Config.SpamKeybindName or "F"),
         8, 60, halfW, 30, f, C.btnBlue
     )
 
