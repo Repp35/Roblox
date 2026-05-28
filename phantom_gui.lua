@@ -281,21 +281,6 @@ do
     end))
 end
 
--- keybind spam
-trackConn(UIS.InputBegan:Connect(function(input, gpe)
-    if gpe then return end
-    if not Config.SpamKeybind then return end
-    if input.KeyCode ~= Config.SpamKeybind then return end
-    if Config.SpamMode == "Hold" then setSpam(true)
-    else setSpam(not spamOn) end
-end))
-trackConn(UIS.InputEnded:Connect(function(input, gpe)
-    if gpe then return end
-    if not Config.SpamKeybind then return end
-    if input.KeyCode ~= Config.SpamKeybind then return end
-    if Config.SpamMode == "Hold" then setSpam(false) end
-end))
-
 -- ==================== BOTÃO FLUTUANTE ====================
 local floatingButton = Instance.new("TextButton")
 floatingButton.Size             = UDim2.new(0, 54, 0, 54)
@@ -315,6 +300,21 @@ local floatingStroke = Instance.new("UIStroke")
 floatingStroke.Color     = C.accent
 floatingStroke.Thickness = 2
 floatingStroke.Parent    = floatingButton
+
+-- keybind spam (registrado após floatingButton existir)
+trackConn(UIS.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if not Config.SpamKeybind then return end
+    if input.KeyCode ~= Config.SpamKeybind then return end
+    if Config.SpamMode == "Hold" then setSpam(true)
+    else setSpam(not spamOn) end
+end))
+trackConn(UIS.InputEnded:Connect(function(input, gpe)
+    if gpe then return end
+    if not Config.SpamKeybind then return end
+    if input.KeyCode ~= Config.SpamKeybind then return end
+    if Config.SpamMode == "Hold" then setSpam(false) end
+end))
 
 -- ==================== PAINEL ====================
 local PW, PH = 520, 340
