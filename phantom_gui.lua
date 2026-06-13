@@ -1,8 +1,8 @@
--- Phantom Ball GUI v6.0 - Redesign Nexus Style
+-- Phantom Ball GUI v8.0 - Correção Visual Completa
 -- Paleta: Azul / Roxo / Rosa
--- Carregado automaticamente pelo phantom_final.lua via loadstring
+-- Carregado automaticamente pelo phantom_logic_v8.lua via loadstring
 
-print("[PhantomGUI] Iniciando carregamento v6.0...")
+print("[PhantomGUI] Iniciando carregamento v8.0...")
 
 local timeout = 0
 while not _G.PhantomConfig and timeout < 10 do
@@ -11,7 +11,7 @@ while not _G.PhantomConfig and timeout < 10 do
 end
 
 if not _G.PhantomConfig then
-    warn("[PhantomGUI] ERRO: _G.PhantomConfig nao encontrada. Rode phantom_final.lua primeiro.")
+    warn("[PhantomGUI] ERRO: _G.PhantomConfig nao encontrada. Rode phantom_logic_v8.lua primeiro.")
     return
 end
 
@@ -48,7 +48,7 @@ local function trackConn(c)
 end
 
 -- ==========================================
---         PALETA NEXUS - AZUL/ROXO/ROSA
+-- PALETA NEXUS - AZUL/ROXO/ROSA
 -- ==========================================
 local C = {
     bg = Color3.fromRGB(8, 8, 22),
@@ -77,7 +77,7 @@ local C = {
 print("[PhantomGUI] Cores definidas. Criando ScreenGui...")
 
 -- ==========================================
---         SCREEN GUI
+-- SCREEN GUI
 -- ==========================================
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "PhantomUISystem"
@@ -88,7 +88,7 @@ screenGui.Parent = CoreGui
 print("[PhantomGUI] ScreenGui criado.")
 
 -- ==========================================
---         DRAG SYSTEM
+-- DRAG SYSTEM
 -- ==========================================
 local activeDragTarget = nil
 
@@ -102,7 +102,7 @@ local function makeDraggable(handle, target, onDragEnd)
 
     handle.InputBegan:Connect(function(input)
         if input.UserInputType ~= Enum.UserInputType.MouseButton1
-            and input.UserInputType ~= Enum.UserInputType.Touch then
+        and input.UserInputType ~= Enum.UserInputType.Touch then
             return
         end
         if activeDragTarget and activeDragTarget ~= target then
@@ -160,7 +160,7 @@ local function makeDraggable(handle, target, onDragEnd)
 
     trackConn(UIS.InputChanged:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseMovement
-            or input.UserInputType == Enum.UserInputType.Touch then
+        or input.UserInputType == Enum.UserInputType.Touch then
             onMove(input)
         end
     end))
@@ -173,7 +173,7 @@ end
 print("[PhantomGUI] Drag system criado.")
 
 -- ==========================================
---         MINI GUI SPAM
+-- MINI GUI SPAM
 -- ==========================================
 local MINI_W = 120
 local MINI_H = 90
@@ -182,6 +182,7 @@ local miniGui = Instance.new("Frame")
 miniGui.Name = "PhantomSpamMini"
 miniGui.Size = UDim2.new(0, MINI_W, 0, MINI_H)
 miniGui.BackgroundColor3 = C.header
+miniGui.BackgroundTransparency = 0.1  -- CORREÇÃO: fundo visível
 miniGui.BorderSizePixel = 0
 miniGui.ZIndex = 15
 miniGui.Parent = screenGui
@@ -204,6 +205,7 @@ miniStroke.Parent = miniGui
 local miniTitleBar = Instance.new("Frame")
 miniTitleBar.Size = UDim2.new(1, 0, 0, 26)
 miniTitleBar.BackgroundColor3 = Color3.fromRGB(20, 20, 46)
+miniTitleBar.BackgroundTransparency = 0.05
 miniTitleBar.BorderSizePixel = 0
 miniTitleBar.ZIndex = 16
 miniTitleBar.Parent = miniGui
@@ -213,6 +215,7 @@ local miniTFill = Instance.new("Frame")
 miniTFill.Size = UDim2.new(1, 0, 0, 12)
 miniTFill.Position = UDim2.new(0, 0, 1, -12)
 miniTFill.BackgroundColor3 = Color3.fromRGB(20, 20, 46)
+miniTFill.BackgroundTransparency = 0.05
 miniTFill.BorderSizePixel = 0
 miniTFill.ZIndex = 16
 miniTFill.Parent = miniTitleBar
@@ -240,6 +243,7 @@ local spamBtn = Instance.new("TextButton")
 spamBtn.Size = UDim2.new(1, -16, 0, 48)
 spamBtn.Position = UDim2.new(0, 8, 0, 32)
 spamBtn.BackgroundColor3 = C.red
+spamBtn.BackgroundTransparency = 0.1
 spamBtn.BorderSizePixel = 0
 spamBtn.Text = "OFF"
 spamBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -311,7 +315,7 @@ miniTitleBar.InputBegan:Connect(function(input)
         return
     end
     if input.UserInputType ~= Enum.UserInputType.MouseButton1
-        and input.UserInputType ~= Enum.UserInputType.Touch then
+    and input.UserInputType ~= Enum.UserInputType.Touch then
         return
     end
     if activeDragTarget and activeDragTarget ~= miniGui then
@@ -353,7 +357,7 @@ trackConn(UIS.InputChanged:Connect(function(input)
         return
     end
     if input.UserInputType ~= Enum.UserInputType.MouseMovement
-        and input.UserInputType ~= Enum.UserInputType.Touch then
+    and input.UserInputType ~= Enum.UserInputType.Touch then
         return
     end
     if activeDragTarget and activeDragTarget ~= miniGui then
@@ -406,12 +410,13 @@ end))
 print("[PhantomGUI] Mini GUI criado.")
 
 -- ==========================================
---         BOTAO FLUTUANTE
+-- BOTAO FLUTUANTE
 -- ==========================================
 local floatingButton = Instance.new("TextButton")
 floatingButton.Size = UDim2.new(0, 56, 0, 56)
 floatingButton.Position = Config.BtnX and UDim2.new(0, Config.BtnX, 0, Config.BtnY) or UDim2.new(1, -70, 0.5, -28)
 floatingButton.BackgroundColor3 = C.header
+floatingButton.BackgroundTransparency = 0.1
 floatingButton.BorderSizePixel = 0
 floatingButton.Text = "P"
 floatingButton.TextColor3 = C.text
@@ -449,7 +454,7 @@ end)
 print("[PhantomGUI] Botao flutuante criado.")
 
 -- ==========================================
---         PAINEL PRINCIPAL
+-- PAINEL PRINCIPAL - CORREÇÃO VISUAL
 -- ==========================================
 local PW, PH = 540, 360
 
@@ -458,38 +463,35 @@ configPanel.Name = "PhantomPanel"
 configPanel.Size = UDim2.new(0, PW, 0, PH)
 configPanel.Position = Config.PanelX and UDim2.new(0, Config.PanelX, 0, Config.PanelY) or UDim2.new(0.5, -PW / 2, 0.5, -PH / 2)
 configPanel.BackgroundColor3 = C.bg
-configPanel.BackgroundTransparency = 0.04
+configPanel.BackgroundTransparency = 0  -- CORREÇÃO: fundo SÓLIDO, não transparente
 configPanel.BorderSizePixel = 0
 configPanel.Visible = false
 configPanel.ZIndex = 5
 configPanel.Parent = screenGui
 Instance.new("UICorner", configPanel).CornerRadius = UDim.new(0, 16)
 
+-- Borda sólida ao redor do painel
 local panelStroke = Instance.new("UIStroke")
 panelStroke.Color = C.accent
-panelStroke.Thickness = 1.8
+panelStroke.Thickness = 2
 panelStroke.Parent = configPanel
 
--- Background gradient sutil
-local panelGrad = Instance.new("UIGradient", configPanel)
-panelGrad.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, C.accentCyan),
-    ColorSequenceKeypoint.new(0.4, C.accent),
-    ColorSequenceKeypoint.new(0.7, C.accentGlow),
-    ColorSequenceKeypoint.new(1, C.bg),
-})
-panelGrad.Rotation = 135
-panelGrad.Transparency = NumberSequence.new({
-    NumberSequenceKeypoint.new(0, 0.88),
-    NumberSequenceKeypoint.new(0.3, 0.94),
-    NumberSequenceKeypoint.new(0.6, 0.97),
-    NumberSequenceKeypoint.new(1, 1),
-})
+-- Sombra sutil (frame maior atrás)
+local shadowFrame = Instance.new("Frame")
+shadowFrame.Name = "Shadow"
+shadowFrame.Size = UDim2.new(1, 12, 1, 12)
+shadowFrame.Position = UDim2.new(0, -6, 0, -6)
+shadowFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+shadowFrame.BackgroundTransparency = 0.5
+shadowFrame.BorderSizePixel = 0
+shadowFrame.ZIndex = 4
+shadowFrame.Parent = configPanel
+Instance.new("UICorner", shadowFrame).CornerRadius = UDim.new(0, 20)
 
-print("[PhantomGUI] Painel principal criado.")
+print("[PhantomGUI] Painel principal criado com fundo sólido.")
 
 -- ==========================================
---         RGB LOOP (azul -> roxo -> rosa)
+-- RGB LOOP (azul -> roxo -> rosa)
 -- ==========================================
 task.spawn(function()
     local t = 0
@@ -505,13 +507,14 @@ task.spawn(function()
 end)
 
 -- ==========================================
---         TITLE BAR
+-- TITLE BAR
 -- ==========================================
 local TITLE_H = 50
 
 local titleBar = Instance.new("Frame")
 titleBar.Size = UDim2.new(1, 0, 0, TITLE_H)
 titleBar.BackgroundColor3 = C.header
+titleBar.BackgroundTransparency = 0  -- CORREÇÃO: sólido
 titleBar.BorderSizePixel = 0
 titleBar.ZIndex = 6
 titleBar.Parent = configPanel
@@ -521,6 +524,7 @@ local titleBarFill = Instance.new("Frame")
 titleBarFill.Size = UDim2.new(1, 0, 0, 16)
 titleBarFill.Position = UDim2.new(0, 0, 1, -16)
 titleBarFill.BackgroundColor3 = C.header
+titleBarFill.BackgroundTransparency = 0
 titleBarFill.BorderSizePixel = 0
 titleBarFill.ZIndex = 6
 titleBarFill.Parent = titleBar
@@ -554,7 +558,7 @@ local titleLabel = Instance.new("TextLabel")
 titleLabel.Size = UDim2.new(1, -60, 1, 0)
 titleLabel.Position = UDim2.new(0, 34, 0, 0)
 titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "Phantom  -  Config"
+titleLabel.Text = "Phantom - Config"
 titleLabel.TextColor3 = C.text
 titleLabel.TextSize = 16
 titleLabel.Font = Enum.Font.GothamBold
@@ -567,7 +571,7 @@ local subLabel = Instance.new("TextLabel", titleBar)
 subLabel.Size = UDim2.new(0, 200, 0, 14)
 subLabel.Position = UDim2.new(0, 34, 0.5, 6)
 subLabel.BackgroundTransparency = 1
-subLabel.Text = "v6.0  -  Professional"
+subLabel.Text = "v8.0 - Professional"
 subLabel.TextColor3 = C.subtext
 subLabel.TextSize = 10
 subLabel.Font = Enum.Font.Gotham
@@ -607,10 +611,10 @@ end)
 print("[PhantomGUI] Title bar criado.")
 
 -- ==========================================
---         LAYOUT
+-- LAYOUT
 -- ==========================================
 local CONTENT_Y = TITLE_H + 12
-local FOOTER_H = 54
+local FOOTER_H = 44  -- CORREÇÃO: menor
 local PAD = 14
 local GAP = 12
 local COL_W = math.floor((PW - PAD * 2 - GAP) / 2)
@@ -649,38 +653,39 @@ divGrad.Rotation = 90
 print("[PhantomGUI] Layout criado.")
 
 -- ==========================================
---         KILL BUTTON (footer)
+-- KILL BUTTON (footer) - CORREÇÃO VISUAL
 -- ==========================================
 local killBtn = Instance.new("TextButton")
-killBtn.Size = UDim2.new(0, 200, 0, 36)
-killBtn.Position = UDim2.new(0.5, -100, 1, -FOOTER_H + 10)
+killBtn.Size = UDim2.new(0, 140, 0, 28)  -- CORREÇÃO: menor
+killBtn.Position = UDim2.new(0.5, -70, 1, -36)  -- CORREÇÃO: posicionado melhor
 killBtn.BackgroundColor3 = C.redDark
+killBtn.BackgroundTransparency = 0.1
 killBtn.BorderSizePixel = 0
 killBtn.Text = "Fechar Script"
 killBtn.TextColor3 = Color3.fromRGB(255, 185, 185)
-killBtn.TextSize = 13
+killBtn.TextSize = 12  -- CORREÇÃO: menor
 killBtn.Font = Enum.Font.GothamBold
 killBtn.ZIndex = 7
 killBtn.Parent = configPanel
-Instance.new("UICorner", killBtn).CornerRadius = UDim.new(0, 10)
+Instance.new("UICorner", killBtn).CornerRadius = UDim.new(0, 8)
 
 local killStroke = Instance.new("UIStroke", killBtn)
 killStroke.Color = C.red
-killStroke.Thickness = 1.5
+killStroke.Thickness = 1
 
 if not UIS.TouchEnabled then
     killBtn.MouseEnter:Connect(function()
-        twPlay(killBtn, 0.15, {BackgroundColor3 = Color3.fromRGB(185, 35, 35), Size = UDim2.new(0, 208, 0, 38)})
-        killBtn.Position = UDim2.new(0.5, -104, 1, -FOOTER_H + 9)
+        twPlay(killBtn, 0.15, {BackgroundColor3 = Color3.fromRGB(185, 35, 35), Size = UDim2.new(0, 144, 0, 30)})
+        killBtn.Position = UDim2.new(0.5, -72, 1, -37)
     end)
     killBtn.MouseLeave:Connect(function()
-        twPlay(killBtn, 0.15, {BackgroundColor3 = C.redDark, Size = UDim2.new(0, 200, 0, 36)})
-        killBtn.Position = UDim2.new(0.5, -100, 1, -FOOTER_H + 10)
+        twPlay(killBtn, 0.15, {BackgroundColor3 = C.redDark, Size = UDim2.new(0, 140, 0, 28)})
+        killBtn.Position = UDim2.new(0.5, -70, 1, -36)
     end)
 end
 
 -- ==========================================
---         HELPERS (cards estilo Nexus)
+-- HELPERS (cards estilo Nexus)
 -- ==========================================
 local CARD_GAP = 8
 
@@ -689,6 +694,7 @@ local function cardFrame(yPos, h, parent)
     f.Size = UDim2.new(1, 0, 0, h)
     f.Position = UDim2.new(0, 0, 0, yPos)
     f.BackgroundColor3 = C.card
+    f.BackgroundTransparency = 0.1  -- CORREÇÃO: visível
     f.BorderSizePixel = 0
     f.ZIndex = 6
     f.Parent = parent
@@ -729,6 +735,7 @@ local function makeBtn(text, x, y, w, h, parent, bg)
     b.Size = UDim2.new(0, w, 0, h)
     b.Position = UDim2.new(0, x, 0, y)
     b.BackgroundColor3 = bg or C.btnBlue
+    b.BackgroundTransparency = 0.1
     b.BorderSizePixel = 0
     b.Text = text
     b.TextColor3 = C.text
@@ -743,7 +750,7 @@ end
 print("[PhantomGUI] Helpers criados.")
 
 -- ==========================================
---         TOGGLE (estilo Nexus)
+-- TOGGLE (estilo Nexus)
 -- ==========================================
 local function createToggle(labelText, configKey, yPos, parent)
     local f = cardFrame(yPos, 52, parent)
@@ -764,6 +771,7 @@ local function createToggle(labelText, configKey, yPos, parent)
     track.Size = UDim2.new(0, 48, 0, 26)
     track.Position = UDim2.new(1, -62, 0.5, -13)
     track.BackgroundColor3 = Config[configKey] and C.toggleOn or C.toggleOff
+    track.BackgroundTransparency = 0.1
     track.BorderSizePixel = 0
     track.ZIndex = 7
     Instance.new("UICorner", track).CornerRadius = UDim.new(1, 0)
@@ -796,7 +804,7 @@ local function createToggle(labelText, configKey, yPos, parent)
 end
 
 -- ==========================================
---         CPS SPAM
+-- CPS SPAM
 -- ==========================================
 local function createCPSSelector(yPos, parent)
     local CARD_H = 68
@@ -824,6 +832,7 @@ local function createCPSSelector(yPos, parent)
     inputBox.Size = UDim2.new(0, 72, 0, ROW_H)
     inputBox.Position = UDim2.new(1, -82, 0, ROW_Y)
     inputBox.BackgroundColor3 = C.inputBg
+    inputBox.BackgroundTransparency = 0.1
     inputBox.BorderSizePixel = 0
     inputBox.Text = tostring(Config.CPS)
     inputBox.PlaceholderText = "CPS"
@@ -872,7 +881,7 @@ local function createCPSSelector(yPos, parent)
 end
 
 -- ==========================================
---         KEYBIND SELECTOR
+-- KEYBIND SELECTOR
 -- ==========================================
 local function createKeybindSelector(yPos, parent)
     local f = cardFrame(yPos, 52, parent)
@@ -921,7 +930,7 @@ local function createKeybindSelector(yPos, parent)
 end
 
 -- ==========================================
---         CARD SPAM
+-- CARD SPAM
 -- ==========================================
 local function createSpamPCCard(yPos, parent)
     local CARD_H = 118
@@ -992,7 +1001,7 @@ end
 print("[PhantomGUI] Componentes criados.")
 
 -- ==========================================
---         MONTAR COLUNAS
+-- MONTAR COLUNAS
 -- ==========================================
 local yL, yR = 4, 4
 
@@ -1021,6 +1030,7 @@ local clashTrack = Instance.new("Frame", fClash)
 clashTrack.Size = UDim2.new(0, 48, 0, 26)
 clashTrack.Position = UDim2.new(1, -62, 0.5, -13)
 clashTrack.BackgroundColor3 = clashOn and C.toggleOn or C.toggleOff
+clashTrack.BackgroundTransparency = 0.1
 clashTrack.BorderSizePixel = 0
 clashTrack.ZIndex = 7
 Instance.new("UICorner", clashTrack).CornerRadius = UDim.new(1, 0)
@@ -1055,7 +1065,7 @@ yR = createSpamPCCard(yR, colRight)
 print("[PhantomGUI] Colunas montadas.")
 
 -- ==========================================
---         DRAG PAINEL / BOTAO
+-- DRAG PAINEL / BOTAO
 -- ==========================================
 makeDraggable(titleBar, configPanel, function()
     Config.PanelX = configPanel.Position.X.Offset
@@ -1070,7 +1080,7 @@ local btnWasDrag = makeDraggable(floatingButton, floatingButton, function()
 end)
 
 -- ==========================================
---         ABRIR / FECHAR PAINEL
+-- ABRIR / FECHAR PAINEL
 -- ==========================================
 local panelOpen = false
 local tweenPanel = nil
@@ -1093,17 +1103,17 @@ local function togglePanel()
 
         configPanel.Visible = true
         configPanel.Size = UDim2.new(0, PW * 0.88, 0, PH * 0.88)
-        configPanel.BackgroundTransparency = 1
-        tweenPanel = tw(configPanel, 0.28, {Size = UDim2.new(0, PW, 0, PH), BackgroundTransparency = 0.04}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+        configPanel.BackgroundTransparency = 0  -- CORREÇÃO: sempre sólido ao abrir
+        tweenPanel = tw(configPanel, 0.28, {Size = UDim2.new(0, PW, 0, PH), BackgroundTransparency = 0}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
         tweenPanel:Play()
     else
-        tweenBtn = tw(floatingButton, 0.22, {BackgroundTransparency = 0, TextTransparency = 0, Size = UDim2.new(0, 56, 0, 56)}, Enum.EasingStyle.Back)
+        tweenBtn = tw(floatingButton, 0.22, {BackgroundTransparency = 0.1, TextTransparency = 0, Size = UDim2.new(0, 56, 0, 56)}, Enum.EasingStyle.Back)
         tweenBtn:Play()
         tweenBtn.Completed:Connect(function()
             floatingButton.Active = true
         end)
 
-        tweenPanel = tw(configPanel, 0.22, {Size = UDim2.new(0, PW * 0.9, 0, PH * 0.9), BackgroundTransparency = 1}, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+        tweenPanel = tw(configPanel, 0.22, {Size = UDim2.new(0, PW * 0.9, 0, PH * 0.9)}, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
         tweenPanel:Play()
         local conn
         conn = tweenPanel.Completed:Connect(function()
@@ -1138,7 +1148,7 @@ end))
 print("[PhantomGUI] Sistema abrir/fechar configurado.")
 
 -- ==========================================
---         FECHAR SCRIPT
+-- FECHAR SCRIPT
 -- ==========================================
 killBtn.Activated:Connect(function()
     State.scriptActive = false
@@ -1168,7 +1178,7 @@ killBtn.Activated:Connect(function()
 end)
 
 -- ==========================================
---         SCAN LINE (efeito Nexus)
+-- SCAN LINE (efeito Nexus) - CORREÇÃO: ZIndex menor
 -- ==========================================
 local scanLine = Instance.new("Frame", configPanel)
 scanLine.Size = UDim2.new(1, 0, 0, 2)
@@ -1176,7 +1186,7 @@ scanLine.Position = UDim2.new(0, 0, 0, 0)
 scanLine.BackgroundColor3 = C.accent
 scanLine.BackgroundTransparency = 0.85
 scanLine.BorderSizePixel = 0
-scanLine.ZIndex = 1
+scanLine.ZIndex = 2  -- CORREÇÃO: abaixo dos elementos principais
 
 local scanGrad = Instance.new("UIGradient", scanLine)
 scanGrad.Color = ColorSequence.new({
@@ -1198,12 +1208,12 @@ task.spawn(function()
 end)
 
 -- ==========================================
---         PARTICLES (efeito Nexus)
+-- PARTICLES (efeito Nexus) - CORREÇÃO: ZIndex menor
 -- ==========================================
 local particleContainer = Instance.new("Frame", configPanel)
 particleContainer.Size = UDim2.new(1, 0, 1, 0)
 particleContainer.BackgroundTransparency = 1
-particleContainer.ZIndex = 0
+particleContainer.ZIndex = 1  -- CORREÇÃO: abaixo de tudo
 particleContainer.ClipsDescendants = true
 
 local function spawnParticle()
@@ -1214,7 +1224,7 @@ local function spawnParticle()
     dot.BackgroundColor3 = colors[math.random(1, #colors)]
     dot.BackgroundTransparency = 0.5
     dot.BorderSizePixel = 0
-    dot.ZIndex = 0
+    dot.ZIndex = 1
     Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
     local dur = math.random(3, 7)
     twPlay(dot, dur, {Position = UDim2.new(dot.Position.X.Scale, 0, -0.1, 0), BackgroundTransparency = 1}, Enum.EasingStyle.Linear)
@@ -1235,5 +1245,5 @@ task.spawn(function()
 end)
 
 print("[PhantomGUI] Efeitos visuais configurados.")
-print("[PhantomGUI] GUI v6.0 carregada com sucesso!")
+print("[PhantomGUI] GUI v8.0 carregada com sucesso!")
 print("[PhantomGUI] Botao P para configurar | tecla: " .. Config.Keybind.Name)
