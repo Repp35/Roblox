@@ -1,8 +1,14 @@
--- Phantom Ball GUI v8.1 - CORREÇÃO COMPLETA
+-- Phantom Ball GUI v8.2 - CORREÇÃO COMPLETA DE BUGS
+-- Bugs corrigidos:
+--  1. Botão some sozinho ao clicar -> Active state sendo gerenciado errado
+--  2. Precisa spammar pra manter aberto -> Visivel e tweens conflitantes
+--  3. Animações cortadas em algumas partes -> Cancel recriando tween no meio
+--  4. Drag quebrando o Activated -> listener de drag muito sensível
+--
 -- Paleta: Azul / Roxo / Rosa
 -- Carregado automaticamente pelo phantom_logic_v8.lua via loadstring
 
-print("[PhantomGUI] Iniciando carregamento v8.1...")
+print("[PhantomGUI] Iniciando carregamento v8.2...")
 
 local timeout = 0
 while not _G.PhantomConfig and timeout < 10 do
@@ -35,12 +41,15 @@ local RunService = game:GetService("RunService")
 
 print("[PhantomGUI] Servicos carregados. Criando GUI...")
 
+-- Helpers de tween seguros
 local function tw(obj, t, props, style, dir)
 	return TweenService:Create(obj, TweenInfo.new(t, style or Enum.EasingStyle.Quint, dir or Enum.EasingDirection.Out), props)
 end
 
 local function twPlay(obj, t, props, style, dir)
-	tw(obj, t, props, style, dir):Play()
+	local tween = TweenService:Create(obj, TweenInfo.new(t, style or Enum.EasingStyle.Quint, dir or Enum.EasingDirection.Out), props)
+	tween:Play()
+	return tween
 end
 
 local function trackConn(c)
@@ -88,57 +97,50 @@ screenGui.Parent = CoreGui
 print("[PhantomGUI] ScreenGui criado.")
 
 -- ==========================================
--- DRAG SYSTEM - CORREÇÃO COMPLETA
+-- DRAG SYSTEM v2 - CORREÇÃO
 -- ==========================================
--- Problema: O drag estava sempre ativo, seguindo o dedo/mouse
--- Solução: Sistema de drag com detecção clara de clique vs arrastar
-
+-- Problema antigo: cancelava clique legitimo com threshold muito apertado
+-- E o tween ficava em loop cancelando a si mesmo
+-- Solução: usar state machine (Idle -> Pressed -> Dragging) com threshold maior
+--          e flag de "ja arrastou" resetada em InputBegan, NAO no meio do press
 local function makeDraggable(handle, target, onDragEnd)
-	local dragging = false
-	local pressing = false
+	local state = "Idle" -- Idle | Pressed | Dragging
 	local dragOffX = 0
 	local dragOffY = 0
 	local startPosX = 0
 	local startPosY = 0
-	local hasMoved = false
 	local dragInput = nil
+	local wasDragged = false
 
-	-- Conexão do InputBegan no handle
+	local function setState(s)
+		state = s
+	end
+
+	local function isDragging()
+		return state == "Dragging"
+	end
+
+	-- InputBegan: começa a pressionar
 	local inputBeganConn = handle.InputBegan:Connect(function(input)
 		if input.UserInputType ~= Enum.UserInputType.MouseButton1
 			and input.UserInputType ~= Enum.UserInputType.Touch then
 			return
 		end
-		if pressing then return end
+		if state ~= "Idle" then return end
 
-		pressing = true
-		hasMoved = false
-		dragging = false
+		setState("Pressed")
+		wasDragged = false
 		local absPos = target.AbsolutePosition
 		dragOffX = input.Position.X - absPos.X
 		dragOffY = input.Position.Y - absPos.Y
 		startPosX = input.Position.X
 		startPosY = input.Position.Y
 		dragInput = input
-
-		-- Conexão para detectar quando o input termina
-		local endConn
-		endConn = input.Changed:Connect(function()
-			if input.UserInputState == Enum.UserInputState.End then
-				pressing = false
-				dragging = false
-				dragInput = nil
-				if endConn then endConn:Disconnect() end
-				if hasMoved and onDragEnd then
-					onDragEnd()
-				end
-			end
-		end)
 	end)
 
-	-- Conexão global de InputChanged para movimento
+	-- InputChanged: detecta movimento
 	local inputChangedConn = UIS.InputChanged:Connect(function(input)
-		if not pressing then return end
+		if state == "Idle" then return end
 		if input ~= dragInput then return end
 		if input.UserInputType ~= Enum.UserInputType.MouseMovement
 			and input.UserInputType ~= Enum.UserInputType.Touch then
@@ -149,31 +151,46 @@ local function makeDraggable(handle, target, onDragEnd)
 		local deltaY = input.Position.Y - startPosY
 		local delta = Vector2.new(deltaX, deltaY)
 
-		if not dragging then
-			if delta.Magnitude >= 8 then
-				dragging = true
-				hasMoved = true
+		-- Threshold maior (10px) pra não confundir clique com arrasto
+		if state == "Pressed" then
+			if delta.Magnitude >= 10 then
+				setState("Dragging")
+				wasDragged = true
 			else
 				return
 			end
 		end
 
-		local vp = Workspace.CurrentCamera.ViewportSize
-		local tSz = target.AbsoluteSize
-		local newX = math.clamp(input.Position.X - dragOffX, 0, vp.X - tSz.X)
-		local newY = math.clamp(input.Position.Y - dragOffY, 0, vp.Y - tSz.Y)
-		target.Position = UDim2.new(0, newX, 0, newY)
+		if state == "Dragging" then
+			local vp = Workspace.CurrentCamera.ViewportSize
+			local tSz = target.AbsoluteSize
+			local newX = math.clamp(input.Position.X - dragOffX, 0, vp.X - tSz.X)
+			local newY = math.clamp(input.Position.Y - dragOffY, 0, vp.Y - tSz.Y)
+			target.Position = UDim2.new(0, newX, 0, newY)
+		end
+	end)
+
+	-- InputEnded: finaliza o estado corretamente
+	local inputEndedConn = UIS.InputEnded:Connect(function(input)
+		if input ~= dragInput then return end
+		if state == "Idle" then return end
+
+		setState("Idle")
+		dragInput = nil
+		if wasDragged and onDragEnd then
+			onDragEnd()
+		end
+		wasDragged = false
 	end)
 
 	trackConn(inputBeganConn)
 	trackConn(inputChangedConn)
+	trackConn(inputEndedConn)
 
-	return function()
-		return dragging
-	end
+	return isDragging
 end
 
-print("[PhantomGUI] Drag system corrigido criado.")
+print("[PhantomGUI] Drag system v2 corrigido criado.")
 
 -- ==========================================
 -- MINI GUI SPAM
@@ -274,7 +291,6 @@ local function setSpam(v)
 	twPlay(spamBtnGlow, 0.18, {BackgroundColor3 = v and C.green or C.red}, Enum.EasingStyle.Back)
 end
 
--- CORREÇÃO: Usar Activated em vez de MouseButton1Click para melhor detecção
 spamBtn.Activated:Connect(function()
 	setSpam(not spamOn)
 end)
@@ -303,7 +319,6 @@ local function showMini(v, visBtn)
 	end
 end
 
--- CORREÇÃO: Drag do miniGui usando o sistema makeDraggable corrigido
 makeDraggable(miniTitleBar, miniGui, function()
 	miniVisibleX = miniGui.Position.X.Offset
 	miniVisibleY = miniGui.Position.Y.Offset
@@ -391,6 +406,7 @@ configPanel.BackgroundTransparency = 0
 configPanel.BorderSizePixel = 0
 configPanel.Visible = false
 configPanel.ZIndex = 5
+configPanel.ClipsDescendants = true
 configPanel.Parent = screenGui
 Instance.new("UICorner", configPanel).CornerRadius = UDim.new(0, 16)
 
@@ -490,7 +506,7 @@ local subLabel = Instance.new("TextLabel", titleBar)
 subLabel.Size = UDim2.new(0, 200, 0, 14)
 subLabel.Position = UDim2.new(0, 34, 0.5, 6)
 subLabel.BackgroundTransparency = 1
-subLabel.Text = "v8.1 - Fixed"
+subLabel.Text = "v8.2 - Fixed"
 subLabel.TextColor3 = C.subtext
 subLabel.TextSize = 10
 subLabel.Font = Enum.Font.Gotham
@@ -982,71 +998,81 @@ makeDraggable(titleBar, configPanel, function()
 	saveConfig(Config)
 end)
 
-local btnWasDrag = makeDraggable(floatingButton, floatingButton, function()
+local btnIsDragging = makeDraggable(floatingButton, floatingButton, function()
 	Config.BtnX = floatingButton.Position.X.Offset
 	Config.BtnY = floatingButton.Position.Y.Offset
 	saveConfig(Config)
 end)
 
 -- ==========================================
--- ABRIR / FECHAR PAINEL - CORREÇÃO COMPLETA
+-- ABRIR / FECHAR PAINEL - CORREÇÃO COMPLETA v2
 -- ==========================================
--- Problema: O painel não abria ao clicar no botão flutuante
--- Causa: O drag estava interferindo no clique, e o sistema de detecção estava quebrado
--- Solução: Sistema robusto de detecção drag vs clique
+-- Bug antigo: 
+--   1. tweenPanel/tweenBtn ficavam sendo recriados a cada toggle
+--   2. configPanel.Visible = false era setado DURANTE a animação de fechar
+--   3. floatingButton.Active = false tornava o botão invisível antes da hora
+--   4. tweenBtn.Completed conectava NOVAMENTE toda vez, criando listeners zumbi
+-- 
+-- Solução: 
+--   - Manter referencia única do tween e cancelar ANTES de criar novo
+--   - Usar transparency tween + Visible só quando terminar animação
+--   - Não desconectar o botão de input (Active fica true)
 
 local panelOpen = false
-local tweenPanel = nil
-local tweenBtn = nil
+local panelTween = nil
+local btnTween = nil
+local closeConn = nil
 
 local function togglePanel()
 	panelOpen = not panelOpen
 
-	if tweenPanel then tweenPanel:Cancel() end
-	if tweenBtn then tweenBtn:Cancel() end
+	-- Cancela tweens anteriores com segurança
+	if panelTween then pcall(function() panelTween:Cancel() end) end
+	if btnTween then pcall(function() btnTween:Cancel() end) end
+	if closeConn then pcall(function() closeConn:Disconnect() end) closeConn = nil end
 
 	if panelOpen then
-		floatingButton.Active = false
-		tweenBtn = tw(floatingButton, 0.18, {BackgroundTransparency = 1, TextTransparency = 1, Size = UDim2.new(0, 40, 0, 40)}, Enum.EasingStyle.Quint)
-		tweenBtn:Play()
-
+		-- ABRINDO
 		configPanel.Visible = true
+		configPanel.BackgroundTransparency = 1
 		configPanel.Size = UDim2.new(0, PW * 0.88, 0, PH * 0.88)
-		configPanel.BackgroundTransparency = 0
-		tweenPanel = tw(configPanel, 0.28, {Size = UDim2.new(0, PW, 0, PH), BackgroundTransparency = 0}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-		tweenPanel:Play()
-	else
-		tweenBtn = tw(floatingButton, 0.22, {BackgroundTransparency = 0.1, TextTransparency = 0, Size = UDim2.new(0, 56, 0, 56)}, Enum.EasingStyle.Back)
-		tweenBtn:Play()
-		tweenBtn.Completed:Connect(function()
-			floatingButton.Active = true
-		end)
 
-		tweenPanel = tw(configPanel, 0.22, {Size = UDim2.new(0, PW * 0.9, 0, PH * 0.9)}, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
-		tweenPanel:Play()
-		local conn
-		conn = tweenPanel.Completed:Connect(function()
-			configPanel.Visible = false
-			conn:Disconnect()
+		panelTween = twPlay(configPanel, 0.28,
+			{Size = UDim2.new(0, PW, 0, PH), BackgroundTransparency = 0},
+			Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
+		-- Anima o botão flutuante pra "esconder" sem sumir de vez
+		btnTween = twPlay(floatingButton, 0.2,
+			{BackgroundTransparency = 0.6, Size = UDim2.new(0, 44, 0, 44)},
+			Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+	else
+		-- FECHANDO
+		panelTween = twPlay(configPanel, 0.22,
+			{Size = UDim2.new(0, PW * 0.9, 0, PH * 0.9), BackgroundTransparency = 1},
+			Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+
+		-- Restaura o botão flutuante
+		btnTween = twPlay(floatingButton, 0.22,
+			{BackgroundTransparency = 0.1, Size = UDim2.new(0, 56, 0, 56)},
+			Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
+		-- Esconde painel só QUANDO a animação termina (corrige o bug do "tem que spammar")
+		closeConn = panelTween.Completed:Connect(function()
+			if not panelOpen then
+				configPanel.Visible = false
+				-- Reseta tamanho pro próximo abrir
+				configPanel.Size = UDim2.new(0, PW, 0, PH)
+				configPanel.BackgroundTransparency = 0
+			end
+			if closeConn then pcall(function() closeConn:Disconnect() end) closeConn = nil end
 		end)
 	end
 end
 
--- CORREÇÃO: Usar Activated com verificação de drag
+-- Ativação: só dispara se NÃO estava arrastando
 floatingButton.Activated:Connect(function()
-	if btnWasDrag() then
-		return
-	end
+	if btnIsDragging() then return end
 	togglePanel()
-end)
-
--- CORREÇÃO: Também permitir abrir com toque direto no botão
-floatingButton.InputEnded:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.Touch then
-		if not btnWasDrag() then
-			togglePanel()
-		end
-	end
 end)
 
 closeButton.Activated:Connect(function()
@@ -1055,14 +1081,15 @@ closeButton.Activated:Connect(function()
 	end
 end)
 
--- Keybind para abrir/fechar painel
-trackConn(UIS.InputBegan:Connect(function(input)
+-- Keybind para abrir/fechar painel (ignora quando estamos digitando em input)
+trackConn(UIS.InputBegan:Connect(function(input, gpe)
+	if gpe then return end
 	if input.KeyCode == Config.Keybind then
 		togglePanel()
 	end
 end))
 
-print("[PhantomGUI] Sistema abrir/fechar configurado.")
+print("[PhantomGUI] Sistema abrir/fechar v2 configurado.")
 
 -- ==========================================
 -- FECHAR SCRIPT
@@ -1150,5 +1177,5 @@ task.spawn(function()
 end)
 
 print("[PhantomGUI] Efeitos visuais configurados.")
-print("[PhantomGUI] GUI v8.1 carregada com sucesso!")
+print("[PhantomGUI] GUI v8.2 carregada com sucesso!")
 print("[PhantomGUI] Botao P para configurar | tecla: " .. Config.Keybind.Name)
