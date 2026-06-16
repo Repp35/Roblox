@@ -369,15 +369,13 @@ floatingStroke.Color = C.accent
 floatingStroke.Thickness = 2
 floatingStroke.Parent = floatingButton
 
--- Animacao de pulso do botao flutuante (respiracao suave)
+-- Animacao de pulso do botao flutuante
 task.spawn(function()
         while screenGui.Parent do
-                twPlay(floatGlow, 1.4, {BackgroundTransparency = 0.55, Size = UDim2.new(1, 18, 1, 18), Position = UDim2.new(0, -9, 0, -9)}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
-                twPlay(floatingButton, 1.4, {Size = UDim2.new(0, 60, 0, 60)}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
-                task.wait(1.4)
-                twPlay(floatGlow, 1.4, {BackgroundTransparency = 0.92, Size = UDim2.new(1, 10, 1, 10), Position = UDim2.new(0, -5, 0, -5)}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
-                twPlay(floatingButton, 1.4, {Size = UDim2.new(0, 56, 0, 56)}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
-                task.wait(1.4)
+                twPlay(floatGlow, 0.8, {BackgroundTransparency = 0.75}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+                task.wait(0.8)
+                twPlay(floatGlow, 0.8, {BackgroundTransparency = 0.92}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+                task.wait(0.8)
         end
 end)
 
@@ -498,7 +496,8 @@ Instance.new("UICorner", logoDot).CornerRadius = UDim.new(1, 0)
 
 local accentLine = Instance.new("Frame", titleBar)
 accentLine.Size = UDim2.new(0, 60, 0, 3)
-accentLine.Position = UDim2.new(0, 16, 0, 0)
+accentLine.Position = UDim2.new(0.5, -30, 0, 0)
+accentLine.AnchorPoint = Vector2.new(0, 0)
 accentLine.BackgroundColor3 = C.accent
 accentLine.BorderSizePixel = 0
 accentLine.ZIndex = 7
@@ -1216,4 +1215,4 @@ end)
 
 print("[PhantomGUI] Efeitos visuais configurados.")
 print("[PhantomGUI] GUI v8.2 carregada com sucesso!")
-print("[PhantomGUI] Botao P para configurar | tecla: " .. Config.Keybind.Name) 
+print("[PhantomGUI] Botao P para configurar | tecla: " .. Config.Keybind.Name)
