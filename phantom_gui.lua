@@ -1,10 +1,4 @@
--- Phantom Ball GUI v8.2 - CORREÇÃO COMPLETA DE BUGS
--- Bugs corrigidos:
---  1. Botão some sozinho ao clicar -> Active state sendo gerenciado errado
---  2. Precisa spammar pra manter aberto -> Visivel e tweens conflitantes
---  3. Animações cortadas em algumas partes -> Cancel recriando tween no meio
---  4. Drag quebrando o Activated -> listener de drag muito sensível
---
+-- Phantom Ball GUI v8.2
 -- Paleta: Azul / Roxo / Rosa
 -- Carregado automaticamente pelo phantom_logic_v8.lua via loadstring
 
