@@ -1216,4 +1216,4 @@ end)
 
 print("[PhantomGUI] Efeitos visuais configurados.")
 print("[PhantomGUI] GUI v8.2 carregada com sucesso!")
-print("[PhantomGUI] Botao P para configurar | tecla: " .. Config.Keybind.Name)
+print("[PhantomGUI] Botao P para configurar | tecla: " .. Config.Keybind.Name) 
