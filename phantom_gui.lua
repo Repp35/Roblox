@@ -272,7 +272,12 @@ local function setSpam(v)
         spamOn = v
         _G.PhantomManual = v
         spamBtn.Text = v and "ON" or "OFF"
-        twPlay(spamBtn, 0.18, {BackgroundColor3 = v and C.green or C.red}, Enum.EasingStyle.Back)
+        twPlay(spamBtn, 0.25, {BackgroundColor3 = v and C.green or C.red}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+        -- pulse: encolhe e volta com elasticidade
+        twPlay(spamBtn, 0.08, {Size = UDim2.new(1, -22, 0, 44)}, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+        task.delay(0.08, function()
+                twPlay(spamBtn, 0.28, {Size = UDim2.new(1, -16, 0, 48)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+        end)
 end
 
 spamBtn.Activated:Connect(function()
@@ -364,13 +369,15 @@ floatingStroke.Color = C.accent
 floatingStroke.Thickness = 2
 floatingStroke.Parent = floatingButton
 
--- Animacao de pulso do botao flutuante
+-- Animacao de pulso do botao flutuante (respiracao suave)
 task.spawn(function()
         while screenGui.Parent do
-                twPlay(floatGlow, 0.8, {BackgroundTransparency = 0.75}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
-                task.wait(0.8)
-                twPlay(floatGlow, 0.8, {BackgroundTransparency = 0.92}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
-                task.wait(0.8)
+                twPlay(floatGlow, 1.4, {BackgroundTransparency = 0.55, Size = UDim2.new(1, 18, 1, 18), Position = UDim2.new(0, -9, 0, -9)}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+                twPlay(floatingButton, 1.4, {Size = UDim2.new(0, 60, 0, 60)}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+                task.wait(1.4)
+                twPlay(floatGlow, 1.4, {BackgroundTransparency = 0.92, Size = UDim2.new(1, 10, 1, 10), Position = UDim2.new(0, -5, 0, -5)}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+                twPlay(floatingButton, 1.4, {Size = UDim2.new(0, 56, 0, 56)}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+                task.wait(1.4)
         end
 end)
 
@@ -413,18 +420,48 @@ Instance.new("UICorner", shadowFrame).CornerRadius = UDim.new(0, 20)
 print("[PhantomGUI] Painel principal criado.")
 
 -- ==========================================
--- RGB LOOP
+-- GRADIENTE FLUIDO AZUL/ROXO/ROSA (ESTILO MOUSE RGB)
 -- ==========================================
+-- Cada stroke recebe um UIGradient com a paleta azul/roxo/rosa,
+-- e animamos o Offset -> a cor "escorre" pela borda de um lado pro outro.
+-- Como o gradiente cobre o elemento inteiro, num instante voce ve:
+--   esquerda = azul   |   meio = roxo   |   direita = rosa
+-- E a onda vai fluindo suavemente pra todos os elementos ao mesmo tempo.
+
+local GRAD_COLORS = {
+        Color3.fromRGB(56,  189, 248), -- azul
+        Color3.fromRGB(139, 92,  246), -- roxo
+        Color3.fromRGB(236, 72,  153), -- rosa
+}
+
+local function attachFlowingGradient(stroke)
+        local grad = Instance.new("UIGradient")
+        grad.Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0,   GRAD_COLORS[1]),
+                ColorSequenceKeypoint.new(0.5, GRAD_COLORS[2]),
+                ColorSequenceKeypoint.new(1,   GRAD_COLORS[3]),
+        })
+        grad.Rotation = 0  -- 0deg = horizontal (esquerda -> direita)
+        grad.Parent = stroke
+        return grad
+end
+
+-- Aplica o gradiente em cada stroke
+local panelGrad    = attachFlowingGradient(panelStroke)
+local floatingGrad = attachFlowingGradient(floatingStroke)
+local miniGrad     = attachFlowingGradient(miniStroke)
+
+-- Anima o Offset de 0 ate 1 e reinicia -> a cor "desliza" pela borda
 task.spawn(function()
-        local t = 0
+        local SPEED = 0.004  -- quanto menor, mais devagar/suave
         while screenGui.Parent do
-                t = (t + 0.004) % 1
-                local hue = 0.60 + (math.sin(t * math.pi * 2) * 0.15)
-                local col = Color3.fromHSV(hue, 0.75, 1)
-                panelStroke.Color = col
-                floatingStroke.Color = col
-                miniStroke.Color = col
-                task.wait(0.05)
+                for offset = 0, 1, SPEED do
+                        if not screenGui.Parent then return end
+                        panelGrad.Offset    = Vector2.new(offset, 0)
+                        floatingGrad.Offset = Vector2.new(offset, 0)
+                        miniGrad.Offset     = Vector2.new(offset, 0)
+                        task.wait(0.03)
+                end
         end
 end)
 
@@ -622,12 +659,12 @@ local function cardFrame(yPos, h, parent)
         stroke.Thickness = 1
 
         f.MouseEnter:Connect(function()
-                twPlay(stroke, 0.15, {Color = C.accent})
-                twPlay(f, 0.15, {BackgroundColor3 = Color3.fromRGB(24, 24, 50)})
+                twPlay(stroke, 0.22, {Color = C.accent}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+                twPlay(f, 0.22, {BackgroundColor3 = Color3.fromRGB(24, 24, 50)}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
         end)
         f.MouseLeave:Connect(function()
-                twPlay(stroke, 0.15, {Color = C.border})
-                twPlay(f, 0.15, {BackgroundColor3 = C.card})
+                twPlay(stroke, 0.25, {Color = C.border}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+                twPlay(f, 0.25, {BackgroundColor3 = C.card}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
         end)
 
         return f
@@ -711,8 +748,13 @@ local function createToggle(labelText, configKey, yPos, parent)
                 Config[configKey] = not Config[configKey]
                 local v = Config[configKey]
 
-                twPlay(track, 0.25, {BackgroundColor3 = v and C.toggleOn or C.toggleOff})
-                twPlay(thumb, 0.25, {Position = v and UDim2.new(0, 25, 0.5, -10) or UDim2.new(0, 3, 0.5, -10)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+                twPlay(track, 0.22, {BackgroundColor3 = v and C.toggleOn or C.toggleOff}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+                twPlay(thumb, 0.32, {Position = v and UDim2.new(0, 25, 0.5, -10) or UDim2.new(0, 3, 0.5, -10)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+                -- pulse no thumb: "press" e solta
+                twPlay(thumb, 0.08, {Size = UDim2.new(0, 24, 0, 24)}, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+                task.delay(0.08, function()
+                        twPlay(thumb, 0.18, {Size = UDim2.new(0, 20, 0, 20)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+                end)
 
                 saveConfig(Config)
         end)
@@ -961,8 +1003,13 @@ clashHitbox.Activated:Connect(function()
         clashOn = not clashOn
         _G.PhantomAutoClash = clashOn
         Config.AutoClash = clashOn
-        twPlay(clashTrack, 0.25, {BackgroundColor3 = clashOn and C.toggleOn or C.toggleOff})
-        twPlay(clashThumb, 0.25, {Position = clashOn and UDim2.new(0, 25, 0.5, -10) or UDim2.new(0, 3, 0.5, -10)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+        twPlay(clashTrack, 0.22, {BackgroundColor3 = clashOn and C.toggleOn or C.toggleOff}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+        twPlay(clashThumb, 0.32, {Position = clashOn and UDim2.new(0, 25, 0.5, -10) or UDim2.new(0, 3, 0.5, -10)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+        -- pulse no thumb
+        twPlay(clashThumb, 0.08, {Size = UDim2.new(0, 24, 0, 24)}, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+        task.delay(0.08, function()
+                twPlay(clashThumb, 0.18, {Size = UDim2.new(0, 20, 0, 20)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+        end)
         saveConfig(Config)
 end)
 
@@ -1117,10 +1164,11 @@ scanGrad.Color = ColorSequence.new({
 task.spawn(function()
         while true do
                 if not configPanel.Parent then break end
-                twPlay(scanLine, 2.5, {Position = UDim2.new(0, 0, 1, 0)}, Enum.EasingStyle.Linear)
-                task.wait(2.5)
+                -- scan line mais lenta + easing suave
+                twPlay(scanLine, 3.5, {Position = UDim2.new(0, 0, 1, 0)}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+                task.wait(3.5)
                 scanLine.Position = UDim2.new(0, 0, 0, 0)
-                task.wait(0.1)
+                task.wait(0.4)
         end
 end)
 
@@ -1135,17 +1183,40 @@ particleContainer.ClipsDescendants = true
 
 local function spawnParticle()
         local dot = Instance.new("Frame", particleContainer)
-        dot.Size = UDim2.new(0, math.random(2, 5), 0, math.random(2, 5))
-        dot.Position = UDim2.new(math.random(), 0, 1, 0)
+        local sz = math.random(2, 5)
+        dot.Size = UDim2.new(0, sz, 0, sz)
+        local startX = math.random()
+        dot.Position = UDim2.new(startX, 0, 1, 0)
         local colors = {C.accent, C.accentGlow, C.accentPink, C.accentCyan}
         dot.BackgroundColor3 = colors[math.random(1, #colors)]
-        dot.BackgroundTransparency = 0.5
+        dot.BackgroundTransparency = 0.3
         dot.BorderSizePixel = 0
         dot.ZIndex = 1
         Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
-        local dur = math.random(3, 7)
-        twPlay(dot, dur, {Position = UDim2.new(dot.Position.X.Scale, 0, -0.1, 0), BackgroundTransparency = 1}, Enum.EasingStyle.Linear)
+        local dur = math.random(4, 8)
+        -- drift mais organico: leve sway horizontal + ease in-out no Y
+        local endX = startX + (math.random() - 0.5) * 0.15
+        endX = math.clamp(endX, 0, 1)
+        -- fade in rapido, fade out suave
+        twPlay(dot, 0.6, {BackgroundTransparency = 0.1}, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+        twPlay(dot, dur, {Position = UDim2.new(endX, 0, -0.1, 0), BackgroundTransparency = 1}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
         task.delay(dur, function()
+                if dot.Parent then dot:Destroy() end
+        end)
+end
+
+task.spawn(function()
+        while true do
+                task.wait(math.random() * 0.6 + 0.15)
+                if configPanel.Visible then
+                        spawnParticle()
+                end
+        end
+end)
+
+print("[PhantomGUI] Efeitos visuais configurados.")
+print("[PhantomGUI] GUI v8.2 carregada com sucesso!")
+print("[PhantomGUI] Botao P para configurar | tecla: " .. Config.Keybind.Name)ask.delay(dur, function()
                 if dot.Parent then dot:Destroy() end
         end)
 end
