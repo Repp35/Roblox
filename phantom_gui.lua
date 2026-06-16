@@ -1216,20 +1216,4 @@ end)
 
 print("[PhantomGUI] Efeitos visuais configurados.")
 print("[PhantomGUI] GUI v8.2 carregada com sucesso!")
-print("[PhantomGUI] Botao P para configurar | tecla: " .. Config.Keybind.Name)ask.delay(dur, function()
-                if dot.Parent then dot:Destroy() end
-        end)
-end
-
-task.spawn(function()
-        while true do
-                task.wait(math.random() * 0.8 + 0.2)
-                if configPanel.Visible then
-                        spawnParticle()
-                end
-        end
-end)
-
-print("[PhantomGUI] Efeitos visuais configurados.")
-print("[PhantomGUI] GUI v8.2 carregada com sucesso!")
 print("[PhantomGUI] Botao P para configurar | tecla: " .. Config.Keybind.Name)
