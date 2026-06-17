@@ -1,6 +1,12 @@
--- Phantom Ball GUI v8.2
+-- Phantom Ball GUI v8.3 (compat com v9.1 do backend)
 -- Paleta: Azul / Roxo / Rosa
--- Carregado automaticamente pelo phantom_logic_v8.lua via loadstring
+-- Carregado automaticamente pelo phantom_logic_v9.lua via loadstring
+--
+-- v8.3: GUI agora escreve flags em _G.PhantomFlags em vez de saveConfig(Config).
+-- Isso desacopla a UI do Config interno do backend e impede o bug de
+-- AutoParry ser zerado quando AutoClash eh togglado (e vice-versa).
+-- A GUI ainda le/escreve posicoes de drag em Config direto (sao posicoes,
+-- nao flags), e o saveConfig continua existindo pra isso.
 
 print("[PhantomGUI] Iniciando carregamento v8.2...")
 
@@ -27,6 +33,48 @@ end
 local Config = _G.PhantomConfig
 local State = _G.PhantomState
 local saveConfig = _G.PhantomSaveConfig
+
+-- Bridge v9.1: garante que _G.PhantomFlags existe.
+-- A GUI escreve flags AQUI em vez de mexer direto no Config.
+local Flags = _G.PhantomFlags
+if type(Flags) ~= "table" then
+        Flags = {}
+        _G.PhantomFlags = Flags
+end
+
+-- Sincroniza o estado inicial: empurra Config atual pra Flags, assim o
+-- backend ve o "ultimo valor" e nao dispara diff na primeira iteracao.
+Flags.AutoParry   = Flags.AutoParry   ~= nil and Flags.AutoParry   or Config.AutoParry
+Flags.AutoClash   = Flags.AutoClash   ~= nil and Flags.AutoClash   or Config.AutoClash
+Flags.ManualSpam  = Flags.ManualSpam  ~= nil and Flags.ManualSpam  or Config.ManualSpam
+Flags.Keybind     = Flags.Keybind     ~= nil and Flags.Keybind     or Config.Keybind
+Flags.SpamKeybind = Flags.SpamKeybind ~= nil and Flags.SpamKeybind or Config.SpamKeybind
+Flags.SpamMode    = Flags.SpamMode    ~= nil and Flags.SpamMode    or Config.SpamMode
+if Config.CustomCPS == true and type(Config.CPS) == "number" then
+        Flags.CustomCPS = true
+        Flags.CPS       = Config.CPS
+end
+
+-- Helper: manda flag pro backend sem mexer no Config interno.
+-- O backend le Flags a cada 0.25s e aplica so o que mudou (diff-based).
+local function pushFlag(k, v)
+        Flags[k] = v
+end
+
+local function pushConfigFlag(k, v)
+        Flags[k] = v
+        -- Para chaves que sao flags de gameplay (AutoParry/AutoClash/etc),
+        -- NAO atualizamos Config[k] direto. O backend sincroniza no proximo poll.
+        -- Para chaves de UI (posicoes de drag), podemos manter em Config direto
+        -- pois o backend nao se importa com elas.
+        local layoutKeys = {
+                MiniX = true, MiniY = true,
+                PanelX = true, PanelY = true,
+                BtnX = true, BtnY = true,
+        }
+        if not layoutKeys[k] then return end
+        Config[k] = v
+end
 
 local Workspace = game:GetService("Workspace")
 local UIS = game:GetService("UserInputService")
@@ -311,9 +359,8 @@ end
 makeDraggable(miniTitleBar, miniGui, function()
         miniVisibleX = miniGui.Position.X.Offset
         miniVisibleY = miniGui.Position.Y.Offset
-        Config.MiniX = miniVisibleX
-        Config.MiniY = miniVisibleY
-        saveConfig(Config)
+        pushConfigFlag("MiniX", miniVisibleX)
+        pushConfigFlag("MiniY", miniVisibleY)
 end)
 
 -- Keybind spam
@@ -744,8 +791,9 @@ local function createToggle(labelText, configKey, yPos, parent)
         hitbox.ZIndex = 9
 
         hitbox.Activated:Connect(function()
-                Config[configKey] = not Config[configKey]
-                local v = Config[configKey]
+                local v = not Config[configKey]
+                pushFlag(configKey, v)
+                Config[configKey] = v   -- atualiza local pra UI refletir, mas o backend le de Flags
 
                 twPlay(track, 0.22, {BackgroundColor3 = v and C.toggleOn or C.toggleOff}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
                 twPlay(thumb, 0.32, {Position = v and UDim2.new(0, 25, 0.5, -10) or UDim2.new(0, 3, 0.5, -10)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
@@ -754,8 +802,6 @@ local function createToggle(labelText, configKey, yPos, parent)
                 task.delay(0.08, function()
                         twPlay(thumb, 0.18, {Size = UDim2.new(0, 20, 0, 20)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
                 end)
-
-                saveConfig(Config)
         end)
 
         return yPos + 52 + CARD_GAP
@@ -812,27 +858,29 @@ local function createCPSSelector(yPos, parent)
         end)
 
         defBtn.Activated:Connect(function()
-                Config.CustomCPS = false
+                pushFlag("CustomCPS", false)
+                pushFlag("CPS", 22)
                 Config.CPS = 22
+                Config.CustomCPS = false
                 inputBox.Text = "22"
                 twPlay(defBtn, 0.15, {BackgroundColor3 = C.green})
                 task.delay(0.5, function()
                         twPlay(defBtn, 0.15, {BackgroundColor3 = C.btnBlue})
                 end)
-                saveConfig(Config)
         end)
 
         inputBox.FocusLost:Connect(function()
                 local v = tonumber(inputBox.Text)
                 if v and v > 0 and v <= 1000 then
                         if v ~= Config.CPS then
+                                pushFlag("CPS", v)
+                                pushFlag("CustomCPS", true)
                                 Config.CPS = v
                                 Config.CustomCPS = true
                         end
                 else
                         inputBox.Text = tostring(Config.CPS)
                 end
-                saveConfig(Config)
         end)
 
         return yPos + CARD_H + CARD_GAP
@@ -870,12 +918,12 @@ local function createKeybindSelector(yPos, parent)
                 conn = UIS.InputBegan:Connect(function(input, gpe)
                         if gpe then return end
                         if input.UserInputType == Enum.UserInputType.Keyboard then
+                                pushFlag("Keybind", input.KeyCode)
                                 Config.Keybind = input.KeyCode
                                 kbBtn.Text = input.KeyCode.Name
                                 twPlay(kbBtn, 0.18, {BackgroundColor3 = C.btnBlue}, Enum.EasingStyle.Back)
                                 listening = false
                                 conn:Disconnect()
-                                saveConfig(Config)
                         end
                 end)
         end)
@@ -915,12 +963,12 @@ local function createSpamPCCard(yPos, parent)
                 conn = UIS.InputBegan:Connect(function(input, gpe)
                         if gpe then return end
                         if input.UserInputType == Enum.UserInputType.Keyboard then
+                                pushFlag("SpamKeybind", input.KeyCode)
                                 Config.SpamKeybind = input.KeyCode
                                 kbBtn.Text = input.KeyCode.Name
                                 twPlay(kbBtn, 0.18, {BackgroundColor3 = C.btnBlue}, Enum.EasingStyle.Back)
                                 listeningKb = false
                                 conn:Disconnect()
-                                saveConfig(Config)
                         end
                 end)
         end)
@@ -936,13 +984,14 @@ local function createSpamPCCard(yPos, parent)
         )
 
         modeBtn.Activated:Connect(function()
-                Config.SpamMode = (Config.SpamMode == "Toggle") and "Hold" or "Toggle"
+                local newMode = (Config.SpamMode == "Toggle") and "Hold" or "Toggle"
+                pushFlag("SpamMode", newMode)
+                Config.SpamMode = newMode
                 modeBtn.Text = Config.SpamMode
                 twPlay(modeBtn, 0.18, {BackgroundColor3 = getModeColor(Config.SpamMode)}, Enum.EasingStyle.Back)
                 if Config.SpamMode == "Toggle" and _G.PhantomManual then
                         setSpam(false)
                 end
-                saveConfig(Config)
         end)
 
         return yPos + CARD_H + CARD_GAP
@@ -957,9 +1006,10 @@ local yL, yR = 4, 4
 
 yL = createToggle("Auto Parry", "AutoParry", yL, colLeft)
 
--- Auto Clash
-local clashOn = Config.AutoClash or false
+-- Auto Clash (mesma logica do createToggle, mas em inline porque a GUI original fez assim)
+local clashOn = (Flags.AutoClash ~= nil and Flags.AutoClash) or Config.AutoClash or false
 _G.PhantomAutoClash = clashOn
+Config.AutoClash = clashOn
 local fClash = cardFrame(yL, 52, colLeft)
 yL = yL + 52 + CARD_GAP
 
@@ -1000,6 +1050,7 @@ clashHitbox.ZIndex = 9
 
 clashHitbox.Activated:Connect(function()
         clashOn = not clashOn
+        pushFlag("AutoClash", clashOn)
         _G.PhantomAutoClash = clashOn
         Config.AutoClash = clashOn
         twPlay(clashTrack, 0.22, {BackgroundColor3 = clashOn and C.toggleOn or C.toggleOff}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
@@ -1009,7 +1060,6 @@ clashHitbox.Activated:Connect(function()
         task.delay(0.08, function()
                 twPlay(clashThumb, 0.18, {Size = UDim2.new(0, 20, 0, 20)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
         end)
-        saveConfig(Config)
 end)
 
 yR = createCPSSelector(yR, colRight)
@@ -1022,15 +1072,13 @@ print("[PhantomGUI] Colunas montadas.")
 -- DRAG PAINEL / BOTAO
 -- ==========================================
 makeDraggable(titleBar, configPanel, function()
-        Config.PanelX = configPanel.Position.X.Offset
-        Config.PanelY = configPanel.Position.Y.Offset
-        saveConfig(Config)
+        pushConfigFlag("PanelX", configPanel.Position.X.Offset)
+        pushConfigFlag("PanelY", configPanel.Position.Y.Offset)
 end)
 
 local btnIsDragging = makeDraggable(floatingButton, floatingButton, function()
-        Config.BtnX = floatingButton.Position.X.Offset
-        Config.BtnY = floatingButton.Position.Y.Offset
-        saveConfig(Config)
+        pushConfigFlag("BtnX", floatingButton.Position.X.Offset)
+        pushConfigFlag("BtnY", floatingButton.Position.Y.Offset)
 end)
 
 -- ==========================================
@@ -1127,7 +1175,8 @@ killBtn.Activated:Connect(function()
         State.scriptActive = false
         _G.PhantomManual = false
         _G.PhantomAutoClash = false
-        saveConfig(Config)
+        pushFlag("ManualSpam", false)
+        pushFlag("AutoClash", false)
 
         twPlay(configPanel, 0.25, {BackgroundTransparency = 1, Size = UDim2.new(0, PW * 0.85, 0, PH * 0.85)}, Enum.EasingStyle.Quint)
         twPlay(floatingButton, 0.25, {BackgroundTransparency = 1, TextTransparency = 1, Size = UDim2.new(0, 0, 0, 0)})
@@ -1216,3 +1265,4 @@ end)
 print("[PhantomGUI] Efeitos visuais configurados.")
 print("[PhantomGUI] GUI v8.2 carregada com sucesso!")
 print("[PhantomGUI] Botao P para configurar | tecla: " .. Config.Keybind.Name)
+print("[PhantomGUI] v8.3 (compat v9.1): flags vao via _G.PhantomFlags, backend sincroniza a cada 0.25s")
