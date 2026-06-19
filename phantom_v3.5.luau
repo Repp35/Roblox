@@ -1,5 +1,5 @@
 -- ================================================
---   Phantom Ball v3.5 | by ppzudo
+--   Phantom Ball v3.5 | by ppzudo (fixed)
 -- ================================================
 
 local Players           = game:GetService("Players")
@@ -8,7 +8,7 @@ local RunService        = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService  = game:GetService("UserInputService")
 local Stats             = game:GetService("Stats")
-local HttpService       = game:GetService("HttpService")
+local TweenService      = game:GetService("TweenService")
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -78,6 +78,7 @@ local ClashState = {
 local smoothedPing    = 0.05
 local ballProcessed   = false
 local lastProcessReset = 0
+local spamAcc         = 0  -- DECLARADO: usado em setupCharacter e no handler do F
 
 -- ==================== REMOTES (método v7) ====================
 local TS_Folder      = ReplicatedStorage:WaitForChild("TS", 5)
@@ -208,12 +209,10 @@ local function sameSize(a, b)
 end
 
 local function makeDeflectBuffer2(flag)
-    -- buffer.fromstring  (Delta v3+, Synapse X, KRNL recente)
     if type(buffer) == "table" and type(buffer.fromstring) == "function" then
         local ok, v = pcall(buffer.fromstring, flag == 2 and "\2" or "\1")
         if ok and v then return v end
     end
-    -- buffer.create + writeu8  (Fluxus, Celery)
     if type(buffer) == "table" and type(buffer.create) == "function" and type(buffer.writeu8) == "function" then
         local ok, p = pcall(buffer.create, 1)
         if ok and p then
@@ -221,7 +220,6 @@ local function makeDeflectBuffer2(flag)
             return p
         end
     end
-    -- executor expõe buffer como função global direta
     if type(buffer) == "function" then
         local ok, p = pcall(buffer, 1)
         if ok and p then return p end
@@ -229,69 +227,65 @@ local function makeDeflectBuffer2(flag)
     return nil
 end
 
+local function getDeflectAbility2()
+    if not BM or not AbilityID or AbilityID.Deflect == nil then return nil end
+    local okFn, fn = pcall(function() return BM:GetFunction("AbilityManager::GetAbility") end)
+    if not okFn or not fn then return nil end
+    local ok, ability = pcall(function() return fn:Invoke(AbilityID.Deflect) end)
+    return ok and type(ability) == "table" and ability or nil
+end
+
 local function resolveParryRemote2()
     refreshRefs()
 
-    -- 1) remote já confirmado e com lock
     if parryRemoteLocked2 then
         return (validRemote(parryRemote2) and parryRemote2 or nil), parryMode2
     end
 
-    -- 2) remote em cache ainda válido
     if validRemote(parryRemote2) then return parryRemote2, parryMode2 end
 
-    -- 3) did do ambiente interno do jogo (getfenv)
     local did = getGameDid2()
     if validRemote(did) then return cacheParryRemote2(did, "buffer") end
 
-    -- 4) ReqDef confirmado pelo dump
     if Remotes_folder then
         local reqDef = Remotes_folder:FindFirstChild("ReqDef")
         if validRemote(reqDef) then return cacheParryRemote2(reqDef, "buffer") end
     end
 
-    -- 5) NS_PaF (dump)
     if Remotes_folder then
         local nspaf = Remotes_folder:FindFirstChild("NS_PaF")
         if validRemote(nspaf) then return cacheParryRemote2(nspaf, "buffer") end
     end
 
-    -- 6) remote nomeado pelo UserId (alguns jogos instanciam assim)
     local byUID = Remotes_folder and Remotes_folder:FindFirstChild("pr_" .. tostring(LocalPlayer.UserId))
     if validRemote(byUID) then return cacheParryRemote2(byUID, "buffer") end
 
-    -- 7) did direto no rawget do _G global (executores sem getfenv)
     do
         local ok, v = pcall(function() return rawget(_G, "did") end)
         if ok and validRemote(v) then return cacheParryRemote2(v, "buffer") end
     end
 
-    -- 8) rawget("deflectRemote"), "parryRemote", "remote" — nomes comuns em scripts do jogo
     for _, key in ipairs({"deflectRemote", "parryRemote", "deflect_remote", "remote", "RE"}) do
         local ok, v = pcall(function() return rawget(_G, key) end)
         if ok and validRemote(v) then return cacheParryRemote2(v, "buffer") end
     end
 
-    -- 9) DeflectAbility.did via BM (BindableManager)
-    local ability = getDeflectAbility2 and getDeflectAbility2()
+    local ability = getDeflectAbility2()
     if ability then
         local adid = rawget(ability, "did")
         if validRemote(adid) then return cacheParryRemote2(adid, "buffer") end
-        -- alguns builds guardam como "remote" ou "_remote"
         for _, k in ipairs({"remote", "_remote", "_did", "event"}) do
             local v = rawget(ability, k)
             if validRemote(v) then return cacheParryRemote2(v, "buffer") end
         end
     end
 
-    -- 10) fallback fixo RE_4.68 (GeneratedNetworkRemotes)
     if NetRemotes then
         local fb = NetRemotes:FindFirstChild("RE_4.6848415795802784e+76")
         if validRemote(fb) then
             print("⚠️ Phantom: usando fallback fixo RE_4.68")
             return cacheParryRemote2(fb, "buffer", false)
         end
-        -- qualquer RemoteEvent dentro de GeneratedNetworkRemotes como último recurso
         for _, v in ipairs(NetRemotes:GetChildren()) do
             if v:IsA("RemoteEvent") then
                 print("⚠️ Phantom: usando RE genérico de GeneratedNetworkRemotes: " .. v.Name)
@@ -358,49 +352,34 @@ local function probeNamedRemoteEvents2()
         end
     end
     probingRemote2 = false
-    -- probe falhou em todos — resolveParryRemote2 tem fallbacks adicionais
     warn("⚠️ Phantom: probe não encontrou remote via cooldown frame")
     return resolveParryRemote2()
 end
 
 local function getParryRemote()
-    -- 1) cache quente
     if _parryRemoteCached and _parryRemoteCached.Parent then
         return _parryRemoteCached
     end
-    -- 2) did via getfenv
     local did = getGameDid2()
     if did then
         _parryRemoteCached = did
         return _parryRemoteCached
     end
-    -- 3) cadeia completa de resolução (10 fallbacks)
     local r = resolveParryRemote2()
     if r then return r end
-    -- 4) probe em background; retorna nil enquanto busca
     if not probingRemote2 then
         task.spawn(probeNamedRemoteEvents2)
     end
     return nil
 end
 
-local function getDeflectAbility2()
-    if not BM or not AbilityID or AbilityID.Deflect == nil then return nil end
-    local okFn, fn = pcall(function() return BM:GetFunction("AbilityManager::GetAbility") end)
-    if not okFn or not fn then return nil end
-    local ok, ability = pcall(function() return fn:Invoke(AbilityID.Deflect) end)
-    return ok and type(ability) == "table" and ability or nil
-end
-
 -- buffer pré-cacheado com fallbacks de executor
 local _bufParry
 do
-    -- tenta fromstring (Delta v3+, Synapse, KRNL)
     local ok, v = pcall(function() return buffer.fromstring("\1") end)
     if ok and v then
         _bufParry = v
     else
-        -- tenta create+writeu8 (Fluxus, Celery)
         local ok2, p = pcall(function()
             local b = buffer.create(1)
             buffer.writeu8(b, 0, 1)
@@ -418,25 +397,18 @@ local function sendParryInit()
 end
 
 -- ==================== FIRE PARRY ====================
--- Tenta disparar com buffer; se não tiver buffer no executor,
--- cai pra string raw, número, ou FireServer sem argumento.
 local function fireWithFallback(remote, bufPayload)
     if not validRemote(remote) then return false end
-    -- payload ideal: buffer
     if bufPayload then
         local ok = pcall(function() remote:FireServer(bufPayload) end)
         if ok then return true end
     end
-    -- fallback 1: string "\x01"
     local ok1 = pcall(function() remote:FireServer("\x01") end)
     if ok1 then return true end
-    -- fallback 2: string "\1"
     local ok2 = pcall(function() remote:FireServer("\1") end)
     if ok2 then return true end
-    -- fallback 3: número inteiro 1 (Fluxus antigo)
     local ok3 = pcall(function() remote:FireServer(1) end)
     if ok3 then return true end
-    -- fallback 4: sem argumento (aceito por alguns remotes)
     pcall(function() remote:FireServer() end)
     return true
 end
@@ -447,8 +419,7 @@ local function fireParryNormal()
         fireWithFallback(r, _bufParry)
         return
     end
-    -- último recurso: DeflectAbility.did via BM
-    local ability = getDeflectAbility2 and getDeflectAbility2()
+    local ability = getDeflectAbility2()
     if ability then
         for _, k in ipairs({"did", "remote", "_remote", "_did", "event"}) do
             local v = rawget(ability, k)
@@ -467,7 +438,7 @@ local function fireTouchTap()
     end
 end
 
--- ==================== SPAM (método lixo-2) ====================
+-- ==================== SPAM ====================
 local function getSpamGap()
     local cps = tonumber(Config.CPS) or 500
     if cps < 1 then cps = 1 end
@@ -555,7 +526,6 @@ if ballSyncRemote then
                 BallSync.TargetID         = newTarget
                 ballProcessed             = false
 
-                -- Auto Clash: bola voltou pra você e não tava em spam manual
                 if Config.AutoClash
                     and not Config.ManualSpam
                     and newTarget == LocalPlayer.UserId
@@ -577,7 +547,6 @@ if ballSyncRemote then
     end)
 end
 
--- Bola no Workspace
 Cache.Ball = Workspace:FindFirstChild("GameBall")
 Workspace.ChildAdded:Connect(function(c)
     if c.Name == "GameBall" then Cache.Ball = c end
@@ -597,11 +566,15 @@ if not ok or not ScreenGui.Parent then
     ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 end
 
--- Frame principal
+-- Tamanhos
+local OPEN_W, OPEN_H = 300, 320
+local BUBBLE_SIZE    = 56
+
+-- Frame principal (já nasce aberto)
 local MainFrame = Instance.new("Frame")
 MainFrame.Name             = "MainFrame"
-MainFrame.Size             = UDim2.new(0, 300, 0, 260)
-MainFrame.Position         = UDim2.new(0.5, -150, 0.5, -130)
+MainFrame.Size             = UDim2.new(0, OPEN_W, 0, OPEN_H)
+MainFrame.Position         = UDim2.new(0.5, -OPEN_W/2, 0.5, -OPEN_H/2)
 MainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 18)
 MainFrame.BorderSizePixel  = 0
 MainFrame.Active           = true
@@ -617,6 +590,17 @@ mainStroke.Color     = Color3.fromRGB(190, 25, 25)
 mainStroke.Thickness = 1.5
 mainStroke.Parent    = MainFrame
 
+-- Ícone da bolinha (sempre existe, só aparece quando fechado)
+local BubbleIcon = Instance.new("TextLabel")
+BubbleIcon.Size                   = UDim2.new(1, 0, 1, 0)
+BubbleIcon.BackgroundTransparency = 1
+BubbleIcon.Text                   = "P"
+BubbleIcon.TextColor3             = Color3.new(1, 1, 1)
+BubbleIcon.TextScaled             = true
+BubbleIcon.Font                   = Enum.Font.GothamBold
+BubbleIcon.Visible                = false
+BubbleIcon.Parent                 = MainFrame
+
 -- Header arrastável
 local Header = Instance.new("Frame")
 Header.Name             = "Header"
@@ -630,7 +614,6 @@ local headerCorner = Instance.new("UICorner")
 headerCorner.CornerRadius = UDim.new(0, 12)
 headerCorner.Parent       = Header
 
--- Tapa borda arredondada embaixo do header
 local headerBottom = Instance.new("Frame")
 headerBottom.Size             = UDim2.new(1, 0, 0, 12)
 headerBottom.Position         = UDim2.new(0, 0, 1, -12)
@@ -648,53 +631,128 @@ TitleIcon.Font                  = Enum.Font.GothamBold
 TitleIcon.Parent                = Header
 
 local TitleLabel = Instance.new("TextLabel")
-TitleLabel.Size                  = UDim2.new(1, -50, 1, 0)
+TitleLabel.Size                  = UDim2.new(1, -90, 1, 0)
 TitleLabel.Position              = UDim2.new(0, 44, 0, 0)
 TitleLabel.BackgroundTransparency = 1
-TitleLabel.Text                  = "PHANTOM  v3.0"
+TitleLabel.Text                  = "PHANTOM  v3.5"
 TitleLabel.TextColor3            = Color3.new(1, 1, 1)
 TitleLabel.TextScaled            = true
 TitleLabel.Font                  = Enum.Font.GothamBold
 TitleLabel.TextXAlignment        = Enum.TextXAlignment.Left
 TitleLabel.Parent                = Header
 
--- Drag pelo header
-do
-    local dragging   = false
-    local dragStart  = Vector2.new()
-    local frameStart = Vector2.new()
+-- Botao X (fecha -> vira bolinha)
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size             = UDim2.new(0, 26, 0, 26)
+CloseBtn.Position         = UDim2.new(1, -34, 0.5, -13)
+CloseBtn.BackgroundColor3 = Color3.new(0, 0, 0)
+CloseBtn.BackgroundTransparency = 0.4
+CloseBtn.BorderSizePixel  = 0
+CloseBtn.Text             = "X"
+CloseBtn.TextColor3       = Color3.new(1, 1, 1)
+CloseBtn.TextScaled       = true
+CloseBtn.Font             = Enum.Font.GothamBold
+CloseBtn.ZIndex           = 5
+CloseBtn.Parent           = Header
+local closeCorner = Instance.new("UICorner")
+closeCorner.CornerRadius = UDim.new(0, 6)
+closeCorner.Parent       = CloseBtn
 
-    Header.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
-            dragging   = true
-            dragStart  = Vector2.new(input.Position.X, input.Position.Y)
-            frameStart = Vector2.new(MainFrame.Position.X.Offset, MainFrame.Position.Y.Offset)
-        end
-    end)
+-- Área de conteúdo (criada ANTES das funções open/close que referenciam Content)
+local Content = Instance.new("Frame")
+Content.Name                    = "Content"
+Content.Size                    = UDim2.new(1, 0, 1, -48)
+Content.Position                = UDim2.new(0, 0, 0, 48)
+Content.BackgroundTransparency  = 1
+Content.Visible                 = true
+Content.Parent                  = MainFrame
 
-    UserInputService.InputChanged:Connect(function(input)
-        if not dragging then return end
-        if input.UserInputType == Enum.UserInputType.MouseMovement
-        or input.UserInputType == Enum.UserInputType.Touch then
-            local delta = Vector2.new(input.Position.X, input.Position.Y) - dragStart
-            MainFrame.Position = UDim2.new(0, frameStart.X + delta.X, 0, frameStart.Y + delta.Y)
-        end
-    end)
+-- ==================== BOLINHA / ABRIR-FECHAR ====================
+local isOpen = true
+local lastX, lastY  -- posicao antes de virar bolinha
 
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = false
-        end
+local function openMain()
+    if isOpen then return end
+    isOpen = true
+    local vp = Workspace.CurrentCamera.ViewportSize
+    local x = lastX or math.floor(vp.X/2 - OPEN_W/2)
+    local y = lastY or math.floor(vp.Y/2 - OPEN_H/2)
+    if vp.X < OPEN_W then x = 0 end
+    if vp.Y < OPEN_H then y = 0 end
+    x = math.clamp(x, 0, math.max(0, vp.X - OPEN_W))
+    y = math.clamp(y, 0, math.max(0, vp.Y - OPEN_H))
+    MainFrame.Position = UDim2.new(0, x, 0, y)
+    Header.Visible     = true
+    Content.Visible    = true
+    CloseBtn.Visible   = true
+    BubbleIcon.Visible = false
+    pcall(function()
+        -- bolinha -> painel: tween principal do tamanho
+        TweenService:Create(MainFrame,
+            TweenInfo.new(0.42, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+            {Size = UDim2.new(0, OPEN_W, 0, OPEN_H)}
+        ):Play()
+        -- cor de fundo "esmaece" pra tom mais escuro
+        TweenService:Create(MainFrame,
+            TweenInfo.new(0.42, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
+            {BackgroundColor3 = Color3.fromRGB(12, 12, 18)}
+        ):Play()
+        -- canto vai de circular pra arredondado
+        TweenService:Create(mainCorner,
+            TweenInfo.new(0.42, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+            {CornerRadius = UDim.new(0, 12)}
+        ):Play()
+        -- stroke engrossa de volta
+        TweenService:Create(mainStroke,
+            TweenInfo.new(0.42, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
+            {Thickness = 1.5}
+        ):Play()
     end)
 end
 
--- F8 esconde/mostra | F toggle spam
+local function closeMain()
+    if not isOpen then return end
+    isOpen = false
+    lastX = MainFrame.Position.X.Offset
+    lastY = MainFrame.Position.Y.Offset
+    Header.Visible     = false
+    Content.Visible    = false
+    CloseBtn.Visible   = false
+    BubbleIcon.Visible = true
+    pcall(function()
+        -- painel -> bolinha: tween principal
+        TweenService:Create(MainFrame,
+            TweenInfo.new(0.38, Enum.EasingStyle.Quint, Enum.EasingDirection.In),
+            {Size = UDim2.new(0, BUBBLE_SIZE, 0, BUBBLE_SIZE)}
+        ):Play()
+        -- cor vai pra um tom mais "vivo" (bolinha mais brilhante)
+        TweenService:Create(MainFrame,
+            TweenInfo.new(0.38, Enum.EasingStyle.Sine, Enum.EasingDirection.In),
+            {BackgroundColor3 = Color3.fromRGB(28, 12, 12)}
+        ):Play()
+        -- canto vai pra círculo
+        TweenService:Create(mainCorner,
+            TweenInfo.new(0.38, Enum.EasingStyle.Quint, Enum.EasingDirection.In),
+            {CornerRadius = UDim.new(1, 0)}
+        ):Play()
+        -- stroke afina enquanto encolhe
+        TweenService:Create(mainStroke,
+            TweenInfo.new(0.38, Enum.EasingStyle.Sine, Enum.EasingDirection.In),
+            {Thickness = 2}
+        ):Play()
+    end)
+end
+
+-- X fecha
+CloseBtn.MouseButton1Click:Connect(function()
+    if isOpen then closeMain() end
+end)
+
+-- F8 esconde/mostra (bolinha) | F toggle spam
 UserInputService.InputBegan:Connect(function(input, gpe)
     if gpe then return end
     if input.KeyCode == Enum.KeyCode.F8 then
-        MainFrame.Visible = not MainFrame.Visible
+        if isOpen then closeMain() else openMain() end
     elseif input.KeyCode == Enum.KeyCode.F then
         Config.ManualSpam = not Config.ManualSpam
         spamAcc       = 0
@@ -702,12 +760,60 @@ UserInputService.InputBegan:Connect(function(input, gpe)
     end
 end)
 
--- Área de conteúdo
-local Content = Instance.new("Frame")
-Content.Size             = UDim2.new(1, 0, 1, -48)
-Content.Position         = UDim2.new(0, 0, 0, 48)
-Content.BackgroundTransparency = 1
-Content.Parent           = MainFrame
+-- Drag unificado: header (aberto) OU frame inteiro (fechado como bolinha)
+do
+    local dragging   = false
+    local dragStart  = nil
+    local frameStart = nil
+    local dragMoved  = false
+
+    local function startDrag(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1
+        and input.UserInputType ~= Enum.UserInputType.Touch then return end
+        dragging   = true
+        dragMoved  = false
+        dragStart  = input.Position
+        frameStart = Vector2.new(MainFrame.Position.X.Offset, MainFrame.Position.Y.Offset)
+    end
+
+    local function updateDrag(input)
+        if not dragging or not dragStart or not frameStart then return end
+        if input.UserInputType ~= Enum.UserInputType.MouseMovement
+        and input.UserInputType ~= Enum.UserInputType.Touch then return end
+        local delta = input.Position - dragStart
+        if delta.Magnitude > 4 then dragMoved = true end
+        -- sem clamp: bolinha e frame podem sair da tela de propósito
+        local nx = frameStart.X + delta.X
+        local ny = frameStart.Y + delta.Y
+        MainFrame.Position = UDim2.new(0, nx, 0, ny)
+    end
+
+    local function endDrag(input)
+        if not dragging then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            -- se for bolinha e não moveu, abre
+            if not isOpen and not dragMoved then
+                openMain()
+            end
+            dragging  = false
+            dragStart = nil
+        end
+    end
+
+    -- Header drag (aberto)
+    Header.InputBegan:Connect(startDrag)
+    -- Frame drag (bolinha)
+    MainFrame.InputBegan:Connect(function(input)
+        -- se for bolinha, header não recebe o evento; tratar aqui
+        if not isOpen then
+            startDrag(input)
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(updateDrag)
+    UserInputService.InputEnded:Connect(endDrag)
+end
 
 local ListLayout = Instance.new("UIListLayout")
 ListLayout.SortOrder           = Enum.SortOrder.LayoutOrder
@@ -768,8 +874,28 @@ local function AddToggle(name, default, order, callback)
     local state = default
     btn.MouseButton1Click:Connect(function()
         state = not state
-        btn.BackgroundColor3 = state and Color3.fromRGB(0, 185, 75) or Color3.fromRGB(55, 55, 68)
-        btn.Text             = state and "ON" or "OFF"
+        local targetColor = state and Color3.fromRGB(0, 185, 75) or Color3.fromRGB(55, 55, 68)
+        pcall(function()
+            -- pulse: encolhe rapidinho e volta ao tamanho normal
+            TweenService:Create(btn,
+                TweenInfo.new(0.10, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+                {Size = UDim2.new(0, 70, 0, 26)}
+            ):Play()
+            task.delay(0.10, function()
+                if btn.Parent then
+                    TweenService:Create(btn,
+                        TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+                        {Size = UDim2.new(0, 80, 0, 30)}
+                    ):Play()
+                end
+            end)
+            -- cor desliza (nao troca instantaneo)
+            TweenService:Create(btn,
+                TweenInfo.new(0.22, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+                {BackgroundColor3 = targetColor}
+            ):Play()
+        end)
+        btn.Text = state and "ON" or "OFF"
         callback(state)
     end)
 
@@ -777,12 +903,83 @@ local function AddToggle(name, default, order, callback)
 end
 
 AddToggle("Auto Parry", Config.AutoParry, 1, function(v) Config.AutoParry = v end)
-AddToggle("Mini Spam",  Config.MiniSpam,  2, function(v)
+AddToggle("Mini Spam",  Config.MiniSpam,  3, function(v)
     Config.MiniSpam = v
     local g = game:GetService("CoreGui"):FindFirstChild("PhantomSpamToggleGui")
     if g then g.Enabled = v end
 end)
-AddToggle("Auto Clash", Config.AutoClash, 3, function(v) Config.AutoClash = v end)
+AddToggle("Auto Clash", Config.AutoClash, 4, function(v) Config.AutoClash = v end)
+
+-- Campo de CPS (editavel)
+local cpsRow = Instance.new("Frame")
+cpsRow.Size             = UDim2.new(1, 0, 0, 44)
+cpsRow.BackgroundColor3 = Color3.fromRGB(22, 22, 30)
+cpsRow.BorderSizePixel  = 0
+cpsRow.LayoutOrder      = 2
+cpsRow.Parent           = Content
+local cpsRowCorner = Instance.new("UICorner")
+cpsRowCorner.CornerRadius = UDim.new(0, 8)
+cpsRowCorner.Parent       = cpsRow
+local cpsRowStroke = Instance.new("UIStroke")
+cpsRowStroke.Color     = Color3.fromRGB(45, 45, 60)
+cpsRowStroke.Thickness = 1
+cpsRowStroke.Parent    = cpsRow
+
+local cpsLbl = Instance.new("TextLabel")
+cpsLbl.Size                = UDim2.new(0.5, -14, 1, 0)
+cpsLbl.Position            = UDim2.new(0, 14, 0, 0)
+cpsLbl.BackgroundTransparency = 1
+cpsLbl.Text                = "CPS (Spam)"
+cpsLbl.TextColor3          = Color3.fromRGB(210, 210, 225)
+cpsLbl.TextScaled          = true
+cpsLbl.Font                = Enum.Font.Gotham
+cpsLbl.TextXAlignment      = Enum.TextXAlignment.Left
+cpsLbl.Parent              = cpsRow
+
+local cpsBox = Instance.new("TextBox")
+cpsBox.Size             = UDim2.new(0, 80, 0, 30)
+cpsBox.Position         = UDim2.new(1, -92, 0.5, -15)
+cpsBox.BackgroundColor3 = Color3.fromRGB(55, 55, 68)
+cpsBox.BorderSizePixel  = 0
+cpsBox.Text             = tostring(Config.CPS)
+cpsBox.TextColor3       = Color3.new(1, 1, 1)
+cpsBox.TextScaled       = true
+cpsBox.Font             = Enum.Font.GothamBold
+cpsBox.ClearTextOnFocus = false
+cpsBox.Parent           = cpsRow
+local cpsBoxCorner = Instance.new("UICorner")
+cpsBoxCorner.CornerRadius = UDim.new(0, 6)
+cpsBoxCorner.Parent       = cpsBox
+
+cpsBox.FocusLost:Connect(function()
+    local n = tonumber(cpsBox.Text)
+    local flashColor, restoreDelay
+    if n and n >= 1 and n <= 2000 then
+        Config.CPS = math.floor(n)
+        cpsBox.Text = tostring(Config.CPS)
+        flashColor = Color3.fromRGB(0, 185, 75)
+        restoreDelay = 0.55
+    else
+        cpsBox.Text = tostring(Config.CPS)
+        flashColor = Color3.fromRGB(185, 50, 50)
+        restoreDelay = 0.55
+    end
+    pcall(function()
+        TweenService:Create(cpsBox,
+            TweenInfo.new(0.18, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+            {BackgroundColor3 = flashColor}
+        ):Play()
+    end)
+    task.delay(restoreDelay, function()
+        if not cpsBox.Parent then return end
+        pcall(function()
+            TweenService:Create(cpsBox,
+                TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.In),
+                {BackgroundColor3 = Color3.fromRGB(55, 55, 68)}
+            ):Play()
+        end)
+    end)
+end)
 
 local StatusLabel = Instance.new("TextLabel")
 StatusLabel.Size               = UDim2.new(1, 0, 0, 24)
@@ -791,7 +988,7 @@ StatusLabel.TextColor3         = Color3.fromRGB(130, 130, 150)
 StatusLabel.Text               = "Aguardando bola..."
 StatusLabel.TextScaled         = true
 StatusLabel.Font               = Enum.Font.Gotham
-StatusLabel.LayoutOrder        = 3
+StatusLabel.LayoutOrder        = 5
 StatusLabel.Parent             = Content
 
 -- ==================== MAIN LOOP ====================
@@ -803,7 +1000,6 @@ RunService.Heartbeat:Connect(function(dt)
     local ballPos = (b and b.Parent) and b.Position or Vector3.new()
     local distance = (Cache.RootPart.Position - ballPos).Magnitude
 
-    -- Decay do clash
     if ClashState.Active then
         if (_tick() - ClashState.LastActivationTime) > Config.ClashDecay
         or distance > Config.MinDistance * 1.6 then
@@ -811,7 +1007,6 @@ RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Status label
     if ClashState.Active then
         StatusLabel.Text       = "⚔️ Auto Clash ativo"
         StatusLabel.TextColor3 = Color3.fromRGB(255, 180, 0)
@@ -823,7 +1018,6 @@ RunService.Heartbeat:Connect(function(dt)
         StatusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
     end
 
-    -- Auto Parry
     if Config.AutoParry and not Config.ManualSpam and not ClashState.Active
     and BallSync.TargetID == LocalPlayer.UserId and not BallSync.Teleported then
         local ok2, raw = pcall(function()
@@ -880,27 +1074,59 @@ task.defer(function()
     end
 end)
 
-print("[Phantom v3.0] Carregado! | CPS: " .. Config.CPS)
+print("[Phantom v3.5] Carregado! | CPS: " .. Config.CPS)
 
 -- ================== MINI SPAM GUI (estilo Delta v3) ==================
 task.spawn(function()
     local CoreGui = game:GetService("CoreGui")
-    local UIS = game:GetService("UserInputService")
-    local WS  = game:GetService("Workspace")
-    local RS  = game:GetService("RunService")
+    local UIS     = game:GetService("UserInputService")
+    local WS      = game:GetService("Workspace")
 
     local math_clamp = math.clamp
 
     local spamOn     = Config.ManualSpam == true
     local toggleBtn  = nil
-    local spamOnRef  = { value = spamOn }
 
     local function updateMiniGUI()
-        if not toggleBtn then return end
-        toggleBtn.Text             = spamOn and "ON" or "OFF"
-        toggleBtn.BackgroundColor3 = spamOn
+        if not toggleBtn or not toggleBtn.Parent then return end
+        local targetColor = spamOn
             and Color3.fromRGB(50, 220, 50)
             or  Color3.fromRGB(220, 50, 50)
+        pcall(function()
+            -- pulse: encolhe e volta
+            TweenService:Create(toggleBtn,
+                TweenInfo.new(0.10, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+                {Size = UDim2.new(0.80, 0, 0, 46)}
+            ):Play()
+            task.delay(0.10, function()
+                if toggleBtn and toggleBtn.Parent then
+                    TweenService:Create(toggleBtn,
+                        TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+                        {Size = UDim2.new(0.85, 0, 0, 52)}
+                    ):Play()
+                end
+            end)
+            -- cor desliza
+            TweenService:Create(toggleBtn,
+                TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+                {BackgroundColor3 = targetColor}
+            ):Play()
+            -- texto: fade out -> troca -> fade in
+            TweenService:Create(toggleBtn,
+                TweenInfo.new(0.10, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
+                {TextTransparency = 1}
+            ):Play()
+        end)
+        task.delay(0.10, function()
+            if not (toggleBtn and toggleBtn.Parent) then return end
+            toggleBtn.Text = spamOn and "ON" or "OFF"
+            pcall(function()
+                TweenService:Create(toggleBtn,
+                    TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
+                    {TextTransparency = 0}
+                ):Play()
+            end)
+        end)
     end
 
     local function setSpam(v)
@@ -908,26 +1134,19 @@ task.spawn(function()
         spamOn = v
         Config.ManualSpam = v
         if v then
-            -- manual spam ligado: cancela auto clash pra não competir
             ClashState.Active = false
         end
         updateMiniGUI()
     end
 
-    -- hotkey X pra toggle
+    -- X e F togglam (F8 já tava no handler principal)
     UIS.InputBegan:Connect(function(inp, gpe)
         if gpe then return end
-        if inp.KeyCode == Enum.KeyCode.X then setSpam(not spamOn) end
+        if inp.KeyCode == Enum.KeyCode.X or inp.KeyCode == Enum.KeyCode.F then
+            setSpam(not spamOn)
+        end
     end)
 
-    -- reaproveita valor do F (que já tava no 3.5) — o F também toggle
-    -- (mantém compat com quem já usava)
-    UIS.InputBegan:Connect(function(inp, gpe)
-        if gpe then return end
-        if inp.KeyCode == Enum.KeyCode.F then setSpam(not spamOn) end
-    end)
-
-    -- mata GUI antiga se recarregar
     local old = CoreGui:FindFirstChild("PhantomSpamToggleGui")
     if old then old:Destroy() end
 
@@ -944,13 +1163,19 @@ task.spawn(function()
     mainFrame.Position         = UDim2.new(1, -130, 0.5, -47)
     mainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 30)
     mainFrame.BorderSizePixel  = 0
+    mainFrame.BackgroundTransparency = 1  -- começa invisível, faz fade-in
     mainFrame.Parent           = screenGui
-    Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 14)
+    local mainFrameCorner = Instance.new("UICorner", mainFrame)
+    mainFrameCorner.CornerRadius = UDim.new(0, 14)
+
+    -- posição de descanso (nunca muda, sempre volta pra cá)
+    local restPos = mainFrame.Position
 
     local stroke     = Instance.new("UIStroke")
-    stroke.Color     = Color3.fromRGB(190, 25, 25)  -- mesma cor vermelha do header do phantom
-    stroke.Thickness = 1.5
-    stroke.Parent    = mainFrame
+    stroke.Color        = Color3.fromRGB(190, 25, 25)
+    stroke.Thickness    = 1.5
+    stroke.Transparency = 1  -- combina com fundo transparente inicial
+    stroke.Parent       = mainFrame
 
     local titleBar = Instance.new("Frame")
     titleBar.Size             = UDim2.new(1, 0, 0, 24)
@@ -981,33 +1206,25 @@ task.spawn(function()
     toggleBtn.Parent           = mainFrame
     Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 10)
 
-    -- drag pelo frame inteiro (exceto o toggle)
+    -- drag pelo frame inteiro (toggle absorve clique)
     local dragging, dragStart, startPos = false, nil, nil
     local function updateDrag(input)
         if not dragStart or not startPos then return end
         local delta  = input.Position - dragStart
         local vpSize = WS.CurrentCamera.ViewportSize
         local fSize  = mainFrame.AbsoluteSize
-        local nx = math_clamp(startPos.X.Offset + delta.X, 0, vpSize.X - fSize.X)
-        local ny = math_clamp(startPos.Y.Offset + delta.Y, 0, vpSize.Y - fSize.Y)
+        -- mini spam: FICA preso na tela (não pode sair)
+        local nx = math_clamp(startPos.X.Offset + delta.X, 0, math.max(0, vpSize.X - fSize.X))
+        local ny = math_clamp(startPos.Y.Offset + delta.Y, 0, math.max(0, vpSize.Y - fSize.Y))
         mainFrame.Position = UDim2.new(0, nx, 0, ny)
     end
 
     mainFrame.InputBegan:Connect(function(input)
         if input.UserInputType ~= Enum.UserInputType.MouseButton1
         and input.UserInputType ~= Enum.UserInputType.Touch then return end
-        -- ignora se clicou no toggle (deixa ele funcionar normal)
-        local tgt = input.UserInputState and nil
-        -- Roblox não dá hit test aqui, mas como o botão é Active=true e fica em cima,
-        -- ele consome o evento antes. Essa checagem extra é defensiva.
         dragging  = true
         dragStart = input.Position
         startPos  = mainFrame.Position
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
-        end)
     end)
 
     mainFrame.InputChanged:Connect(function(input)
@@ -1017,12 +1234,120 @@ task.spawn(function()
         ) then updateDrag(input) end
     end)
 
-    UIS.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.Touch then
-            updateDrag(input)
+    UIS.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging  = false
+            dragStart = nil
+            startPos  = nil
         end
     end)
 
     toggleBtn.Activated:Connect(function() setSpam(not spamOn) end)
     updateMiniGUI()
+
+    -- animação de entrada: "espreme" pra dentro, depois relaxa
+    local function playEntrance()
+        if not mainFrame.Parent then return end
+        pcall(function()
+            -- fade in do fundo
+            TweenService:Create(mainFrame,
+                TweenInfo.new(0.30, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+                {BackgroundTransparency = 0}
+            ):Play()
+            -- fade in do stroke junto
+            TweenService:Create(stroke,
+                TweenInfo.new(0.30, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
+                {Transparency = 0}
+            ):Play()
+            -- fade in do header
+            TweenService:Create(titleBar,
+                TweenInfo.new(0.30, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
+                {BackgroundTransparency = 0}
+            ):Play()
+            TweenService:Create(titleLabel,
+                TweenInfo.new(0.30, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
+                {TextTransparency = 0}
+            ):Play()
+            -- "salto" pra dentro: começa fora, vem com overshoot
+            -- sempre pra restPos (não pra mainFrame.Position, que pode ter sido arrastado)
+            local startX = restPos.X.Offset - 60
+            local startY = restPos.Y.Offset - 30
+            mainFrame.Position = UDim2.new(0, startX, 0, startY)
+            TweenService:Create(mainFrame,
+                TweenInfo.new(0.55, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+                {Position = restPos}
+            ):Play()
+            -- botão aparece com delay (cascata)
+            task.delay(0.18, function()
+                if not (toggleBtn and toggleBtn.Parent) then return end
+                pcall(function()
+                    toggleBtn.BackgroundTransparency = 1
+                    toggleBtn.TextTransparency = 1
+                    TweenService:Create(toggleBtn,
+                        TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
+                        {BackgroundTransparency = 0}
+                    ):Play()
+                    TweenService:Create(toggleBtn,
+                        TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
+                        {TextTransparency = 0}
+                    ):Play()
+                end)
+            end)
+        end)
+    end
+
+    playEntrance()
+
+    -- observa Config.MiniSpam: se ligar, aparece com animação; se desligar, sai
+    task.spawn(function()
+        local last = Config.MiniSpam == true
+        while mainFrame and mainFrame.Parent do
+            local cur = Config.MiniSpam == true
+            if cur ~= last then
+                if cur then
+                    pcall(function()
+                        TweenService:Create(mainFrame,
+                            TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+                            {BackgroundTransparency = 0}
+                        ):Play()
+                        TweenService:Create(stroke,
+                            TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
+                            {Transparency = 0}
+                        ):Play()
+                        -- "salta" de volta pra restPos (não pra mainFrame.Position)
+                        TweenService:Create(mainFrame,
+                            TweenInfo.new(0.40, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+                            {Position = restPos}
+                        ):Play()
+                    end)
+                else
+                    pcall(function()
+                        -- slide pra fora (direita + fade), e DEPOIS volta pra restPos invisível
+                        TweenService:Create(mainFrame,
+                            TweenInfo.new(0.30, Enum.EasingStyle.Quint, Enum.EasingDirection.In),
+                            {Position = UDim2.new(restPos.X.Scale, restPos.X.Offset + 40, restPos.Y.Scale, restPos.Y.Offset)}
+                        ):Play()
+                        TweenService:Create(mainFrame,
+                            TweenInfo.new(0.30, Enum.EasingStyle.Quint, Enum.EasingDirection.In),
+                            {BackgroundTransparency = 1}
+                        ):Play()
+                        TweenService:Create(stroke,
+                            TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.In),
+                            {Transparency = 1}
+                        ):Play()
+                    end)
+                    -- depois do slide, volta pra restPos invisível
+                    -- (pra próxima vez que ligar, a entrada não começar do lugar errado)
+                    task.delay(0.32, function()
+                        if not (mainFrame and mainFrame.Parent) then return end
+                        if Config.MiniSpam == true then return end -- pode ter religado rápido
+                        mainFrame.Position = restPos
+                    end)
+                end
+                last = cur
+            end
+            task.wait(0.1)
+        end
+    end)
 end)
