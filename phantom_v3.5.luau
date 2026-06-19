@@ -1,5 +1,5 @@
 -- ================================================
---   Phantom Ball v3.5 | by drax
+--   Phantom Ball v3.5 | by ppzudo
 -- ================================================
 
 local Players           = game:GetService("Players")
@@ -46,11 +46,12 @@ end
 local Config = {
     AutoParry   = true,
     ManualSpam  = false,
+    MiniSpam    = false,
     AutoClash   = true,
-    CPS         = 120,
+    CPS         = 500,
     ClashDecay  = 0.35,
     MinDistance = 38,
-    UseTouchTap = false,
+    UseTouchTap = true,
 }
 
 -- ==================== STATE ====================
@@ -466,79 +467,48 @@ local function fireTouchTap()
     end
 end
 
--- ==================== SPAM (método v7) ====================
-local SPAM_BURST   = 4
-local spamAcc      = 0
-local spamLast     = 0
-local spamRng      = Random.new()
-local spamNextStep = 1 / 120
-local spamStartT   = 0
+-- ==================== SPAM (método lixo-2) ====================
+local function getSpamGap()
+    local cps = tonumber(Config.CPS) or 500
+    if cps < 1 then cps = 1 end
+    return 1 / cps
+end
+
 local spamWasActive = false
 
-local function calcSpamStep(now)
-    local cps = (type(Config.CPS) == "number" and Config.CPS > 0) and Config.CPS or 120
-    local elapsed = now - spamStartT
-    local variance
-    if elapsed < 1.5 then
-        variance = spamRng:NextNumber() < 0.5 and 1 or -1
-    else
-        if spamRng:NextNumber() < 0.15 then
-            variance = spamRng:NextInteger(4, 7)
-        else
-            variance = spamRng:NextInteger(0, 2)
-        end
-        if spamRng:NextNumber() < 0.5 then variance = -variance end
-    end
-    local effectiveCps = math.max(cps * 0.6, math.min(cps + 2, cps + variance))
-    return 1 / effectiveCps
-end
-
-local function runSpam(dt)
-    local isActive = Config.ManualSpam or ClashState.Active
-    if not isActive then
-        spamAcc       = 0
-        spamLast      = 0
-        spamWasActive = false
-        return
-    end
-
-    if not spamWasActive then
-        local t0     = os.clock()
-        spamStartT   = t0
-        spamNextStep = calcSpamStep(t0)
-        spamAcc      = spamNextStep
-        spamLast     = t0
-        spamWasActive = true
-        -- disparo imediato
-        local r = getParryRemote()
-        if r then pcall(function() r:FireServer(_bufParry) end) end
-        fireTouchTap()
-    end
-
-    local now = os.clock()
-    local add = spamLast > 0 and (now - spamLast) or (type(dt) == "number" and dt or 0)
-    spamLast  = now
-
-    if add < 0 then add = 0
-    elseif add > spamNextStep * SPAM_BURST then add = spamNextStep * SPAM_BURST end
-
-    spamAcc = math.min(spamAcc + add, spamNextStep * SPAM_BURST)
-    if spamAcc < spamNextStep then return end
-
+local function fireOneClick()
     local r = getParryRemote()
-    if not r and not (Config.UseTouchTap and touchTap) then return end
-
-    local sent = 0
-    while spamAcc >= spamNextStep and sent < SPAM_BURST do
-        spamAcc      = spamAcc - spamNextStep
-        spamNextStep = calcSpamStep(now)
-        sent         = sent + 1
-        if r then pcall(function() r:FireServer(_bufParry) end) end
-        fireTouchTap()
-    end
+    if not (r and r.Parent and _bufParry) then return end
+    pcall(function() r:FireServer(_bufParry) end)
 end
 
-RunService.Heartbeat:Connect(runSpam)
+local function maybeFireTouchTap()
+    if not touchTap then return end
+    pcall(function() touchTap:Fire() end)
+end
+
+task.spawn(function()
+    while true do
+        local ok, err = pcall(function()
+            local spamOn = Config.ManualSpam or ClashState.Active
+            if not spamOn then
+                spamWasActive = false
+                return
+            end
+            spamWasActive = true
+            local gap = getSpamGap()
+            fireOneClick()
+            maybeFireTouchTap()
+            if gap < 0.001 then gap = 0.001 end
+            task.wait(gap)
+        end)
+        if not ok then
+            warn("[PHANTOM] spam loop error: " .. tostring(err))
+            spamWasActive = false
+        end
+        if not spamWasActive then task.wait(0.005) end
+    end
+end)
 
 -- ==================== CHARACTER ====================
 local function setupCharacter(char)
@@ -630,8 +600,8 @@ end
 -- Frame principal
 local MainFrame = Instance.new("Frame")
 MainFrame.Name             = "MainFrame"
-MainFrame.Size             = UDim2.new(0, 300, 0, 200)
-MainFrame.Position         = UDim2.new(0.5, -150, 0.5, -100)
+MainFrame.Size             = UDim2.new(0, 300, 0, 260)
+MainFrame.Position         = UDim2.new(0.5, -150, 0.5, -130)
 MainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 18)
 MainFrame.BorderSizePixel  = 0
 MainFrame.Active           = true
@@ -807,7 +777,12 @@ local function AddToggle(name, default, order, callback)
 end
 
 AddToggle("Auto Parry", Config.AutoParry, 1, function(v) Config.AutoParry = v end)
-AddToggle("Auto Clash", Config.AutoClash, 2, function(v) Config.AutoClash = v end)
+AddToggle("Mini Spam",  Config.MiniSpam,  2, function(v)
+    Config.MiniSpam = v
+    local g = game:GetService("CoreGui"):FindFirstChild("PhantomSpamToggleGui")
+    if g then g.Enabled = v end
+end)
+AddToggle("Auto Clash", Config.AutoClash, 3, function(v) Config.AutoClash = v end)
 
 local StatusLabel = Instance.new("TextLabel")
 StatusLabel.Size               = UDim2.new(1, 0, 0, 24)
@@ -906,3 +881,148 @@ task.defer(function()
 end)
 
 print("[Phantom v3.0] Carregado! | CPS: " .. Config.CPS)
+
+-- ================== MINI SPAM GUI (estilo Delta v3) ==================
+task.spawn(function()
+    local CoreGui = game:GetService("CoreGui")
+    local UIS = game:GetService("UserInputService")
+    local WS  = game:GetService("Workspace")
+    local RS  = game:GetService("RunService")
+
+    local math_clamp = math.clamp
+
+    local spamOn     = Config.ManualSpam == true
+    local toggleBtn  = nil
+    local spamOnRef  = { value = spamOn }
+
+    local function updateMiniGUI()
+        if not toggleBtn then return end
+        toggleBtn.Text             = spamOn and "ON" or "OFF"
+        toggleBtn.BackgroundColor3 = spamOn
+            and Color3.fromRGB(50, 220, 50)
+            or  Color3.fromRGB(220, 50, 50)
+    end
+
+    local function setSpam(v)
+        if spamOn == v then return end
+        spamOn = v
+        Config.ManualSpam = v
+        if v then
+            -- manual spam ligado: cancela auto clash pra não competir
+            ClashState.Active = false
+        end
+        updateMiniGUI()
+    end
+
+    -- hotkey X pra toggle
+    UIS.InputBegan:Connect(function(inp, gpe)
+        if gpe then return end
+        if inp.KeyCode == Enum.KeyCode.X then setSpam(not spamOn) end
+    end)
+
+    -- reaproveita valor do F (que já tava no 3.5) — o F também toggle
+    -- (mantém compat com quem já usava)
+    UIS.InputBegan:Connect(function(inp, gpe)
+        if gpe then return end
+        if inp.KeyCode == Enum.KeyCode.F then setSpam(not spamOn) end
+    end)
+
+    -- mata GUI antiga se recarregar
+    local old = CoreGui:FindFirstChild("PhantomSpamToggleGui")
+    if old then old:Destroy() end
+
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name           = "PhantomSpamToggleGui"
+    screenGui.ResetOnSpawn   = false
+    screenGui.IgnoreGuiInset = true
+    screenGui.DisplayOrder   = 11
+    screenGui.Enabled        = Config.MiniSpam == true
+    screenGui.Parent         = CoreGui
+
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Size             = UDim2.new(0, 120, 0, 95)
+    mainFrame.Position         = UDim2.new(1, -130, 0.5, -47)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 30)
+    mainFrame.BorderSizePixel  = 0
+    mainFrame.Parent           = screenGui
+    Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 14)
+
+    local stroke     = Instance.new("UIStroke")
+    stroke.Color     = Color3.fromRGB(190, 25, 25)  -- mesma cor vermelha do header do phantom
+    stroke.Thickness = 1.5
+    stroke.Parent    = mainFrame
+
+    local titleBar = Instance.new("Frame")
+    titleBar.Size             = UDim2.new(1, 0, 0, 24)
+    titleBar.BackgroundColor3 = Color3.fromRGB(190, 25, 25)
+    titleBar.BorderSizePixel  = 0
+    titleBar.Parent           = mainFrame
+    Instance.new("UICorner", titleBar).CornerRadius = UDim.new(0, 14)
+
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Size                   = UDim2.new(1, -6, 1, 0)
+    titleLabel.Position               = UDim2.new(0, 6, 0, 0)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text                   = "PHANTOM"
+    titleLabel.TextColor3             = Color3.new(1, 1, 1)
+    titleLabel.TextScaled             = true
+    titleLabel.Font                   = Enum.Font.GothamBold
+    titleLabel.Parent                 = titleBar
+
+    toggleBtn = Instance.new("TextButton")
+    toggleBtn.Size             = UDim2.new(0.85, 0, 0, 52)
+    toggleBtn.Position         = UDim2.new(0.075, 0, 0, 30)
+    toggleBtn.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+    toggleBtn.BorderSizePixel  = 0
+    toggleBtn.Text             = "OFF"
+    toggleBtn.TextColor3       = Color3.new(1, 1, 1)
+    toggleBtn.TextScaled       = true
+    toggleBtn.Font             = Enum.Font.GothamBold
+    toggleBtn.Parent           = mainFrame
+    Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 10)
+
+    -- drag pelo frame inteiro (exceto o toggle)
+    local dragging, dragStart, startPos = false, nil, nil
+    local function updateDrag(input)
+        if not dragStart or not startPos then return end
+        local delta  = input.Position - dragStart
+        local vpSize = WS.CurrentCamera.ViewportSize
+        local fSize  = mainFrame.AbsoluteSize
+        local nx = math_clamp(startPos.X.Offset + delta.X, 0, vpSize.X - fSize.X)
+        local ny = math_clamp(startPos.Y.Offset + delta.Y, 0, vpSize.Y - fSize.Y)
+        mainFrame.Position = UDim2.new(0, nx, 0, ny)
+    end
+
+    mainFrame.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1
+        and input.UserInputType ~= Enum.UserInputType.Touch then return end
+        -- ignora se clicou no toggle (deixa ele funcionar normal)
+        local tgt = input.UserInputState and nil
+        -- Roblox não dá hit test aqui, mas como o botão é Active=true e fica em cima,
+        -- ele consome o evento antes. Essa checagem extra é defensiva.
+        dragging  = true
+        dragStart = input.Position
+        startPos  = mainFrame.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end)
+
+    mainFrame.InputChanged:Connect(function(input)
+        if dragging and (
+            input.UserInputType == Enum.UserInputType.MouseMovement or
+            input.UserInputType == Enum.UserInputType.Touch
+        ) then updateDrag(input) end
+    end)
+
+    UIS.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.Touch then
+            updateDrag(input)
+        end
+    end)
+
+    toggleBtn.Activated:Connect(function() setSpam(not spamOn) end)
+    updateMiniGUI()
+end)
