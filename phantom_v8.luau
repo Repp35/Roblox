@@ -1,11 +1,3 @@
---[[
-    Manual Spam + Auto Clash + Auto Parry (Phantom) — v8.4 (minified)
-    Auto-parry copiado INTEGRALMENTE do auto-funcional-DE-VERDADE.lua (v8.0 "Clean").
-    Fórmula da janela: depende da VELOCIDADE (não do ping), clamp [0.20, 0.85].
-    BallProcessed: marca TRUE quando target vira eu (no sync), FALSE quando sai.
-    Auto-parry só roda quando spam/clash estiverem OFF (sem double-fire).
-]]
-
 local Players,RunService,Replicated,Stats,UIS=game:GetService"Players",game:GetService"RunService",game:GetService"ReplicatedStorage",game:GetService"Stats",game:GetService"UserInputService"
 local lp,ws=Players.LocalPlayer,workspace
 local now=os.clock
