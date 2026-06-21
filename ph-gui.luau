@@ -440,7 +440,7 @@ task.spawn(function()
     sg.ResetOnSpawn = false
     sg.IgnoreGuiInset = true
     sg.DisplayOrder = 11
-    sg.Enabled = MiniSpam
+    sg.Enabled = true
     sg.Parent = CG
 
     local mf = Instance.new("Frame")
@@ -449,6 +449,7 @@ task.spawn(function()
     mf.BackgroundColor3 = RGB(18, 18, 30)
     mf.BorderSizePixel = 0
     mf.BackgroundTransparency = 1
+    mf.Visible = MiniSpam
     mf.Parent = sg
     corner(mf, 14)
 
@@ -539,6 +540,7 @@ task.spawn(function()
             local cur = MiniSpam
             if cur ~= last then
                 if cur then
+                    mf.Visible = true
                     tween(mf, TI(.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {BackgroundTransparency = 0})
                     tween(s,  TI(.25, Enum.EasingStyle.Sine,  Enum.EasingDirection.Out), {Transparency = 0})
                     tween(mf, TI(.40, Enum.EasingStyle.Back,  Enum.EasingDirection.Out), {Position = restPos})
@@ -549,7 +551,10 @@ task.spawn(function()
                     })
                     tween(s, TI(.25, Enum.EasingStyle.Sine, Enum.EasingDirection.In), {Transparency = 1})
                     task.delay(.32, function()
-                        if mf and mf.Parent and not MiniSpam then mf.Position = restPos end
+                        if mf and mf.Parent and not MiniSpam then
+                            mf.Position = restPos
+                            mf.Visible = false
+                        end
                     end)
                 end
                 last = cur
