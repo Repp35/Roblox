@@ -144,7 +144,9 @@ local function openMain()
     local x = math.clamp(lastX, 0, math.max(0, vp.X - OPEN_W))
     local y = math.clamp(lastY, 0, math.max(0, vp.Y - OPEN_H))
     main.Position = UDim2.fromOffset(x, y)
-    header.Visible = content.Visible = closeBtn.Visible = true
+    header.Visible = true
+    content.Visible = true
+    closeBtn.Visible = true
     bubbleIcon.Visible = false
     tween(main,  TI(.42, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Size = UDim2.fromOffset(OPEN_W, OPEN_H), BackgroundColor3 = RGB(12, 12, 18)})
     tween(mainCorner, TI(.42, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {CornerRadius = UDim.new(0, 12)})
@@ -155,7 +157,9 @@ local function closeMain()
     if not isOpen then return end
     isOpen = false
     lastX, lastY = main.Position.X.Offset, main.Position.Y.Offset
-    header.Visible = content.Visible = closeBtn.Visible = false
+    header.Visible = false
+    content.Visible = false
+    closeBtn.Visible = false
     bubbleIcon.Visible = true
     tween(main,  TI(.38, Enum.EasingStyle.Quint, Enum.EasingDirection.In), {Size = UDim2.fromOffset(BUBBLE, BUBBLE), BackgroundColor3 = RGB(28, 12, 12)})
     tween(mainCorner, TI(.38, Enum.EasingStyle.Quint, Enum.EasingDirection.In), {CornerRadius = UDim.new(1, 0)})
@@ -488,6 +492,21 @@ end)
 pushConfig()
 
 -- exports (mesmo shape do original, pra não quebrar nada que importe)
+return {
+    GetConfig      = function() return Config end,
+    GetStatusLabel = function() return status end,
+    GetMainFrame   = function() return main end,
+    SetStatus      = function(text, color)
+        if status and status.Parent then
+            status.Text = text
+            if color then status.TextColor3 = color end
+        end
+    end,
+    Open  = openMain,
+    Close = closeMain,
+    -- bônus: expor pushConfig pra scripts externos forçarem refresh
+    Push  = pushConfig,
+} nada que importe)
 return {
     GetConfig      = function() return Config end,
     GetStatusLabel = function() return status end,
