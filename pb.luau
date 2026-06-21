@@ -326,44 +326,46 @@ local function maybeFireTouchTap()
     pcall(TouchTapEvent.Fire, TouchTapEvent)
 end
 
-local SPAM_MAX_PER_ITER = 8
-local SPAM_MIN_SLEEP   = 0.001
+local SPAM_MAX_PER_ITER = 12
+local SPAM_DEBT_CAP     = 0.05 -- 50ms de tolerância (não acumula mais que isso)
+local _spamHeartbeatConn
 
-task.spawn(function()
-    local debt,lastTick = 0, now()
-    while State.scriptActive do
-        local sleepTime = 0.005
-        local ok,err = pcall(function()
-            -- Spam liga em 2 casos:
-            --   1) clash automático ativou (S.clashActive)
-            --   2) usuário ligou Manual Spam (GUI ou hotkey F)
-            local spamOn = S.clashActive or _G.PhantomManual == true
-            if not spamOn then
-                S.spamWasActive = false
-                debt, lastTick = 0, now()
-                return
-            end
-            S.spamWasActive = true
-            local gap = getSpamGap()
-            local t   = now()
-            local dt  = t - lastTick
-            lastTick  = t
-            if dt > 1 then dt = 1 end
-            debt = debt + dt
-            local n = 0
-            while debt >= gap and n < SPAM_MAX_PER_ITER do
-                fireOneClick()
-                maybeFireTouchTap()
-                debt = debt - gap
-                n    = n + 1
-            end
-            sleepTime = gap - debt
-            if sleepTime < SPAM_MIN_SLEEP then sleepTime = SPAM_MIN_SLEEP end
-        end)
-        if not ok then warn("[PHANTOM] spam loop error: "..tostring(err)); S.spamWasActive = false end
-        if S.spamWasActive then task.wait(sleepTime) else task.wait(0.005) end
+local function spamHeartbeat(dt)
+    local spamOn = S.clashActive or _G.PhantomManual == true
+    if not spamOn then
+        S.spamWasActive = false
+        S.spamDebt = 0
+        return
     end
-end)
+    S.spamWasActive = true
+    local gap = getSpamGap()
+    if gap <= 0 then return end
+    local debt = (S.spamDebt or 0) + dt
+    if debt > SPAM_DEBT_CAP then debt = SPAM_DEBT_CAP end -- nunca acumula
+    local n = 0
+    while debt >= gap and n < SPAM_MAX_PER_ITER do
+        fireOneClick()
+        maybeFireTouchTap()
+        debt = debt - gap
+        n    = n + 1
+    end
+    S.spamDebt = debt
+end
+
+-- Heartbeat = precisao de frame real, sem o overhead de task.wait()
+local function startSpamLoop()
+    if _spamHeartbeatConn then return end
+    _spamHeartbeatConn = RunService.Heartbeat:Connect(spamHeartbeat)
+    trackConn(_spamHeartbeatConn)
+end
+
+local function stopSpamLoop()
+    if _spamHeartbeatConn then _spamHeartbeatConn:Disconnect(); _spamHeartbeatConn = nil end
+    S.spamWasActive = false
+    S.spamDebt = 0
+end
+
+startSpamLoop()
 
 -- ============================================================
 --   Bola
@@ -435,7 +437,6 @@ local function evaluateClashByCps()
             S.clashActivatedAt  = t
             S.clashHoldUntil    = t + CLASH_HOLD
             _G.__lt_clashActive = true
-            print(("[PHANTOM] AutoClash ON (cps=%.2f, tImp=%.0fms, panic=%s, targetIsMe=%s, ballDist=%.1f, nearest=%.1f)"):format(S.targetCps, tImp*1000, tostring(panic), tostring(targetIsMe), ballDist, nearest))
         end
     else
         if S.clashActive then
@@ -449,7 +450,6 @@ local function evaluateClashByCps()
                 S.clashActive       = false
                 _G.__lt_clashActive = false
                 S.clashHoldUntil    = 0
-                print(("[PHANTOM] AutoClash OFF (spd=%.1f, tImp=%.0fms > %.0fms, panic=%s, cps=%.2f)"):format(spd, tImp*1000, tImpLimit*1000, tostring(panic), S.targetCps))
             end
         end
     end
@@ -797,7 +797,6 @@ if ballSyncRemote and ballSyncRemote:IsA"RemoteEvent" then
                             S.spamDrainUntil = 0
                             S.spamWasActive, S.spamLastFire, S.spamStartedAt = false, 0, 0
                             _G.__lt_clashActive = true
-                            print(("[PHANTOM] AutoClash ON (tImp=%.0fms, panic=%s, ballDist=%.1f)"):format(tImpReact*1000, tostring(panicReact), ballDist))
                         end
                     end
                 end
