@@ -1,16 +1,6 @@
 -- ================================================
---   Phantom Ball | Backend (Auto Parry + Auto Clash + Manual Spam)
+--   PB | Backend
 -- ================================================
---   COMPATÍVEL com gui-drax.lua
---
---   Lê de _G.PhantomConfig (push feito pela GUI):
---     AutoParry, AutoClash, CPS, CustomCPS, Keybind,
---     SpamKeybind, SpamMode, Aura
---   E de _G.PhantomManual (ManualSpam da GUI / hotkey F).
---
---   Se _G.PhantomConfig não existir, roda com defaults.
---   Se _G.__phantomGUI_src existir (loadstring manual), usa.
---   Senão tenta HTTP (você disse que vai trocar essa parte depois).
 
 local Players,RunService,Replicated,Stats,UIS=game:GetService"Players",game:GetService"RunService",game:GetService"ReplicatedStorage",game:GetService"Stats",game:GetService"UserInputService"
 local lp,ws=Players.LocalPlayer,workspace
