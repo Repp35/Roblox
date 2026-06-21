@@ -66,7 +66,6 @@ local CLASH_TIMP_OFF_VLOW=0.200     -- spd < 20
 local CLASH_SPD_FAST,CLASH_SPD_MID,CLASH_SPD_LOW=65,40,20
 local CLASH_TIMP_FAR=0.380          -- §v8.7 bola claramente longe: desliga mesmo se Sync atrasado
 local CLASH_TIMP_OFF_PANIC=0.250    -- §v8.7 em PANIC, tolerância maior (jogador pode tá recuando rápido)
-local CLASH_BALL_DIST_HARD_CAP=25   -- §v9.0 hard cap: nunca mantém/reativa clash com bola > 25 studs
 
 local Sync={
     Speed=0,RealPosition=Vector3.zero,ForceDirection=false,
@@ -76,7 +75,7 @@ local Sync={
     lastSyncAt=0,forcedAt=0,
 }
 
-local apLocal={ballProcessed=false,forceRelease=nil,syncRealPos=nil,syncAt=0,armed=false,fired=false}
+local apLocal={ballProcessed=false,forceRelease=nil,syncRealPos=nil,syncAt=0,armed=false,fired=false,lastBallPos=nil,lastBallPosAt=0}
 
 -- ============================================================
 --   _G exports — espelho do que a GUI já cria
@@ -152,7 +151,7 @@ local function apTImpCheck(d,s) return s<1 and 1e6 or d/s end
 local function apGetEPing()
     local e = S.smoothedPing * 0.5 + 0.016
     if e < 0 then return 0 end
-    if e > 0.080 then return 0.080 end
+    if e > 0.150 then return 0.150 end
     return e
 end
 local function apSamplePing()
@@ -533,12 +532,12 @@ local function evaluateClashByCps()
             local tImpLimit = panic and CLASH_TIMP_OFF_PANIC or tImpBase
             -- §v9.0 FIX: hard cap de distância na manutenção. Se bola tá > 25 studs (sem PANIC),
             -- desliga imediatamente — clash só vale a pena com bola próxima.
-            local tooFarToClash = (ballDist > CLASH_BALL_DIST_HARD_CAP and not panic)
+            local tooFarToClash = (ballDist > 25 and not panic)
             if tImp > CLASH_TIMP_FAR or tImp > tImpLimit or tooFarToClash then
                 S.clashActive       = false
                 _G.__lt_clashActive = false
                 S.clashHoldUntil    = 0
-                print(("[PHANTOM] AutoClash OFF (spd=%.1f, tImp=%.0fms > %.0fms, panic=%s, cps=%.2f, ballDist=%.1f)"):format(spd, tImp*1000, tImpLimit*1000, tostring(panic), S.targetCps, ballDist))
+                print(("[PHANTOM] AutoClash OFF (spd=%.1f, tImp=%.0fms > %.0fms, panic=%s, cps=%.2f)"):format(spd, tImp*1000, tImpLimit*1000, tostring(panic), S.targetCps))
             end
         end
     end
@@ -602,8 +601,10 @@ local function bindParry(ch)
     apLocal.forceRelease   = nil
 
     local PREFIRE_S       = 0.13
-    local PARRY_DEFLECT_R = 8
+    local PARRY_DEFLECT_R = 8   -- raio base (escala com spd igual antes)
+    local PARRY_RAD_FLOOR = 12  -- chão: bola lenta nunca parry com menos de 12 studs
     local PARRY_MIN_SPEED = 5
+    local PARRY_PING_COMP = 0.0 -- compensação por VELOCIDADE (não por ping) — bola anda RTT inteiro, server aceita janela de 0.85s
 
     apSimConn = RunService.Heartbeat:Connect(function(dt)
         if apDead or myId ~= apBindId then return end
@@ -631,16 +632,49 @@ local function bindParry(ch)
         end
         if spd < PARRY_MIN_SPEED then return end
 
+        -- §FIX compensação de ping (light): projeta bp um pouquinho pra frente no eixo
+        -- bola→player pra cobrir o one-way ping. Não projeta RTT inteiro pq isso
+        -- faz a bola "puxar demais" e o parry fica adiantado.
+        local pingComp   = apGetEPing() * 0.6
+        local projectedBp = bp
+        if pingComp > 0 and spd > 1 then
+            local dirToPlayer = (hrp.Position - bp).Unit
+            projectedBp = bp - dirToPlayer * spd * pingComp
+        end
         local parryRad = PARRY_DEFLECT_R + spd * PREFIRE_S
+        if parryRad < PARRY_RAD_FLOOR then parryRad = PARRY_RAD_FLOOR end
+        local dist = (hrp.Position - projectedBp).Magnitude
         local dist = (hrp.Position - bp).Magnitude
+
+        -- §FIX rearm por ciclo de aproximação (light): exige afastamento claro da bola
+        -- (radialNew > radialOld + 4) E bola bem longe do parryRad pra garantir que
+        -- já saiu da zona. Evita rearm fantasma em bola passando raspando.
+        if apLocal.fired and apLocal.lastBallPos and apLocal.lastBallPosAt then
+            local dBall   = (bp - apLocal.lastBallPos).Magnitude
+            local dBallDt = t - apLocal.lastBallPosAt
+            if dBallDt > 0 and dBallDt < 0.1 then
+                local ballSpeed = dBall / dBallDt
+                if ballSpeed > 5 then
+                    local radialOld = (apLocal.lastBallPos - hrp.Position).Magnitude
+                    local radialNew = dist
+                    if radialNew > radialOld + 4 and dist > parryRad then
+                        apLocal.fired = false
+                    end
+                end
+            end
+        end
+        apLocal.lastBallPos   = bp
+        apLocal.lastBallPosAt = t
+
         if dist > parryRad then return end
 
         if apLocal.fired then return end
 
         S.pingTimer = S.pingTimer + dt
-        if S.pingTimer >= 1 then S.pingTimer = 0; apSamplePing() end
+        if S.pingTimer >= 0.3 then S.pingTimer = 0; apSamplePing() end
 
         apLocal.fired = true
+        _G.__lt_apFired = true; _G.__lt_apFiredAt = t
         S.lastFireAt = t
         task.defer(sendParry)
     end)
@@ -897,7 +931,8 @@ if ballSyncRemote and ballSyncRemote:IsA"RemoteEvent" then
                         -- Antes reativava com bola a 60+ studs se tImp curto (spd*ping compensava demais).
                         -- Agora: nunca reativa se bola > 25 studs, mesmo com tImp curto.
                         local tImpReactLimit = CLASH_TIMP_OFF_PANIC  -- 250ms
-                        if ballDist > CLASH_BALL_DIST_HARD_CAP and not panicReact then
+                        local ballDistReactCap = 25  -- §v9.0 nunca reativa clash com bola > 25 studs
+                        if ballDist > ballDistReactCap and not panicReact then
                             -- longe demais, deixa AutoParry lidar
                         elseif panicReact or tImpReact <= tImpReactLimit then
                             local tt = now()
