@@ -6,7 +6,7 @@ local Players,RunService,Replicated,Stats,UIS=game:GetService"Players",game:GetS
 local lp,ws=Players.LocalPlayer,workspace
 local now=os.clock
 
-local CLASH_DECAY,CLASH_BALL_RANGE=0.310,38
+local CLASH_DECAY,CLASH_BALL_RANGE=0.310,18  -- §FIX cold start: bola tem que tá bem perto (era 38, pegava rally normal)
 local DEFAULT_CPS,BOOT_MAX_TRIES=25,30
 local PING_EMA_ALPHA,PARRY_COOLDOWN,PARRY_MIN_SPEED,PARRY_MIN_RAD=0.5,0.08,5,12
 local PARRY_RAD_BASE,PARRY_RAD_RADIAL,TELEPORT_LOCKOUT,FORCED_DIR_TTL=6,8,0.20,0.20
@@ -39,22 +39,34 @@ local S={
     clickCount=0,slowFrames=0,lastSlowFrameLog=0,
     guiReady=false,guiPollAcc=0,smoothedPing=0.05,pingTimer=0,
     lastFireAt=0,teleportLockUntil=0,
-    targetChangeT={},targetChangeIdx=0,targetCps=0,
+    -- §v8.6 auto clash por cps de mudança de target (independente do BallSyncData delay)
+    targetChangeT={},targetChangeIdx=0,targetCps=0,lastClashReact=0,
+    -- §v9.5 janela rolling de CPS (cleanup 1.5s)
+    _cpsClWin={},_cpsClWinStart=0,
 }
 
-local CLASH_CPS_THRESHOLD=4.3
+local CLASH_CPS_THRESHOLD=17.0      -- §FIX exigi 17 cps — rally normal não passa disso, clash real sim
 local CLASH_CPS_WINDOW=1.0
-local CLASH_PANIC_DIST=6
-local CLASH_PANIC_BALL_DIST=15
-local CLASH_MAX_BALL_DIST=45
-local CLASH_TIMP_OFF=0.150
-local CLASH_TIMP_OFF_FAST=0.120
-local CLASH_TIMP_OFF_MID=0.140
-local CLASH_TIMP_OFF_LOW=0.160
-local CLASH_TIMP_OFF_VLOW=0.200
+local CLASH_PANIC_DIST=6            -- §FIX PANIC em range jogável (não preciso estar colado, só perto)
+local CLASH_PANIC_BALL_DIST=10      -- §FIX PANIC: bola tem que tá em cima (não do outro lado do mapa)
+local CLASH_REACT_COOLDOWN=0.25     -- §v9.1 cooldown mínimo entre reativações (evita liga/desliga rápido)
+local CLASH_MAX_BALL_DIST=45        -- hard cap: mesmo com cps alto, não ativa se bola estiver long4
+-- §v8.8 desativação adaptativa à velocidade (INVERTIDA):
+-- bola RÁPIDA (clash pesado rolando) → se tImp sobe, é pq você FUGIU → corta agressivo.
+-- bola DEVAGAR (clash leve/morrendo) → tImp pode ser alto naturalmente → tolera mais.
+--   spd >= 65 → 120ms (clash pesado, folga curta)
+--   spd 40-65 → 140ms
+--   spd 20-40 → 160ms
+--   spd < 20  → 200ms (clash leve, tolera rebote lento)
+local CLASH_TIMP_OFF=0.150          -- fallback legado (não usado pela lógica nova)
+local CLASH_TIMP_OFF_FAST=0.120     -- spd >= 65
+local CLASH_TIMP_OFF_MID=0.140      -- spd 40-65
+local CLASH_TIMP_OFF_LOW=0.160      -- spd 20-40
+local CLASH_TIMP_OFF_VLOW=0.200     -- spd < 20
 local CLASH_SPD_FAST,CLASH_SPD_MID,CLASH_SPD_LOW=65,40,20
-local CLASH_TIMP_FAR=0.380
-local CLASH_TIMP_OFF_PANIC=0.250
+local CLASH_TIMP_FAR=0.380          -- §v8.7 bola claramente longe: desliga mesmo se Sync atrasado
+local CLASH_TIMP_OFF_PANIC=0.250    -- §v8.7 em PANIC, tolerância maior (jogador pode tá recuando rápido)
+local CLASH_BALL_DIST_HARD_CAP=25   -- §v9.0 hard cap: nunca mantém/reativa clash com bola > 25 studs
 
 local Sync={
     Speed=0,RealPosition=Vector3.zero,ForceDirection=false,
@@ -151,7 +163,7 @@ local function apSamplePing()
 end
 
 local function safeReq(m)
-    if not (m and m.Parent and m.IsA and m:IsA"ModuleScript") then return nil end
+    if not (m and m.Parent and m.IsA and m.IsA"ModuleScript") then return nil end
     local ok,r = pcall(require, m)
     return ok and r or nil
 end
@@ -326,46 +338,64 @@ local function maybeFireTouchTap()
     pcall(TouchTapEvent.Fire, TouchTapEvent)
 end
 
-local SPAM_MAX_PER_ITER = 12
-local SPAM_DEBT_CAP     = 0.05 -- 50ms de tolerância (não acumula mais que isso)
-local _spamHeartbeatConn
+local SPAM_MAX_PER_ITER=50          -- §v9.4 cap alto: em lag momentâneo, scheduler pode atrasar e debt acumula;
+                                    -- sem catch-up aqui, CPS escolhido vira CPS real menor. 50 dá margem
+                                    -- sem explodir se travar (limite duro de 50 cliques por frame).
+local SPAM_MIN_SLEEP=0.001          -- piso do sleep (1ms) — roda no próximo frame, não queima CPU
 
-local function spamHeartbeat(dt)
-    local spamOn = S.clashActive or _G.PhantomManual == true
-    if not spamOn then
-        S.spamWasActive = false
-        S.spamDebt = 0
-        return
+task.spawn(function()
+    local debt,lastTick = 0, now()
+    while State.scriptActive do
+        local sleepTime = 0.005
+        local ok,err = pcall(function()
+            -- Spam liga em 2 casos:
+            --   1) clash automático ativou (S.clashActive)
+            --   2) usuário ligou Manual Spam (GUI ou hotkey F)
+            local spamOn = S.clashActive or _G.PhantomManual == true
+            local t = now()
+            -- §v9.5 limpa janela rolling a cada 1.5s (evita array crescer infinito)
+            if (t - S._cpsClWinStart) > 1.5 then
+                local newWin, ws = {}, t
+                for _, ts in ipairs(S._cpsClWin) do
+                    if ts >= ws - 1 then newWin[#newWin+1] = ts end
+                end
+                S._cpsClWin = newWin
+                S._cpsClWinStart = ws
+            end
+            if not spamOn then
+                S.spamWasActive = false
+                S.realCps = 0
+                debt, lastTick = 0, t
+                S._cpsClWin = {}
+                S._cpsClWinStart = t
+                return
+            end
+            S.spamWasActive = true
+            local gap = getSpamGap()
+            local dt  = t - lastTick
+            lastTick  = t
+            if dt > 1 then dt = 1 end  -- se ficou travado >1s, ignora (evita explosão)
+            debt = debt + dt
+            -- §v9.5 dispara TODOS os cliques devidos. cap=50 só age em lag extremo.
+            -- TouchTapEvent espelha o click 1:1 (mesma cadência do fireOneClick).
+            local n = 0
+            while debt >= gap and n < SPAM_MAX_PER_ITER do
+                fireOneClick()
+                maybeFireTouchTap()
+                S._cpsClWin[#S._cpsClWin+1] = now()
+                debt = debt - gap
+                n    = n + 1
+            end
+            -- CPS real = contagem na janela (últimos 1s) = quanto o server vai receber
+            S.realCps = #S._cpsClWin
+            -- dorme até o próximo gap, com piso de 1ms pra não busy-loop
+            sleepTime = gap - debt
+            if sleepTime < SPAM_MIN_SLEEP then sleepTime = SPAM_MIN_SLEEP end
+        end)
+        if not ok then warn("[PHANTOM] spam loop error: "..tostring(err)); S.spamWasActive = false end
+        if S.spamWasActive then task.wait(sleepTime) else task.wait(0.005) end
     end
-    S.spamWasActive = true
-    local gap = getSpamGap()
-    if gap <= 0 then return end
-    local debt = (S.spamDebt or 0) + dt
-    if debt > SPAM_DEBT_CAP then debt = SPAM_DEBT_CAP end -- nunca acumula
-    local n = 0
-    while debt >= gap and n < SPAM_MAX_PER_ITER do
-        fireOneClick()
-        maybeFireTouchTap()
-        debt = debt - gap
-        n    = n + 1
-    end
-    S.spamDebt = debt
-end
-
--- Heartbeat = precisao de frame real, sem o overhead de task.wait()
-local function startSpamLoop()
-    if _spamHeartbeatConn then return end
-    _spamHeartbeatConn = RunService.Heartbeat:Connect(spamHeartbeat)
-    trackConn(_spamHeartbeatConn)
-end
-
-local function stopSpamLoop()
-    if _spamHeartbeatConn then _spamHeartbeatConn:Disconnect(); _spamHeartbeatConn = nil end
-    S.spamWasActive = false
-    S.spamDebt = 0
-end
-
-startSpamLoop()
+end)
 
 -- ============================================================
 --   Bola
@@ -384,6 +414,14 @@ local function getBall()
     return nil
 end
 
+-- ============================================================
+--   §v9 AUTO CLASH — dinâmico, porta do auto-clash-dinamico.lua
+-- ============================================================
+--   Ativação: cps de mudanças de target >= 17/s OU PANIC.
+--   Desativação: tImp > limite adaptativo (spd), tImp > 380ms (far), ou bola > 25 studs.
+--   Reativação via BallSync: tImp <= 250ms OU PANIC, com hard cap de 25 studs.
+--   Ping-comp: credita spd*oneWayPing studs no cálculo do tImp.
+-- ============================================================
 local function evaluateClashByCps()
     if _G.PhantomAutoClash == false or Config.AutoClash == false then return end
     if _G.PhantomManual == true then return end
@@ -413,8 +451,14 @@ local function evaluateClashByCps()
         end
     end
     local ballDist = (hr.Position - ball.Position).Magnitude
+    -- PANIC relaxado: player colado (≤6) + bola perto (≤10). Não exige target=meu,
+    -- porque no frame exato o Sync.TargetPlayerID pode estar com 1-2 frames de delay.
+    -- Confiamos no player-colado + bola-perto como sinal suficiente.
     local panic = (nearest <= CLASH_PANIC_DIST and ballDist <= CLASH_PANIC_BALL_DIST)
 
+    -- §v8.7 tImp (time-to-impact): termômetro da desativação.
+    -- usa Sync se fresh (<300ms), senão cai pra velocity do ball.
+    -- se velocidade quase zero (bola parada/volta inicial) → tImp = ∞ → longe.
     local syncFresh = (t - Sync.lastSyncAt) < 0.3
     local bp = (syncFresh and Sync.RealPosition ~= Vector3.zero) and Sync.RealPosition or ball.Position
     local spd
@@ -424,32 +468,70 @@ local function evaluateClashByCps()
         spd = (ok and typeof(av) == "Vector3") and av.Magnitude or 0
     end
     local tImp
-    if spd < 1 then tImp = math.huge else tImp = (hr.Position - bp).Magnitude / spd end
+    if spd < 1 then tImp = math.huge  -- bola parada / recem-spawn: longe por definição
+    else
+        -- §v9 ping compensation: BallSync chega com delay oneWayPing.
+        -- bola real já tá (spd*oneWayPing) studs mais perto que o Sync.RealPosition.
+        -- creditamos esse trajeto no tImp pra ativar cedo em server lag.
+        local oneWayPing = apGetEPing()
+        local rawDist = (hr.Position - bp).Magnitude
+        local creditedTravel = math.min(rawDist, spd * oneWayPing)
+        tImp = (rawDist - creditedTravel) / spd  -- = rawDist/spd - oneWayPing (clamped >= 0)
+    end
     S.lastTImp = tImp
 
+    -- Gating de cold start: se clash ainda não tá ativo, só permite ligar se:
+    --  * PANIC (player colado + bola perto), OU
+    --  * Target é meu E a bola tá perto (≤ CLASH_BALL_RANGE studs, configurado em 18).
+    -- Quando clashActive=true, comportamento normal (mantém até cps cair).
     local targetIsMe  = (Sync.TargetPlayerID == lp.UserId)
     local ballInRange = ballDist <= CLASH_BALL_RANGE
     local coldStartGate = panic or (targetIsMe and ballInRange)
 
-    if (S.targetCps >= CLASH_CPS_THRESHOLD or panic) and (S.clashActive or coldStartGate) then
+    -- §v9.1 cooldown mínimo entre reativações (evita liga/desliga rápido)
+    local canReact = (t - S.lastClashReact) >= CLASH_REACT_COOLDOWN
+
+    if (S.targetCps >= CLASH_CPS_THRESHOLD or panic) and (S.clashActive or coldStartGate) and canReact then
         if not S.clashActive then
             S.clashActive       = true
             S.clashActivatedAt  = t
             S.clashHoldUntil    = t + CLASH_HOLD
+            S.lastClashReact    = t
             _G.__lt_clashActive = true
+            print(("[PHANTOM] AutoClash ON (cps=%.2f, tImp=%.0fms, panic=%s, targetIsMe=%s, ballDist=%.1f, nearest=%.1f)"):format(S.targetCps, tImp*1000, tostring(panic), tostring(targetIsMe), ballDist, nearest))
         end
     else
+        -- §v8.8 desativação adaptativa à velocidade (INVERTIDA).
+        -- A ativação continua sendo por targetCps (17+ mudanças/s) ou PANIC.
+        -- A desativação olha tImp + spd pra decidir se ainda vale a pena spammar:
+        --   spd >= 65 → tImp OFF 120ms (clash pesado rolando; se tImp sobe aqui,
+        --             você provavelmente FUGIU — a bola ainda tá num clash pesado
+        --             entre outros players, então o AutoParry dá conta sozinho)
+        --   spd 40-65 → tImp OFF 140ms
+        --   spd 20-40 → tImp OFF 160ms
+        --   spd < 20  → tImp OFF 200ms (clash leve/morrendo, tolera rebote lento)
+        -- PANIC: tolerância 250ms (jogador pode tá recuando rápido mas ainda é clash).
+        -- CLASH_TIMP_FAR (380ms): hard cap, mesmo se tudo falhar.
         if S.clashActive then
             local tImpBase
-            if spd >= CLASH_SPD_FAST then tImpBase = CLASH_TIMP_OFF_FAST
-            elseif spd >= CLASH_SPD_MID then tImpBase = CLASH_TIMP_OFF_MID
-            elseif spd >= CLASH_SPD_LOW then tImpBase = CLASH_TIMP_OFF_LOW
-            else tImpBase = CLASH_TIMP_OFF_VLOW end
+            if spd >= CLASH_SPD_FAST then
+                tImpBase = CLASH_TIMP_OFF_FAST
+            elseif spd >= CLASH_SPD_MID then
+                tImpBase = CLASH_TIMP_OFF_MID
+            elseif spd >= CLASH_SPD_LOW then
+                tImpBase = CLASH_TIMP_OFF_LOW
+            else
+                tImpBase = CLASH_TIMP_OFF_VLOW
+            end
             local tImpLimit = panic and CLASH_TIMP_OFF_PANIC or tImpBase
-            if tImp > CLASH_TIMP_FAR or tImp > tImpLimit then
+            -- §v9.0 FIX: hard cap de distância na manutenção. Se bola tá > 25 studs (sem PANIC),
+            -- desliga imediatamente — clash só vale a pena com bola próxima.
+            local tooFarToClash = (ballDist > CLASH_BALL_DIST_HARD_CAP and not panic)
+            if tImp > CLASH_TIMP_FAR or tImp > tImpLimit or tooFarToClash then
                 S.clashActive       = false
                 _G.__lt_clashActive = false
                 S.clashHoldUntil    = 0
+                print(("[PHANTOM] AutoClash OFF (spd=%.1f, tImp=%.0fms > %.0fms, panic=%s, cps=%.2f, ballDist=%.1f)"):format(spd, tImp*1000, tImpLimit*1000, tostring(panic), S.targetCps, ballDist))
             end
         end
     end
@@ -478,6 +560,8 @@ end
 local function decayClash()
     if not S.clashActive then return end
     if Config.AutoClash == false or _G.PhantomAutoClash == false then clearClash(); return end
+    -- §v8.7 decay agora é só safety net: se passou CLASH_DECAY (310ms) E o holdUntil expirou
+    -- E a bola sumiu do workspace, desliga. O critério de tImp já tá no evaluateClashByCps.
     local t = now()
     if (t - S.clashActivatedAt) > CLASH_DECAY and t >= S.clashHoldUntil then
         local ball = getBall()
@@ -497,7 +581,7 @@ local function isTargeted(ch)
 end
 
 -- ============================================================
---   Auto Parry
+--   Auto Parry (mantido idêntico ao drax original)
 -- ============================================================
 local function bindParry(ch)
     apClearBind()
@@ -732,6 +816,7 @@ if ballSyncRemote and ballSyncRemote:IsA"RemoteEvent" then
 
         Sync.TargetPlayerID = data.TargetPlayerID
         if data.TargetPlayerID and data.TargetPlayerID ~= S.lastTarget then
+            -- §v8.6 push timestamp de mudança de target (ring buffer circular, 8 slots)
             S.targetChangeIdx = (S.targetChangeIdx % 8) + 1
             S.targetChangeT[S.targetChangeIdx] = t
             local prev, targeted = S.lastTarget, data.TargetPlayerID == lp.UserId
@@ -768,6 +853,8 @@ if ballSyncRemote and ballSyncRemote:IsA"RemoteEvent" then
                 if hr and hr.Parent then
                     local okB,b = pcall(getBall)
                     if okB and b and b.Parent then
+                        -- §v8.7 reativação por BallSync agora é tImp-driven (igual evaluateClashByCps).
+                        -- sem nearestPlayer: distância de player não é critério de clash.
                         local ballDist = (hr.Position - b.Position).Magnitude
                         local curSpd
                         if (t - Sync.lastSyncAt) < 0.3 and Sync.Speed and Sync.Speed > 0 then curSpd = Sync.Speed
@@ -775,8 +862,18 @@ if ballSyncRemote and ballSyncRemote:IsA"RemoteEvent" then
                             local ok2,av = pcall(function() return b.AssemblyLinearVelocity end)
                             curSpd = (ok2 and typeof(av) == "Vector3") and av.Magnitude or 0
                         end
-                        local tImpReact = (curSpd < 1) and math.huge or (ballDist / curSpd)
+                        local tImpReact
+                        if curSpd < 1 then tImpReact = math.huge
+                        else
+                            -- §v9 ping compensation na reativação via BallSyncData.
+                            -- o RealPosition do Sync tem oneWayPing de atraso;
+                            -- bola real já tá (curSpd*oneWayPing) studs mais perto.
+                            local oneWayPingR = apGetEPing()
+                            local credited = math.min(ballDist, curSpd * oneWayPingR)
+                            tImpReact = (ballDist - credited) / curSpd
+                        end
 
+                        -- PANIC check: player colado + bola perto (não depende de tImp).
                         local nearestReact = math.huge
                         for _,p in Players:GetPlayers() do
                             if p ~= lp and p.Character then
@@ -789,14 +886,24 @@ if ballSyncRemote and ballSyncRemote:IsA"RemoteEvent" then
                         end
                         local panicReact = (nearestReact <= CLASH_PANIC_DIST and ballDist <= CLASH_PANIC_BALL_DIST)
 
-                        local tImpReactLimit = CLASH_TIMP_OFF_PANIC
-                        if panicReact or tImpReact <= tImpReactLimit then
+                        -- §v9.0 FIX: hard cap de distância na reativação via BallSync.
+                        -- Antes reativava com bola a 60+ studs se tImp curto (spd*ping compensava demais).
+                        -- Agora: nunca reativa se bola > 25 studs, mesmo com tImp curto.
+                        local tImpReactLimit = CLASH_TIMP_OFF_PANIC  -- 250ms
+                        if ballDist > CLASH_BALL_DIST_HARD_CAP and not panicReact then
+                            -- longe demais, deixa AutoParry lidar
+                        elseif panicReact or tImpReact <= tImpReactLimit then
                             local tt = now()
-                            S.clashActive = true
-                            S.clashActivatedAt = tt
+                            if (tt - S.lastClashReact) < CLASH_REACT_COOLDOWN then return end  -- §v9.1 cooldown
+                            S.clashActive       = true
+                            S.clashActivatedAt  = tt
+                            S.lastClashReact    = tt
+                            -- não seta clashHoldUntil: desativação por tImp precisa conseguir
+                            -- desligar entre rebotes. CLASH_HOLD só vale pro cold start.
                             S.spamDrainUntil = 0
                             S.spamWasActive, S.spamLastFire, S.spamStartedAt = false, 0, 0
                             _G.__lt_clashActive = true
+                            print(("[PHANTOM] AutoClash ON (tImp=%.0fms comp, raw=%.0fms, ping=%.0fms, panic=%s, ballDist=%.1f)"):format(tImpReact*1000, (ballDist/curSpd)*1000, apGetEPing()*1000, tostring(panicReact), ballDist))
                         end
                     end
                 end
@@ -845,7 +952,7 @@ end)
 task.defer(function()
     task.wait(0.1)
     pcall(refreshRefs)
-    print(("[PHANTOM] Auto Parry + Auto Clash + Manual Spam carregado. GameId=%s, TS=%s, Remotes=%s"):format(
+    print(("[PHANTOM] Auto Parry + Auto Clash (v9 dinâmico) + Manual Spam carregado. GameId=%s, TS=%s, Remotes=%s"):format(
         tostring(game.GameId), TSFolder and "ok" or "nil", Remotes and "ok" or "nil"
     ))
 end)
