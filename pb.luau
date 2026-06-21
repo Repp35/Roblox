@@ -163,9 +163,11 @@ local function apSamplePing()
 end
 
 local function safeReq(m)
-    if not (m and m.Parent and m.IsA and m.IsA"ModuleScript") then return nil end
-    local ok,r = pcall(require, m)
-    return ok and r or nil
+    if not (m and m.Parent and typeof(m)=="Instance") then return nil end
+    local ok,isOk = pcall(function() return m:IsA"ModuleScript" end)
+    if not (ok and isOk) then return nil end
+    local ok2,r = pcall(require, m)
+    return ok2 and r or nil
 end
 
 local TSFolder = Replicated:FindFirstChild"TS"
@@ -219,7 +221,12 @@ local function refreshRefs()
     end
 end
 
-local function validRemote(r) return typeof(r)=="Instance" and r.Parent~=nil and r.IsA and r:IsA"RemoteEvent" end
+local function validRemote(r)
+    if typeof(r) ~= "Instance" then return false end
+    if not r.Parent then return false end
+    local ok,isOk = pcall(function() return r:IsA"RemoteEvent" end)
+    return ok and isOk or false
+end
 
 local function getGameGlobal()
     if type(getfenv) ~= "function" or type(DeflectAbility) ~= "table" then return _G, _G end
