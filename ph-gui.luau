@@ -44,6 +44,9 @@ local Config = {
 local ManualSpam = false
 local MiniSpam   = false
 
+-- sinal usado pra reagir a mudancas no MiniSpam sem polling
+local MiniSpamChanged = Instance.new("BindableEvent")
+
 -- expõe pro backend
 _G.PhantomConfig    = Config
 _G.PhantomManual    = ManualSpam
@@ -317,7 +320,10 @@ end
 
 addToggle("Auto Parry",  Config.AutoParry, 1, function(v) Config.AutoParry = v end)
 addToggle("Manual Spam", ManualSpam,     2, function(v) ManualSpam     = v end)
-addToggle("Mini Spam",   MiniSpam,       3, function(v) MiniSpam       = v end)
+addToggle("Mini Spam",   MiniSpam,       3, function(v)
+    MiniSpam = v
+    MiniSpamChanged:Fire(v)
+end)
 addToggle("Auto Clash",  Config.AutoClash, 4, function(v) Config.AutoClash = v end)
 
 -- ==================== CPS field ====================
@@ -533,35 +539,35 @@ task.spawn(function()
         end)
     end)
 
-    -- reage ao MiniSpam
-    task.spawn(function()
-        local last = MiniSpam
-        while mf and mf.Parent do
-            local cur = MiniSpam
-            if cur ~= last then
-                if cur then
-                    mf.Visible = true
-                    tween(mf, TI(.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {BackgroundTransparency = 0})
-                    tween(s,  TI(.25, Enum.EasingStyle.Sine,  Enum.EasingDirection.Out), {Transparency = 0})
-                    tween(mf, TI(.40, Enum.EasingStyle.Back,  Enum.EasingDirection.Out), {Position = restPos})
-                else
-                    tween(mf, TI(.30, Enum.EasingStyle.Quint, Enum.EasingDirection.In), {
-                        Position = UDim2.new(restPos.X.Scale, restPos.X.Offset + 40, restPos.Y.Scale, restPos.Y.Offset),
-                        BackgroundTransparency = 1,
-                    })
-                    tween(s, TI(.25, Enum.EasingStyle.Sine, Enum.EasingDirection.In), {Transparency = 1})
-                    task.delay(.32, function()
-                        if mf and mf.Parent and not MiniSpam then
-                            mf.Position = restPos
-                            mf.Visible = false
-                        end
-                    end)
+    -- reage ao MiniSpam via sinal (sem polling)
+    MiniSpamChanged.Event:Connect(function(on)
+        if not (mf and mf.Parent) then return end
+        if on then
+            mf.Visible = true
+            tween(mf, TI(.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {BackgroundTransparency = 0})
+            tween(s,  TI(.25, Enum.EasingStyle.Sine,  Enum.EasingDirection.Out), {Transparency = 0})
+            tween(mf, TI(.40, Enum.EasingStyle.Back,  Enum.EasingDirection.Out), {Position = restPos})
+        else
+            tween(mf, TI(.30, Enum.EasingStyle.Quint, Enum.EasingDirection.In), {
+                Position = UDim2.new(restPos.X.Scale, restPos.X.Offset + 40, restPos.Y.Scale, restPos.Y.Offset),
+                BackgroundTransparency = 1,
+            })
+            tween(s, TI(.25, Enum.EasingStyle.Sine, Enum.EasingDirection.In), {Transparency = 1})
+            task.delay(.32, function()
+                if mf and mf.Parent and not MiniSpam then
+                    mf.Position = restPos
+                    mf.Visible = false
                 end
-                last = cur
-            end
-            task.wait(.1)
+            end)
         end
     end)
+
+    -- aplica estado inicial
+    if MiniSpam then
+        mf.Visible = true
+        mf.BackgroundTransparency = 0
+        s.Transparency = 0
+    end
 end)
 
 -- empurra config inicial
