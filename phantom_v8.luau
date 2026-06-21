@@ -1,30 +1,39 @@
+-- PHANTOM — Manual Spam + Auto Clash + Auto Parry (refatorado, lógica idêntica)
+
 local Players,RunService,Replicated,Stats,UIS=game:GetService"Players",game:GetService"RunService",game:GetService"ReplicatedStorage",game:GetService"Stats",game:GetService"UserInputService"
 local lp,ws=Players.LocalPlayer,workspace
 local now=os.clock
 
-local CLASH_DECAY,CLASH_PLAYER_DIST,CLASH_BALL_RANGE=0.20,25,38
+-- TUNING
+local CLASH_DECAY,CLASH_BALL_RANGE,CLASH_HOLD=0.310,18,0.30
+local CLASH_CPS_THRESHOLD,CLASH_CPS_WINDOW=17.0,1.0
+local CLASH_PANIC_DIST,CLASH_PANIC_BALL_DIST=6,10
+local CLASH_REACT_COOLDOWN,CLASH_MAX_BALL_DIST=0.25,45
+local CLASH_BALL_HARD_CAP=25  -- §v9.0 hard cap de distância na manutenção/reactivação
+local CLASH_TIMP_FAR,CLASH_TIMP_OFF_PANIC=0.380,0.250
+local CLASH_TIMP_OFF_FAST,CLASH_TIMP_OFF_MID=0.120,0.140  -- spd >=65, 40-65
+local CLASH_TIMP_OFF_LOW,CLASH_TIMP_OFF_VLOW=0.160,0.200  -- spd 20-40, <20
+local CLASH_SPD_FAST,CLASH_SPD_MID,CLASH_SPD_LOW=65,40,20
 local DEFAULT_CPS,BOOT_MAX_TRIES=25,30
-local PING_EMA_ALPHA,PARRY_COOLDOWN,PARRY_MIN_SPEED,PARRY_MIN_RAD=0.5,0.08,5,12
-local PARRY_RAD_BASE,PARRY_RAD_RADIAL,TELEPORT_LOCKOUT,FORCED_DIR_TTL=6,8,0.20,0.20
-local GRACE_BLOCK_PARRY,CLASH_HOLD,CLASH_PLAYER_DIST_AP=true,0.30,25
-
-local function apDeflectionWindow(speed)return math.clamp(0.85-(speed-16)/584*0.65,0.20,0.85)end
+local PING_EMA_ALPHA,PING_MAX_USED=0.5,0.150
+local PARRY_COOLDOWN,PARRY_MIN_SPEED,PARRY_MIN_RAD=0.08,5,12
+local PARRY_RAD_BASE,PARRY_RAD_RADIAL=6,8
+local TELEPORT_LOCKOUT,FORCED_DIR_TTL=0.20,0.20
+local PARRY_RING_BUFFER=8  -- tamanho do ring buffer de mudanças de target
+local SYNC_FRESH_T=0.3     -- BallSyncData "fresco" se chegou há menos que isso
+local BALL_PROCESSED_TIMP=0.25
+local PARRY_PING_FACTOR=0.6
+local REARM_DIST,REARM_DT_MAX,REARM_MIN_BALL_SPEED=4,0.1,5
+local PING_SAMPLE_PERIOD=0.3
+local SPAM_MAX_PER_ITER,SPAM_MIN_SLEEP,SPAM_TICK_IDLE=50,0.001,0.005
+local SPAM_WINDOW_SEC,SPAM_DT_CAP=1.5,1  -- janela rolling, cap de dt após travamento
+local SPAM_GUI_POLL_PERIOD=0.25
 
 local Config={AutoParry=true,ManualSpam=false,AutoClash=true,CPS=DEFAULT_CPS,CustomCPS=false,Keybind=Enum.KeyCode.F9,SpamKeybind=Enum.KeyCode.F,SpamMode="Toggle",Aura=false,MiniX=nil,MiniY=nil,PanelX=nil,PanelY=nil,BtnX=nil,BtnY=nil}
 local State={scriptActive=true,connections={}}
-local S={ball=nil,lastTarget=-999,clashActive=false,clashActivatedAt=0,clashHoldUntil=0,spamDrainUntil=0,spamWasActive=false,spamLastFire=0,spamStartedAt=0,clickCount=0,slowFrames=0,lastSlowFrameLog=0,guiReady=false,guiPollAcc=0,smoothedPing=0.05,pingTimer=0,lastFireAt=0,teleportLockUntil=0,
-    -- §v8.6 auto clash por cps de mudança de target (independente do BallSyncData delay)
-    targetChangeT={},targetChangeIdx=0,targetCps=0}
-
-local CLASH_CPS_THRESHOLD=4.3
-local CLASH_CPS_WINDOW=1.0
-local CLASH_PANIC_DIST=6
-local CLASH_PANIC_BALL_DIST=15
-local CLASH_MAX_BALL_DIST=45  -- hard cap: mesmo com cps alto, não ativa se bola estiver long4
-
+local S={ball=nil,lastTarget=-999,clashActive=false,clashActivatedAt=0,clashHoldUntil=0,spamDrainUntil=0,spamWasActive=false,spamLastFire=0,spamStartedAt=0,clickCount=0,slowFrames=0,lastSlowFrameLog=0,guiReady=false,guiPollAcc=0,smoothedPing=0.05,pingTimer=0,lastFireAt=0,teleportLockUntil=0,lastTImp=nil,realCps=0,targetChangeT={},targetChangeIdx=0,targetCps=0,lastClashReact=0}
 local Sync={Speed=0,RealPosition=Vector3.zero,ForceDirection=false,ForcedDirection=Vector3.zero,DirectionInterp=0,DeflectDirection=Vector3.zero,Grace=false,Teleported=false,TeleportPosition=Vector3.zero,TargetPlayerID=-999,lastSyncAt=0,forcedAt=0}
-
-local apLocal={ballProcessed=false,forceRelease=nil,syncRealPos=nil,syncAt=0,armed=false,fired=false}
+local apLocal={ballProcessed=false,forceRelease=nil,syncRealPos=nil,syncAt=0,armed=false,fired=false,lastBallPos=nil,lastBallPosAt=0}
 
 _G.PhantomConfig=Config
 _G.PhantomState=State
@@ -39,34 +48,34 @@ _G.__lt_lastTarget=-999
 _G.__lt_clashActive=false
 _G.__phantomBall=nil
 
-local apBindId,apSimConn,apDead=0,nil,false
-local function apClearBind()apBindId=apBindId+1;if apSimConn then pcall(apSimConn.Disconnect,apSimConn)end;apSimConn=nil end
-
+-- lifecycle
 local function trackConn(c)if not(c and c.Disconnect)then return c end;State.connections=State.connections or{};State.connections[#State.connections+1]=c;return c end
 local function disconnectAll()for i=#State.connections,1,-1 do pcall(State.connections[i].Disconnect,State.connections[i]);State.connections[i]=nil end end
 local function refreshCPS()local c=tonumber(Config.CPS)or DEFAULT_CPS;return c<1 and 1 or c end
-local function apTImpCheck(d,s)return s<1 and 1e6 or d/s end
-local function apGetEPing()local e=S.smoothedPing*0.5+0.016;if e<0 then return 0 end;if e>0.080 then return 0.080 end;return e end
+local function apDeflectionWindow(speed)return math.clamp(0.85-(speed-16)/584*0.65,0.20,0.85)end
+
+local apBindId,apSimConn,apDead=0,nil,false
+local function apClearBind()apBindId=apBindId+1;if apSimConn then pcall(apSimConn.Disconnect,apSimConn)end;apSimConn=nil end
+
+-- ping
+local function apGetEPing()local e=S.smoothedPing*0.5+0.016;if e<0 then return 0 end;if e>PING_MAX_USED then return PING_MAX_USED end;return e end
 local function apSamplePing()local ok,p=pcall(function()return Stats.Network.ServerStatsItem["Data Ping"]:GetValue()/1000 end);if ok and type(p)=="number"and p>0 and p<0.5 then S.smoothedPing=S.smoothedPing*(1-PING_EMA_ALPHA)+p*PING_EMA_ALPHA end end
 
+-- módulos TS/Replicated
 local function safeReq(m)if not(m and m.Parent and m.IsA and m:IsA"ModuleScript")then return nil end;local ok,r=pcall(require,m);return ok and r or nil end
-
 local TSFolder=Replicated:FindFirstChild"TS"
 local Remotes=Replicated:FindFirstChild"Remotes"
 local GenRemotes=TSFolder and TSFolder:FindFirstChild"GeneratedNetworkRemotes"
 local enumFolder=TSFolder and TSFolder:FindFirstChild"Enums"
 local abilFolder=TSFolder and TSFolder:FindFirstChild"Abilities"
-
 local abMod=enumFolder and safeReq(enumFolder:FindFirstChild"AbilityID")
 local AbilityID=abMod and abMod.AbilityID or{Deflect="Deflect"}
 local defMod=abilFolder and safeReq(abilFolder:FindFirstChild"DeflectAbility")
 local DeflectAbility=defMod and defMod.DeflectAbility or{}
 local BindableManager=TSFolder and safeReq(TSFolder:FindFirstChild"BindableManager")
-
 local gi=(function()local m=TSFolder and safeReq(TSFolder:FindFirstChild"GameInfo");return m and m.GameInfo end)()
 local br=(function()local bf=TSFolder and TSFolder:FindFirstChild"BallReplicator";local m=bf and safeReq(bf:FindFirstChild"BallReplicator");return m and m.BallReplicator end)()
-
-local parryRemote,parryMode,parryInitDone
+local TouchTapEvent=Replicated:FindFirstChild"TouchTap"
 
 local function refreshRefs()
     if TSFolder and not TSFolder.Parent then
@@ -86,6 +95,7 @@ local function refreshRefs()
     if TSFolder and(not GenRemotes or not GenRemotes.Parent)then GenRemotes=TSFolder and TSFolder:FindFirstChild"GeneratedNetworkRemotes"end
 end
 
+-- parry remote
 local function validRemote(r)return typeof(r)=="Instance"and r.Parent~=nil and r.IsA and r:IsA"RemoteEvent"end
 
 local function getGameGlobal()
@@ -103,7 +113,9 @@ local function getGameDid()for _,t in ipairs({getGameGlobal()})do local did=type
 local function setGameDid(r)local g,env=getGameGlobal();if type(g)=="table"then rawset(g,"did",r)end;if type(env)=="table"and env~=g and rawget(env,"_G")==nil then rawset(env,"did",r)end end
 local function getGeneratedRemote(id)refreshRefs();local r=GenRemotes and GenRemotes:FindFirstChild("RE_"..tostring(id));return validRemote(r)and r or nil end
 
-local function cacheParryRemote(r,mode)if not validRemote(r)then return nil end;parryRemote,parryMode=r,mode;if mode=="buffer"then setGameDid(r)end;return parryRemote,parryMode end
+local parryRemote,parryMode,parryInitDone
+
+local function cacheParryRemote(r,mode)if not validRemote(r)then return nil end;parryRemote,parryMode=r,mode;if mode=="buffer"then setGameDid(r)end;_G.__lt_parryRemote=r;_G.__lt_parryMode=mode;return parryRemote,parryMode end
 
 local function resolveParryRemote()
     refreshRefs()
@@ -122,7 +134,6 @@ end
 
 local _spamBuf
 do local ok,b=pcall(buffer.fromstring,"\1");if ok then _spamBuf=b end end
-local TouchTapEvent=Replicated:FindFirstChild"TouchTap"
 
 local function ensureParryInitialized()
     if parryInitDone then return true end
@@ -145,161 +156,40 @@ end
 
 local function onParryFired()local n=now();S.lastFireAt=n;S.clickCount=(S.clickCount or 0)+1;_G.__lt_lastFire=n end
 
-local function sendParry()local r,m=resolveParryRemote();if r and fireParry(r,m,1)then onParryFired();return true end;return false end
+local function sendParry()local r,m=parryRemote,parryMode;if not validRemote(r)then r,m=resolveParryRemote()end;if r and fireParry(r,m,1)then onParryFired();return true end;return false end
 
--- §v8.5 spam: acumulador de dívida + sleep calculado.
--- Dois objetivos:
---  1. fps baixo: absorve a variação do scheduler no `debt` e dispara catch-up.
---  2. timing regular: em fps alto, dorme o que falta pro próximo gap, evitando
---     o jitter de task.wait(0) que faz o server rate-limitar de forma irregular.
--- Cap MAX_PER_ITER evita explosão se o jogo travar por segundos.
-local function getSpamGap()
-    local cps=tonumber(Config.CPS)or DEFAULT_CPS
-    if cps<1 then cps=1 end
-    return 1/cps
-end
-
-local function fireOneClick()
-    local r=resolveParryRemote()
-    if not(r and r.Parent and _spamBuf)then return end
-    pcall(r.FireServer,r,_spamBuf)
-    S.clickCount=S.clickCount+1
-    _G.__lt_lastFire=now()
-end
-
-local function maybeFireTouchTap()if not TouchTapEvent then return end;if not State.scriptActive then return end;pcall(TouchTapEvent.Fire,TouchTapEvent)end
-
-local SPAM_MAX_PER_ITER=8  -- cap: cliques por iteração (anti-explosão se travar)
-local SPAM_MIN_SLEEP=0.001 -- piso do sleep (1ms) — roda no próximo frame, não queima CPU
-
-task.spawn(function()
-    local debt,lastTick=0,now()
-    while State.scriptActive do
-        local sleepTime=0.005
-        local ok,err=pcall(function()
-            local spamOn=S.clashActive or _G.PhantomManual==true
-            if not spamOn then
-                S.spamWasActive=false
-                debt,lastTick=0,now()
-                return
-            end
-            S.spamWasActive=true
-            local gap=getSpamGap()
-            local t=now()
-            local dt=t-lastTick
-            lastTick=t
-            if dt>1 then dt=1 end  -- se ficou travado >1s, ignora (evita explosão)
-            debt=debt+dt
-            local n=0
-            while debt>=gap and n<SPAM_MAX_PER_ITER do
-                fireOneClick()
-                maybeFireTouchTap()
-                debt=debt-gap
-                n=n+1
-            end
-            -- dorme até o próximo gap, com piso de 1ms pra não busy-loop
-            sleepTime=gap-debt
-            if sleepTime<SPAM_MIN_SLEEP then sleepTime=SPAM_MIN_SLEEP end
-        end)
-        if not ok then warn("[PHANTOM] spam loop error: "..tostring(err));S.spamWasActive=false end
-        if S.spamWasActive then task.wait(sleepTime)
-        else task.wait(0.005)end
-    end
-end)
-
--- §v8.6 decide ligar/desligar clash por cps de mudanças de target.
--- cps = quantas vezes o TargetPlayerID mudou no último 1s.
--- se cps >= 1.8 → ativa (bola ricocheteando rápido = clash real)
--- se cps <  1.8 → desativa (auto parry dá conta)
--- exceção: bola é minha + player colado (<=6 studs) + bola perto (<=15) = PANIC, ativa sempre.
-
--- resolve a bola do jogo: usa BallReplicator (variável br) ou cache/fallback no workspace.
--- retorna o BasePart da bola ou nil se não achar.
+-- ball resolution + tImp
 local function getBall()
-    -- 1) cache _G já setado em outro lugar do script
-    local cached = _G.__phantomBall
+    local cached=_G.__phantomBall
     if cached and cached.Parent then return cached end
-    -- 2) BallReplicator module (gi/br já carregados no topo)
-    if br and type(br.GetBall) == "function" then
-        local ok, b = pcall(function() return br.GetBall() end)
-        if ok and b and b.Parent then
-            _G.__phantomBall = b
-            return b
-        end
+    if br and type(br.GetBall)=="function"then
+        local ok,b=pcall(function()return br.GetBall()end)
+        if ok and b and b.Parent then _G.__phantomBall=b;return b end
     end
-    -- 3) fallback: procura por nome comum no workspace
-    if ws then
-        local b = ws:FindFirstChild("Ball") or ws:FindFirstChild("Football")
-        if b and b.Parent then
-            _G.__phantomBall = b
-            return b
-        end
-    end
+    local b=ws:FindFirstChild("Ball")or ws:FindFirstChild("Football")
+    if b and b.Parent then _G.__phantomBall=b;return b end
     return nil
 end
 
-local function evaluateClashByCps()
-    if _G.PhantomAutoClash==false or Config.AutoClash==false then return end
-    if _G.PhantomManual==true then return end
-    local hr=lp.Character and lp.Character:FindFirstChild"HumanoidRootPart"
-    if not(hr and hr.Parent)then return end
-
-    -- conta mudanças na janela
-    local t=now()
-    local windowStart=t-CLASH_CPS_WINDOW
-    local count=0
-    for i=1,8 do
-        local ts=S.targetChangeT[i]
-        if ts and ts>=windowStart then count=count+1 end
-    end
-    S.targetCps=count/CLASH_CPS_WINDOW
-
-    local ball=getBall()
-    if not(ball and ball.Parent)then return end
-
-    -- PANIC: bola é minha + player colado + bola perto =救命
-    local nearest=math.huge
-    for _,p in Players:GetPlayers()do
-        if p~=lp and p.Character then
-            local php=p.Character:FindFirstChild"HumanoidRootPart"
-            if php and php.Parent then
-                local d=(hr.Position-php.Position).Magnitude
-                if d<nearest then nearest=d end
-            end
-        end
-    end
-    local ballDist=(hr.Position-ball.Position).Magnitude
-    -- PANIC relaxado: player colado (≤6) + bola perto (≤15). Não exige target=meu,
-    -- porque no frame exato o Sync.TargetPlayerID pode estar com 1-2 frames de delay.
-    -- Confiamos no player-colado + bola-perto como sinal suficiente.
-    local panic=(nearest<=CLASH_PANIC_DIST and ballDist<=CLASH_PANIC_BALL_DIST)
-
-    -- Gating de cold start: se clash ainda não tá ativo, só permite ligar se:
-    --  * PANIC (player colado + bola perto), OU
-    --  * Target é meu E a bola tá perto (≤ CLASH_BALL_RANGE studs, configurado em 38).
-    -- Quando clashActive=true, comportamento normal (mantém até cps cair).
-    local targetIsMe = (Sync.TargetPlayerID == lp.UserId)
-    local ballInRange = ballDist <= CLASH_BALL_RANGE
-    local coldStartGate = panic or (targetIsMe and ballInRange)
-
-    if (S.targetCps>=CLASH_CPS_THRESHOLD or panic) and (S.clashActive or coldStartGate) then
-        if not S.clashActive then
-            S.clashActive=true
-            S.clashActivatedAt=t
-            S.clashHoldUntil=t+CLASH_HOLD
-            _G.__lt_clashActive=true
-            print(("[PHANTOM] AutoClash ON (cps=%.2f, panic=%s, targetIsMe=%s, ballDist=%.1f, nearest=%.1f)"):format(S.targetCps,tostring(panic),tostring(targetIsMe),ballDist,nearest))
-        end
+-- retorna tImp compensado por ping, com bp/spd por out-param.
+-- usa Sync se fresh, senão AssemblyLinearVelocity.
+local function computeTImp(hrPos,ball,t)
+    local syncFresh=(t-Sync.lastSyncAt)<SYNC_FRESH_T
+    local bp=(syncFresh and Sync.RealPosition~=Vector3.zero)and Sync.RealPosition or ball.Position
+    local spd
+    if syncFresh and Sync.Speed>0 then spd=Sync.Speed
     else
-        if S.clashActive then
-            S.clashActive=false
-            _G.__lt_clashActive=false
-            S.clashHoldUntil=0
-            print(("[PHANTOM] AutoClash OFF (cps=%.2f)"):format(S.targetCps))
-        end
+        local ok,av=pcall(function()return ball.AssemblyLinearVelocity end)
+        spd=(ok and typeof(av)=="Vector3")and av.Magnitude or 0
     end
+    if spd<1 then return math.huge,bp,spd end
+    local oneWayPing=apGetEPing()
+    local rawDist=(hrPos-bp).Magnitude
+    local credited=math.min(rawDist,spd*oneWayPing)
+    return(rawDist-credited)/spd,bp,spd
 end
 
+-- nearest player (PANIC)
 local function nearestOtherPlayerDist(hrp)
     local best=math.huge
     for _,p in Players:GetPlayers()do
@@ -314,31 +204,83 @@ local function nearestOtherPlayerDist(hrp)
     return best
 end
 
+-- clash state
 local function clearClash()S.clashActive,_G.__lt_clashActive=false,false;S.clashHoldUntil,S.spamDrainUntil,S.spamStartedAt=0,0,0;S.spamWasActive=false end
+
+-- §v8.6 auto clash por cps de mudança de target.
+-- cps = quantas vezes o TargetPlayerID mudou no último 1s.
+-- cps >= 17 → ativa (bola ricocheteando rápido = clash real)
+-- exceção: player colado (<=6 studs) + bola perto (<=10) = PANIC.
+local function evaluateClashByCps()
+    if _G.PhantomAutoClash==false or Config.AutoClash==false then return end
+    if _G.PhantomManual==true then return end
+    local hr=lp.Character and lp.Character:FindFirstChild"HumanoidRootPart"
+    if not(hr and hr.Parent)then return end
+
+    local t=now()
+    local windowStart=t-CLASH_CPS_WINDOW
+    local count=0
+    for i=1,PARRY_RING_BUFFER do
+        local ts=S.targetChangeT[i]
+        if ts and ts>=windowStart then count=count+1 end
+    end
+    S.targetCps=count/CLASH_CPS_WINDOW
+
+    local ball=getBall()
+    if not(ball and ball.Parent)then return end
+
+    local nearest=nearestOtherPlayerDist(hr)
+    local ballDist=(hr.Position-ball.Position).Magnitude
+    local panic=(nearest<=CLASH_PANIC_DIST and ballDist<=CLASH_PANIC_BALL_DIST)
+
+    local tImp,_,spd=computeTImp(hr.Position,ball,t)
+    S.lastTImp=tImp
+
+    local targetIsMe=(Sync.TargetPlayerID==lp.UserId)
+    local ballInRange=ballDist<=CLASH_BALL_RANGE
+    local coldStartGate=panic or(targetIsMe and ballInRange)
+
+    -- ATIVAÇÃO
+    if(S.targetCps>=CLASH_CPS_THRESHOLD or panic)and(S.clashActive or coldStartGate)and(t-S.lastClashReact)>=CLASH_REACT_COOLDOWN then
+        if not S.clashActive then
+            S.clashActive=true
+            S.clashActivatedAt=t
+            S.clashHoldUntil=t+CLASH_HOLD
+            S.lastClashReact=t
+            _G.__lt_clashActive=true
+            print(("[PHANTOM] AutoClash ON (cps=%.2f, tImp=%.0fms, panic=%s, targetIsMe=%s, ballDist=%.1f, nearest=%.1f)"):format(S.targetCps,tImp*1000,tostring(panic),tostring(targetIsMe),ballDist,nearest))
+        end
+    else
+        -- DESATIVAÇÃO adaptativa à velocidade (INVERTIDA)
+        if S.clashActive then
+            local tImpBase
+            if spd>=CLASH_SPD_FAST then tImpBase=CLASH_TIMP_OFF_FAST
+            elseif spd>=CLASH_SPD_MID then tImpBase=CLASH_TIMP_OFF_MID
+            elseif spd>=CLASH_SPD_LOW then tImpBase=CLASH_TIMP_OFF_LOW
+            else tImpBase=CLASH_TIMP_OFF_VLOW end
+            local tImpLimit=panic and CLASH_TIMP_OFF_PANIC or tImpBase
+            local tooFarToClash=(ballDist>CLASH_BALL_HARD_CAP and not panic)
+            if tImp>CLASH_TIMP_FAR or tImp>tImpLimit or tooFarToClash then
+                S.clashActive=false
+                _G.__lt_clashActive=false
+                S.clashHoldUntil=0
+                print(("[PHANTOM] AutoClash OFF (spd=%.1f, tImp=%.0fms > %.0fms, panic=%s, cps=%.2f)"):format(spd,tImp*1000,tImpLimit*1000,tostring(panic),S.targetCps))
+            end
+        end
+    end
+end
 
 local function decayClash()
     if not S.clashActive then return end
     if Config.AutoClash==false or _G.PhantomAutoClash==false then clearClash();return end
     local t=now()
-    if(t-S.clashActivatedAt)>CLASH_DECAY and t>=S.clashHoldUntil then clearClash();return end
-    local hr=lp.Character and lp.Character:FindFirstChild"HumanoidRootPart"
-    if not hr or not hr.Parent then return end
-    local nearestPlayer=math.huge
-    for _,p in Players:GetPlayers()do
-        if p~=lp and p.Character then
-            local php=p.Character:FindFirstChild"HumanoidRootPart"
-            if php and php.Parent then
-                local pd=(hr.Position-php.Position).Magnitude
-                if pd<nearestPlayer then nearestPlayer=pd end
-            end
-        end
+    if(t-S.clashActivatedAt)>CLASH_DECAY and t>=S.clashHoldUntil then
+        local ball=getBall()
+        if not(ball and ball.Parent)then clearClash()end
     end
-    if nearestPlayer>CLASH_PLAYER_DIST_AP and t>=S.clashHoldUntil then clearClash()end
 end
 
 task.spawn(function()while State.scriptActive do pcall(decayClash);task.wait(0.05)end end)
-
-local function getBall()local bm=gi and gi.BallModel;if bm and bm.Parent then return bm end;return S.ball or ws:FindFirstChild("GameBall",true)or ws:FindFirstChild"GameBall"end
 
 local function isTargeted(ch)
     if Sync.TargetPlayerID==lp.UserId then return true end
@@ -348,6 +290,11 @@ local function isTargeted(ch)
     local sd=br and br.syncData
     return sd and sd.HighlightTargetPlayerID==lp.UserId or false
 end
+
+-- §FIX cold start: bola tem que tá bem perto (era 38, pegava rally normal)
+local PREFIRE_S=0.13
+local PARRY_DEFLECT_R=8
+local PARRY_RAD_FLOOR=12
 
 local function bindParry(ch)
     apClearBind()
@@ -360,17 +307,12 @@ local function bindParry(ch)
     apLocal.ballProcessed=false
     apLocal.forceRelease=nil
 
-    local PREFIRE_S=0.23
-    local PARRY_DEFLECT_R=8
-    local PARRY_MIN_SPEED=5
-
     apSimConn=RunService.Heartbeat:Connect(function(dt)
         if apDead or myId~=apBindId then return end
         if not(ch.Parent and hrp.Parent)then apClearBind();return end
         if Config.AutoParry~=true then return end
 
         local t=now()
-
         if t<S.teleportLockUntil or Sync.Grace then return end
         if S.clashActive or _G.PhantomManual==true then return end
 
@@ -380,9 +322,8 @@ local function bindParry(ch)
         if Sync.TargetPlayerID~=lp.UserId then apLocal.armed=false;return end
         if not apLocal.armed then apLocal.armed=true end
 
-        local syncFresh=(t-Sync.lastSyncAt)<0.3
+        local syncFresh=(t-Sync.lastSyncAt)<SYNC_FRESH_T
         local bp=(syncFresh and Sync.RealPosition~=Vector3.zero)and Sync.RealPosition or ball.Position
-
         local spd
         if syncFresh and Sync.Speed>0 then spd=Sync.Speed
         else
@@ -391,16 +332,42 @@ local function bindParry(ch)
         end
         if spd<PARRY_MIN_SPEED then return end
 
+        local pingComp=apGetEPing()*PARRY_PING_FACTOR
+        local projectedBp=bp
+        if pingComp>0 and spd>1 then
+            local dirToPlayer=(hrp.Position-bp).Unit
+            projectedBp=bp-dirToPlayer*spd*pingComp
+        end
         local parryRad=PARRY_DEFLECT_R+spd*PREFIRE_S
+        if parryRad<PARRY_RAD_FLOOR then parryRad=PARRY_RAD_FLOOR end
         local dist=(hrp.Position-bp).Magnitude
-        if dist>parryRad then return end
 
+        -- rearm por ciclo de aproximação (light)
+        if apLocal.fired and apLocal.lastBallPos and apLocal.lastBallPosAt then
+            local dBall=(bp-apLocal.lastBallPos).Magnitude
+            local dBallDt=t-apLocal.lastBallPosAt
+            if dBallDt>0 and dBallDt<REARM_DT_MAX then
+                local ballSpeed=dBall/dBallDt
+                if ballSpeed>REARM_MIN_BALL_SPEED then
+                    local radialOld=(apLocal.lastBallPos-hrp.Position).Magnitude
+                    local radialNew=dist
+                    if radialNew>radialOld+REARM_DIST and dist>parryRad then
+                        apLocal.fired=false
+                    end
+                end
+            end
+        end
+        apLocal.lastBallPos=bp
+        apLocal.lastBallPosAt=t
+
+        if dist>parryRad then return end
         if apLocal.fired then return end
 
         S.pingTimer=S.pingTimer+dt
-        if S.pingTimer>=1 then S.pingTimer=0;apSamplePing()end
+        if S.pingTimer>=PING_SAMPLE_PERIOD then S.pingTimer=0;apSamplePing()end
 
         apLocal.fired=true
+        _G.__lt_apFired=true;_G.__lt_apFiredAt=t
         S.lastFireAt=t
         task.defer(sendParry)
     end)
@@ -448,7 +415,7 @@ end
 local function pollGUI(dt)
     if S.guiReady then return end
     S.guiPollAcc=S.guiPollAcc+dt
-    if S.guiPollAcc<0.25 then return end
+    if S.guiPollAcc<SPAM_GUI_POLL_PERIOD then return end
     S.guiPollAcc=0
     if applyConfigFromGUI()then S.guiReady=true;refreshCPS();installKeybinds();print"[PHANTOM] GUI detectada, sincronizado"end
 end
@@ -545,8 +512,7 @@ if ballSyncRemote and ballSyncRemote:IsA"RemoteEvent"then
 
         Sync.TargetPlayerID=data.TargetPlayerID
         if data.TargetPlayerID and data.TargetPlayerID~=S.lastTarget then
-            -- §v8.6 push timestamp de mudança de target (ring buffer circular, 8 slots)
-            S.targetChangeIdx=(S.targetChangeIdx%8)+1
+            S.targetChangeIdx=(S.targetChangeIdx%PARRY_RING_BUFFER)+1
             S.targetChangeT[S.targetChangeIdx]=t
             local prev,targeted=S.lastTarget,data.TargetPlayerID==lp.UserId
             S.lastTarget,_G.__lt_lastTarget=data.TargetPlayerID,data.TargetPlayerID
@@ -558,7 +524,7 @@ if ballSyncRemote and ballSyncRemote:IsA"RemoteEvent"then
                     if b and b.Parent then
                         local ballDist=(hr.Position-b.Position).Magnitude
                         local curSpd
-                        if(t-Sync.lastSyncAt)<0.3 and Sync.Speed and Sync.Speed>0 then curSpd=Sync.Speed
+                        if(t-Sync.lastSyncAt)<SYNC_FRESH_T and Sync.Speed and Sync.Speed>0 then curSpd=Sync.Speed
                         else
                             local ok2,av=pcall(function()return b.AssemblyLinearVelocity end)
                             curSpd=(ok2 and typeof(av)=="Vector3")and av.Magnitude or 0
@@ -566,51 +532,129 @@ if ballSyncRemote and ballSyncRemote:IsA"RemoteEvent"then
                         if curSpd>1 then tImp=ballDist/curSpd end
                     end
                 end
-                apLocal.ballProcessed=(tImp<=0.25)
+                apLocal.ballProcessed=(tImp<=BALL_PROCESSED_TIMP)
                 apLocal.forceRelease=true
                 apLocal.fired=false
                 apLocal.armed=true
+                _G.__lt_ballProcessed=apLocal.ballProcessed;_G.__lt_ballProcessedAt=t;_G.__lt_apArmed=true
             else
                 apLocal.ballProcessed=false
                 apLocal.forceRelease=nil
                 apLocal.armed=false
                 apLocal.fired=false
+                _G.__lt_ballProcessed=false;_G.__lt_ballProcessedAt=t;_G.__lt_apArmed=false
             end
 
+            -- reativação por BallSync: tImp-driven
             if(_G.PhantomAutoClash~=false)and(Config.AutoClash~=false)and not _G.PhantomManual and targeted and prev~=lp.UserId and prev~=-999 then
                 local hr=lp.Character and lp.Character:FindFirstChild"HumanoidRootPart"
                 if hr and hr.Parent then
-                    local nearestPlayer=math.huge
-                    for _,p in Players:GetPlayers()do
-                        if p~=lp and p.Character then
-                            local php=p.Character:FindFirstChild"HumanoidRootPart"
-                            if php and php.Parent then
-                                local pd=(hr.Position-php.Position).Magnitude
-                                if pd<nearestPlayer then nearestPlayer=pd end
-                            end
-                        end
-                    end
                     local okB,b=pcall(getBall)
-                    local ballInRange=false
                     if okB and b and b.Parent then
                         local ballDist=(hr.Position-b.Position).Magnitude
-                        if ballDist<=(PARRY_MIN_RAD+PARRY_RAD_BASE+PARRY_RAD_RADIAL)then ballInRange=true end
-                    end
-                    if nearestPlayer<CLASH_PLAYER_DIST_AP and ballInRange then
-                        local tt=now()
-                        S.clashActive=true
-                        S.clashActivatedAt=tt
-                        S.clashHoldUntil=tt+CLASH_HOLD
-                        S.spamDrainUntil=0
-                        S.spamWasActive,S.spamLastFire,S.spamStartedAt=false,0,0
-                        _G.__lt_clashActive=true
-                        print(("[PHANTOM] AutoClash ON (player=%.1f, bola no raio)"):format(nearestPlayer))
+                        local curSpd
+                        if(t-Sync.lastSyncAt)<SYNC_FRESH_T and Sync.Speed and Sync.Speed>0 then curSpd=Sync.Speed
+                        else
+                            local ok2,av=pcall(function()return b.AssemblyLinearVelocity end)
+                            curSpd=(ok2 and typeof(av)=="Vector3")and av.Magnitude or 0
+                        end
+                        local tImpReact
+                        if curSpd<1 then tImpReact=math.huge
+                        else
+                            local oneWayPingR=apGetEPing()
+                            local credited=math.min(ballDist,curSpd*oneWayPingR)
+                            tImpReact=(ballDist-credited)/curSpd
+                        end
+
+                        local nearestReact=nearestOtherPlayerDist(hr)
+                        local panicReact=(nearestReact<=CLASH_PANIC_DIST and ballDist<=CLASH_PANIC_BALL_DIST)
+
+                        if ballDist>CLASH_BALL_HARD_CAP and not panicReact then
+                            -- longe demais, deixa AutoParry lidar
+                        elseif panicReact or tImpReact<=CLASH_TIMP_OFF_PANIC then
+                            local tt=now()
+                            if(tt-S.lastClashReact)<CLASH_REACT_COOLDOWN then return end
+                            S.clashActive=true
+                            S.clashActivatedAt=tt
+                            S.lastClashReact=tt
+                            S.spamDrainUntil=0
+                            S.spamWasActive,S.spamLastFire,S.spamStartedAt=false,0,0
+                            _G.__lt_clashActive=true
+                            print(("[PHANTOM] AutoClash ON (tImp=%.0fms comp, raw=%.0fms, ping=%.0fms, panic=%s, ballDist=%.1f)"):format(tImpReact*1000,(ballDist/curSpd)*1000,apGetEPing()*1000,tostring(panicReact),ballDist))
+                        end
                     end
                 end
             end
         end
     end))
 end
+
+-- §v8.5 spam: acumulador de dívida + sleep calculado.
+-- fps baixo: absorve variação no debt e dispara catch-up.
+-- fps alto: dorme o que falta pro próximo gap (evita jitter de task.wait(0)).
+local function getSpamGap()
+    local cps=tonumber(Config.CPS)or DEFAULT_CPS
+    if cps<1 then cps=1 end
+    return 1/cps
+end
+
+local function fireOneClick()
+    local r=resolveParryRemote()
+    if not(r and r.Parent and _spamBuf)then return end
+    pcall(r.FireServer,r,_spamBuf)
+    S.clickCount=S.clickCount+1
+    _G.__lt_lastFire=now()
+end
+
+local function maybeFireTouchTap()if not TouchTapEvent then return end;if not State.scriptActive then return end;pcall(TouchTapEvent.Fire,TouchTapEvent)end
+
+task.spawn(function()
+    local debt,lastTick=0,now()
+    local clicksWindow,windowStart={},now()
+    while State.scriptActive do
+        local sleepTime=SPAM_TICK_IDLE
+        local ok,err=pcall(function()
+            local spamOn=S.clashActive or _G.PhantomManual==true
+            local t=now()
+            -- §v9.5 limpa janela rolling a cada 1.5s
+            if(t-windowStart)>SPAM_WINDOW_SEC then
+                local newWin,ws={},t
+                for _,ts in ipairs(clicksWindow)do if ts>=ws-1 then newWin[#newWin+1]=ts end end
+                clicksWindow=newWin
+                windowStart=ws
+            end
+            if not spamOn then
+                S.spamWasActive=false
+                S.realCps=0
+                debt,lastTick=0,t
+                clicksWindow={}
+                windowStart=t
+                return
+            end
+            S.spamWasActive=true
+            local gap=getSpamGap()
+            local dt=t-lastTick
+            lastTick=t
+            if dt>SPAM_DT_CAP then dt=SPAM_DT_CAP end
+            debt=debt+dt
+            -- §v9.5 dispara TODOS os cliques devidos. cap=50 só age em lag extremo.
+            local n=0
+            while debt>=gap and n<SPAM_MAX_PER_ITER do
+                fireOneClick()
+                maybeFireTouchTap()
+                clicksWindow[#clicksWindow+1]=now()
+                debt=debt-gap
+                n=n+1
+            end
+            S.realCps=#clicksWindow
+            sleepTime=gap-debt
+            if sleepTime<SPAM_MIN_SLEEP then sleepTime=SPAM_MIN_SLEEP end
+        end)
+        if not ok then warn("[PHANTOM] spam loop error: "..tostring(err));S.spamWasActive=false end
+        if S.spamWasActive then task.wait(sleepTime)
+        else task.wait(SPAM_TICK_IDLE)end
+    end
+end)
 
 task.spawn(function()while State.scriptActive do if S.guiReady then applyConfigFromGUI()end;task.wait(0.5)end end)
 
