@@ -38,7 +38,6 @@ local Config = {
     Keybind     = Enum.KeyCode.F9,
     SpamKeybind = Enum.KeyCode.F,
     SpamMode    = "Toggle",
-    Aura        = false,
 }
 
 -- Estado local-only da GUI
@@ -320,7 +319,6 @@ addToggle("Auto Parry",  Config.AutoParry, 1, function(v) Config.AutoParry = v e
 addToggle("Manual Spam", ManualSpam,     2, function(v) ManualSpam     = v end)
 addToggle("Mini Spam",   MiniSpam,       3, function(v) MiniSpam       = v end)
 addToggle("Auto Clash",  Config.AutoClash, 4, function(v) Config.AutoClash = v end)
-addToggle("Aura",        Config.Aura,     5, function(v) Config.Aura     = v end)
 
 -- ==================== CPS field ====================
 local cpsRow = Instance.new("Frame")
