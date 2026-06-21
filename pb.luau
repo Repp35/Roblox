@@ -809,7 +809,7 @@ end
 -- ============================================================
 --   Carregamento da GUI (você vai trocar o loadstring depois)
 -- ============================================================
-local PHANTOM_GUI_URL = "https://raw.githubusercontent.com/Repp35/Roblox/refs/heads/main/phantom_gui.lua"
+local PHANTOM_GUI_URL = "https://raw.githubusercontent.com/Repp35/Roblox/refs/heads/main/ph-gui.luau"
 local HTTP_ATTEMPTS = {
     {name="game.HttpGet",  ok=type(game)=="table" and type(game.HttpGet)=="function" and type(syn)~="table" and type(request)~="function" and type(http_request)~="function",
      call=function() return game:HttpGet(PHANTOM_GUI_URL) end, wrap=false},
