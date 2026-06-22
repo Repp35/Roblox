@@ -361,7 +361,7 @@ corner(cpsBox, 6)
 
 cpsBox.FocusLost:Connect(function()
     local n = tonumber(cpsBox.Text)
-    local ok = n and n >= 1 and n <= 10000
+    local ok = n and n >= 1 and n <= 2000
     if ok then
         Config.CPS = math.floor(n)
         Config.CustomCPS = true
