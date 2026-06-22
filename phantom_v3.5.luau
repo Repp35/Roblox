@@ -11,15 +11,18 @@ local now        = os.clock
 
 -- TUNING
 local CLASH = {
-    DECAY=0.310, HOLD=0.30, REACT_CD=0.250,
-    BALL_RANGE=18, BALL_HARD_CAP=20, MAX_BALL_DIST=45,
+    DECAY=0.310, HOLD=0.30, REACT_CD=0.180,
+    BALL_RANGE=18, BALL_HARD_CAP=22, MAX_BALL_DIST=45,
     PANIC_DIST=6, PANIC_BALL=10,
     -- §FIX cps threshold alto (17) — rally normal não passa disso, clash real sim.
     -- era 8, pegava rally normal como clash e o spam ficava ligado em hora errada.
     CPS_THRESH=17, CPS_WIN=1.0,
-    TIMP_FAR=0.280,
+    TIMP_FAR=0.330,
     SPD_FAST=65, SPD_MID=40, SPD_LOW=20,
-    OFF_PANIC=0.180, OFF_FAST=0.080, OFF_MID=0.100, OFF_LOW=0.120, OFF_VLOW=0.150,
+    OFF_PANIC=0.210, OFF_FAST=0.100, OFF_MID=0.120, OFF_LOW=0.140, OFF_VLOW=0.170,
+    -- gate de cold-start extra: bloqueia ativação se tImp > este valor sem PANIC.
+    -- era 0.140 (OFF_MID) — filtrava clashes lentos legítimos. Aumentado pra 0.180.
+    COLD_TIMP_CAP=0.180,
 }
 local PARRY = { CD=0.08, MIN_SPD=5, DEFLECT_R=8, RAD_FLOOR=12, PING_F=1.0, PING_RAD_GAIN=0.08 }
 local PING_EMA, PING_MAX, PING_SAMPLE = 0.5, 0.150, 1.5
@@ -372,9 +375,10 @@ local function evaluateClash()
         and (S.clashOn or coldGate)
         and (t - S.lastClashReact) >= CLASH.REACT_CD
     then
-        -- §FIX cold start extra: se NÃO é PANIC e tImp > OFF_MID (140ms),
+        -- §FIX cold start extra: se NÃO é PANIC e tImp > COLD_TIMP_CAP,
         -- a bola não tá vindo pra mim em velocidade de clash. Espera.
-        if not S.clashOn and not panic and tImp > CLASH.OFF_MID then return end
+        -- Era OFF_MID (120ms) — filtrava clashes lentos legítimos.
+        if not S.clashOn and not panic and tImp > CLASH.COLD_TIMP_CAP then return end
         -- §FIX cold start extra 2: se NÃO é PANIC e bola tá > BALL_RANGE (18),
         -- não ativa — rally normal com cps alto pode acontecer longe.
         if not S.clashOn and not panic and bDist > CLASH.BALL_RANGE then return end
@@ -532,7 +536,17 @@ local function tickSpam(dt)
     if dt > SPAM.DT_CAP then dt = SPAM.DT_CAP end
     _spamDebt = _spamDebt + dt
     local n = 0
+    -- §FIX INSTANT STOP: re-checa _spamShouldRun() DENTRO do loop.
+    -- Se o clash desligar no meio do burst (entre dois clicks), os clicks
+    -- já programados são cortados. Sem isso, num spam de 25 CPS (40ms entre
+    -- clicks) e frame de ~16ms, dá até 2 clicks fantasmas depois de clearClash.
+    -- Quem seta _spamDebt = 0 no próximo frame (camada de cima) também ajuda,
+    -- mas ESTE check garante corte no MESMO tick.
     while _spamDebt >= (1 / cps()) and n < SPAM.MAX_PER_ITER do
+        if not _spamShouldRun() then
+            _spamDebt = 0
+            break
+        end
         _spamClickIdx = _spamClickIdx + 1
         if _spamClickIdx % 2 == 1 and parryR and parryR.Parent and SPAM_BUF then
             pcall(parryR.FireServer, parryR, SPAM_BUF)
