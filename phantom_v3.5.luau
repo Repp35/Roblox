@@ -19,10 +19,15 @@ local CLASH = {
     CPS_THRESH=17, CPS_WIN=1.0,
     TIMP_FAR=0.330,
     SPD_FAST=65, SPD_MID=40, SPD_LOW=20,
-    OFF_PANIC=0.180, OFF_FAST=0.060, OFF_MID=0.100, OFF_LOW=0.130, OFF_VLOW=0.160,
+    OFF_PANIC=0.200, OFF_FAST=0.090, OFF_MID=0.110, OFF_LOW=0.130, OFF_VLOW=0.160,
     -- gate de cold-start extra: bloqueia ativação se tImp > este valor sem PANIC.
     -- era 0.140 (OFF_MID) — filtrava clashes lentos legítimos. Aumentado pra 0.180.
     COLD_TIMP_CAP=0.180,
+    -- §FIX REENTRY: coldGate exige bDist <= BALL_HARD_CAP + tImp curto.
+    -- Sem checagem de distância, bola a 40 studs voltando devagar com tImp
+    -- momentaneamente curto (frame de pico) ativa clash errado. Agora
+    -- exige proximidade real pra reativar.
+    REENTRY_DIST=22,
     -- §FIX FAST BALL: quando a bola tá rápida (spd >= 200), o CPS_THRESH cai
     -- pra 0 — bola rápida com tImp curto já É prova de clash real. Em smash
     -- (spd 400-600) o BallSync manda target novo 1×, CPS fica em ~1.0 por
@@ -344,18 +349,12 @@ local function evaluateClash()
     local ballInRange = bDist <= CLASH.BALL_RANGE
 
     -- §FIX REENTRY (erro de design real):
-    -- coldGate original exigia bDist <= BALL_RANGE (18) quando você é target.
-    -- Em rally contínuo onde você se afasta e volta: o BallSync só faz
-    -- ringPush 1× (target novo = você), CPS fica em ~1.0, gate de CPS 17
-    -- nunca passa. Aí o clash só liga quando bDist cruza 18 — mas a bola
-    -- pode estar em smash a 30+ studs vindo rápido, e em 1-2 frames você
-    -- tá dentro do range sem ter ativado clash = morre.
-    -- FIX: coldGate exige targetIsMe + bola com tImp curto (tá vindo pra
-    -- você). Não importa se bDist é 5 ou 25 studs — se tá chegando rápido,
-    -- é clash. O COLD_TIMP_CAP (0.180) lá embaixo bloqueia ativação com
-    -- bola que tá voltando devagar (rally normal).
+    -- coldGate exige targetIsMe + bDist <= REENTRY_DIST (22) + tImp curto.
+    -- Sem checagem de distância, bola a 40 studs com tImp momentaneamente
+    -- curto (pico de frame) ativava clash errado. Agora exige proximidade
+    -- real pra reativar via targetIsMe.
     local targetIsMe = isTargeted()
-    local coldGate = panic or (targetIsMe and tImp <= CLASH.COLD_TIMP_CAP)
+    local coldGate = panic or (targetIsMe and bDist <= CLASH.REENTRY_DIST and tImp <= CLASH.COLD_TIMP_CAP)
 
     -- §FIX hard cap de distância na manutenção (igual PB v9.0):
     -- mesmo com cps alto, não mantém clash ativo se bola > 25 studs sem PANIC.
