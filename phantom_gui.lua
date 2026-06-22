@@ -25,7 +25,7 @@ if existing then
 end
 
 local Config = _G.PhantomConfig
-local State = _G.PhantomState
+local State = _G.PhantomState or { conns = {} }
 local saveConfig = _G.PhantomSaveConfig
 
 -- normaliza State: garante que conns existe (e migra do antigo "connections")
@@ -33,6 +33,8 @@ if State and not State.conns then
         State.conns = State.connections or {}
         State.connections = nil
 end
+-- publica de volta pro trackConn funcionar mesmo sem _G.PhantomState prévio
+_G.PhantomState = State
 
 local Workspace = game:GetService("Workspace")
 local UIS = game:GetService("UserInputService")
@@ -53,6 +55,10 @@ local function twPlay(obj, t, props, style, dir)
 end
 
 local function trackConn(c)
+        if not State or type(State) ~= "table" then
+                State = { conns = {} }
+                _G.PhantomState = State
+        end
         if not State.conns then State.conns = {} end
         State.conns[#State.conns + 1] = c
 end
