@@ -19,10 +19,18 @@ local CLASH = {
     CPS_THRESH=17, CPS_WIN=1.0,
     TIMP_FAR=0.330,
     SPD_FAST=65, SPD_MID=40, SPD_LOW=20,
-    OFF_PANIC=0.210, OFF_FAST=0.100, OFF_MID=0.120, OFF_LOW=0.140, OFF_VLOW=0.170,
+    OFF_PANIC=0.180, OFF_FAST=0.060, OFF_MID=0.100, OFF_LOW=0.130, OFF_VLOW=0.160,
     -- gate de cold-start extra: bloqueia ativação se tImp > este valor sem PANIC.
     -- era 0.140 (OFF_MID) — filtrava clashes lentos legítimos. Aumentado pra 0.180.
     COLD_TIMP_CAP=0.180,
+    -- §FIX FAST BALL: quando a bola tá rápida (spd >= 200), o CPS_THRESH cai
+    -- pra 0 — bola rápida com tImp curto já É prova de clash real. Em smash
+    -- (spd 400-600) o BallSync manda target novo 1×, CPS fica em ~1.0 por
+    -- quase 1s esperando encher, mas a bola passa em 30ms. Threshold dinâmico
+    -- resolve isso: rally lento (spd 60-100) ainda exige CPS>=17, smash não.
+    FAST_BALL_SPD=200,
+    FAST_BALL_CPS=0,
+    FAST_BALL_TIMP_CAP=0.100,
 }
 local PARRY = { CD=0.08, MIN_SPD=5, DEFLECT_R=8, RAD_FLOOR=12, PING_F=1.0, PING_RAD_GAIN=0.08 }
 local PING_EMA, PING_MAX, PING_SAMPLE = 0.5, 0.150, 1.5
@@ -354,6 +362,11 @@ local function evaluateClash()
     -- Isso é o que faz o teste demorar pra desligar: liga por cps e só sai
     -- quando tImp sobe. Agora sai também por distância dura.
     local tooFarToClash = (bDist > CLASH.BALL_HARD_CAP and not panic)
+    -- §FIX FAST KILL: se bola tá muito perto (independente de tImp), desliga.
+    -- tImp usa Sync.RealPos que pode estar velho (até 0.3s). Se bola já tá
+    -- em cima, a real tImp é ~0 e o clash deveria ter desligado, mas o tImp
+    -- velho ainda mostra 100ms. Esse gate mata o delay do sync velho.
+    local tooCloseToClash = bDist < 6
 
     -- §FIX desativação RODA PRIMEIRO: se bola já tá longe ou tImp já estourou,
     -- desliga antes de tentar reativar. Evita o loop "liga → desliga no próximo frame"
@@ -364,7 +377,7 @@ local function evaluateClash()
                  or spd >= CLASH.SPD_LOW and CLASH.OFF_LOW
                  or CLASH.OFF_VLOW
         local limit = panic and CLASH.OFF_PANIC or base
-        if tImp > CLASH.TIMP_FAR or tImp > limit or tooFarToClash then
+        if tImp > CLASH.TIMP_FAR or tImp > limit or tooFarToClash or tooCloseToClash then
             clearClash()
             -- §FIX: depois de desligar, NÃO reativa no mesmo evaluate. Espera o
             -- próximo heartbeat. Isso garante desativação instantânea.
@@ -375,16 +388,21 @@ local function evaluateClash()
     -- §FIX ativação: cold start exige targetIsMe (não só isTargeted cacheado).
     -- E exige que tImp não esteja já estourado (filtra cps de rally normal que
     -- momentaneamente bate 17+ mas bola tá longe / voltando).
-    if (S.targetCps >= CLASH.CPS_THRESH or panic)
+    -- §FIX FAST BALL: threshold de CPS dinâmico por velocidade.
+    -- Bola lenta (rally normal): CPS>=17 obrigatório, tImp<=180ms.
+    -- Bola rápida (smash spd>=200): CPS>=0 (targetIsMe + tImp basta).
+    -- Sem isso, smash demora 1s esperando CPS encher e morre.
+    local cpsThresh = (spd >= CLASH.FAST_BALL_SPD) and CLASH.FAST_BALL_CPS or CLASH.CPS_THRESH
+    local tImpCap   = (spd >= CLASH.FAST_BALL_SPD) and CLASH.FAST_BALL_TIMP_CAP or CLASH.COLD_TIMP_CAP
+    if (S.targetCps >= cpsThresh or panic)
         and (S.clashOn or coldGate)
         and (t - S.lastClashReact) >= CLASH.REACT_CD
     then
-        -- §FIX cold start extra: se NÃO é PANIC e tImp > COLD_TIMP_CAP,
+        -- §FIX cold start extra: se NÃO é PANIC e tImp > tImpCap,
         -- a bola não tá vindo pra mim em velocidade de clash. Espera.
-        -- Era OFF_MID (120ms) — filtrava clashes lentos legítimos.
-        if not S.clashOn and not panic and tImp > CLASH.COLD_TIMP_CAP then return end
+        if not S.clashOn and not panic and tImp > tImpCap then return end
         -- §FIX REENTRY: removido gate bDist > BALL_RANGE. Agora coldGate já
-        -- cobre isso via tImp. Se tImp <= 180ms a bola tá chegando, ativa
+        -- cobre isso via tImp. Se tImp <= tImpCap a bola tá chegando, ativa
         -- mesmo de longe — isso é o que evita a morte no rally.
         if not S.clashOn then
             S.clashOn = true; S.clashAt = t; S.clashHoldUntil = t + CLASH.HOLD
