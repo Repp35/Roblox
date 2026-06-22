@@ -335,15 +335,19 @@ local function evaluateClash()
     local tImp, _, spd = computeTImp(hr, ball, t)
     local ballInRange = bDist <= CLASH.BALL_RANGE
 
-    -- §FIX cold start gate igual PB:
-    -- se clash ainda não tá ativo, só permite ligar se:
-    --   * PANIC (player colado + bola perto), OU
-    --   * Target é meu E a bola tá perto (<= BALL_RANGE)
-    -- Era: coldGate = panic OR (isTargeted() AND ballInRange) — ok, mas faltava o
-    -- gate de distância dura no MODO CPS (sem targetIsMe): cps alto sem eu ser
-    -- target virava ativação falsa.
+    -- §FIX REENTRY (erro de design real):
+    -- coldGate original exigia bDist <= BALL_RANGE (18) quando você é target.
+    -- Em rally contínuo onde você se afasta e volta: o BallSync só faz
+    -- ringPush 1× (target novo = você), CPS fica em ~1.0, gate de CPS 17
+    -- nunca passa. Aí o clash só liga quando bDist cruza 18 — mas a bola
+    -- pode estar em smash a 30+ studs vindo rápido, e em 1-2 frames você
+    -- tá dentro do range sem ter ativado clash = morre.
+    -- FIX: coldGate exige targetIsMe + bola com tImp curto (tá vindo pra
+    -- você). Não importa se bDist é 5 ou 25 studs — se tá chegando rápido,
+    -- é clash. O COLD_TIMP_CAP (0.180) lá embaixo bloqueia ativação com
+    -- bola que tá voltando devagar (rally normal).
     local targetIsMe = isTargeted()
-    local coldGate = panic or (targetIsMe and ballInRange)
+    local coldGate = panic or (targetIsMe and tImp <= CLASH.COLD_TIMP_CAP)
 
     -- §FIX hard cap de distância na manutenção (igual PB v9.0):
     -- mesmo com cps alto, não mantém clash ativo se bola > 25 studs sem PANIC.
@@ -379,9 +383,9 @@ local function evaluateClash()
         -- a bola não tá vindo pra mim em velocidade de clash. Espera.
         -- Era OFF_MID (120ms) — filtrava clashes lentos legítimos.
         if not S.clashOn and not panic and tImp > CLASH.COLD_TIMP_CAP then return end
-        -- §FIX cold start extra 2: se NÃO é PANIC e bola tá > BALL_RANGE (18),
-        -- não ativa — rally normal com cps alto pode acontecer longe.
-        if not S.clashOn and not panic and bDist > CLASH.BALL_RANGE then return end
+        -- §FIX REENTRY: removido gate bDist > BALL_RANGE. Agora coldGate já
+        -- cobre isso via tImp. Se tImp <= 180ms a bola tá chegando, ativa
+        -- mesmo de longe — isso é o que evita a morte no rally.
         if not S.clashOn then
             S.clashOn = true; S.clashAt = t; S.clashHoldUntil = t + CLASH.HOLD
             S.lastClashReact = t
