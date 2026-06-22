@@ -12,14 +12,14 @@ local now        = os.clock
 -- TUNING
 local CLASH = {
     DECAY=0.310, HOLD=0.30, REACT_CD=0.250,
-    BALL_RANGE=18, BALL_HARD_CAP=25, MAX_BALL_DIST=45,
+    BALL_RANGE=18, BALL_HARD_CAP=20, MAX_BALL_DIST=45,
     PANIC_DIST=6, PANIC_BALL=10,
     -- §FIX cps threshold alto (17) — rally normal não passa disso, clash real sim.
     -- era 8, pegava rally normal como clash e o spam ficava ligado em hora errada.
     CPS_THRESH=17, CPS_WIN=1.0,
-    TIMP_FAR=0.380,
+    TIMP_FAR=0.280,
     SPD_FAST=65, SPD_MID=40, SPD_LOW=20,
-    OFF_PANIC=0.250, OFF_FAST=0.120, OFF_MID=0.140, OFF_LOW=0.160, OFF_VLOW=0.200,
+    OFF_PANIC=0.180, OFF_FAST=0.080, OFF_MID=0.100, OFF_LOW=0.120, OFF_VLOW=0.150,
 }
 local PARRY = { CD=0.08, MIN_SPD=5, DEFLECT_R=8, RAD_FLOOR=12, PING_F=1.0, PING_RAD_GAIN=0.08 }
 local PING_EMA, PING_MAX, PING_SAMPLE = 0.5, 0.150, 1.5
