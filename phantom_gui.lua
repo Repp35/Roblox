@@ -826,7 +826,7 @@ local function createCPSSelector(yPos, parent)
 
         defBtn.Activated:Connect(function()
                 Config.CustomCPS = false
-                Config.CPS = 22
+                Config.CPS = 300
                 inputBox.Text = "22"
                 twPlay(defBtn, 0.15, {BackgroundColor3 = C.green})
                 task.delay(0.5, function()
@@ -837,7 +837,7 @@ local function createCPSSelector(yPos, parent)
 
         inputBox.FocusLost:Connect(function()
                 local v = tonumber(inputBox.Text)
-                if v and v > 0 and v <= 1000 then
+                if v and v > 0 and v <= 10000 then
                         if v ~= Config.CPS then
                                 Config.CPS = v
                                 Config.CustomCPS = true
