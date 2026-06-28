@@ -418,7 +418,7 @@ clashBall.Name = "PhantomClashBall"
 clashBall.Size = UDim2.new(0, CLASH_BALL_SIZE, 0, CLASH_BALL_SIZE)
 clashBall.Position = UDim2.new(0, -CLASH_BALL_SIZE - 40, 0.5, -CLASH_BALL_SIZE / 2)  -- começa escondida na esquerda
 clashBall.BackgroundColor3 = C.red  -- começa OFF = vermelho
-clashBall.BackgroundTransparency = 0.1
+clashBall.BackgroundTransparency = 0
 clashBall.BorderSizePixel = 0
 clashBall.Text = "C"
 clashBall.TextColor3 = Color3.new(1, 1, 1)
@@ -427,7 +427,7 @@ clashBall.TextSize = 26
 -- Contorno fino no texto (ON/OFF) pra destacar do fundo da bolinha
 local clashBallTextStroke = Instance.new("UITextStroke")
 clashBallTextStroke.Color = Color3.fromRGB(0, 0, 0)  -- preto
-clashBallTextStroke.Thickness = 1
+clashBallTextStroke.Thickness = 2
 clashBallTextStroke.Transparency = 0
 clashBallTextStroke.Parent = clashBall
 clashBall.Font = Enum.Font.GothamBold
@@ -439,7 +439,7 @@ Instance.new("UICorner", clashBall).CornerRadius = UDim.new(1, 0)  -- redondo to
 -- Contorno fino de 1px em volta da bolinha pra destacar do fundo do jogo
 local clashBallStroke = Instance.new("UIStroke")
 clashBallStroke.Color = Color3.fromRGB(20, 20, 30)  -- quase preto
-clashBallStroke.Thickness = 1
+clashBallStroke.Thickness = 2
 clashBallStroke.Transparency = 0
 clashBallStroke.Parent = clashBall
 
