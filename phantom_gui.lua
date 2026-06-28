@@ -534,7 +534,7 @@ print("[PhantomGUI] Bolinha Auto Clash criada.")
 -- ==========================================
 -- PAINEL PRINCIPAL
 -- ==========================================
-local PW, PH = 540, 520
+local PW, PH = 540, 380
 
 local configPanel = Instance.new("Frame")
 configPanel.Name = "PhantomPanel"
@@ -932,6 +932,14 @@ local function createToggle(labelText, configKey, yPos, parent)
                 Config[configKey] = not Config[configKey]
                 local v = Config[configKey]
 
+                -- Sincronia especial: Auto Clash no painel propaga pra bolinha
+                -- (mini clash) e mantém os 3 estados coerentes. setClashBall já
+                -- cuida de espelhar Config.ClashBallVisible e o toggle "Mini
+                -- Clash UI" abaixo.
+                if configKey == "AutoClash" and setClashBall then
+                        setClashBall(v, true)  -- silent=true (toggle do painel já animou o thumb)
+                end
+
                 twPlay(track, 0.22, {BackgroundColor3 = v and C.toggleOn or C.toggleOff}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
                 twPlay(thumb, 0.32, {Position = v and UDim2.new(0, 25, 0.5, -10) or UDim2.new(0, 3, 0.5, -10)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
                 -- pulse no thumb: "press" e solta
@@ -1141,9 +1149,11 @@ print("[PhantomGUI] Componentes criados.")
 local yL, yR = 4, 4
 
 yL = createToggle("Auto Parry", "AutoParry", yL, colLeft)
+yL = createToggle("Auto Clash", "AutoClash", yL, colLeft)
 
--- Mini Clash UI: toggle que controla SÓ a visibilidade da bolinha flutuante
--- (não liga/desliga o clash em si — quem faz isso é o clique na bolinha)
+-- Mini Clash UI: card custom (não usa createToggle pq precisa rodar lógica
+-- extra de sincronia com a bolinha). É o toggle do Auto Clash através da
+-- bolinha flutuante — atalho rápido.
 local miniClashOn = Config.ClashBallVisible or false
 local fMiniClash = cardFrame(yL, 52, colLeft)
 yL = yL + 52 + CARD_GAP
