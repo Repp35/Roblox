@@ -429,10 +429,10 @@ clashBall.ZIndex = 10
 clashBall.Parent = screenGui
 Instance.new("UICorner", clashBall).CornerRadius = UDim.new(1, 0)  -- redondo total
 
--- Contorno escuro fino (sempre visível, independente do estado ON/OFF)
+-- Contorno escuro mais aparente (sempre visível, independente do estado ON/OFF)
 local clashBallStroke = Instance.new("UIStroke")
-clashBallStroke.Color = Color3.fromRGB(15, 15, 22)  -- quase preto
-clashBallStroke.Thickness = 1
+clashBallStroke.Color = Color3.fromRGB(10, 10, 16)  -- quase preto
+clashBallStroke.Thickness = 3
 clashBallStroke.Transparency = 0
 clashBallStroke.Parent = clashBall
 
@@ -455,18 +455,14 @@ local function paintClashBall()
         clashBall.TextSize = clashBallOn and 18 or 16
 end
 
--- função centralizada de toggle (usada pela bolinha, pelo painel e pelo keybind)
--- REGRA: liga/desliga Auto Clash. NÃO mexe na visibilidade da bolinha —
--- isso é responsabilidade do "Mini Clash UI" no painel.
--- (Se o user desliga o "Mini Clash UI" com Auto Clash ON, o Auto Clash
---  também cai junto via `applyMiniClashOff` no toggle do Mini Clash UI.)
+-- função centralizada de toggle do Auto Clash.
+-- É usada pela BOLINHA e pelo TOGGLE "Auto Clash" do painel — eles são o
+-- MESMO controle (a bolinha é só um atalho flutuante).
+-- Visibilidade da bolinha é controlada SEPARADAMENTE pelo "Mini Clash UI".
 local function setClashBall(v, silent)
         clashBallOn = v
         _G.PhantomAutoClash = v
         Config.AutoClash = v
-
-        -- a visibilidade da bolinha SÓ é controlada pelo "Mini Clash UI"
-        -- (showClashBall). Aqui a gente só pinta a cor, não anima posição.
 
         if not silent then
                 paintClashBall()
@@ -478,6 +474,16 @@ local function setClashBall(v, silent)
         end
 
         saveConfig(Config)
+end
+
+-- Helper: atualiza o toggle "Auto Clash" no painel (track/thumb) refletindo
+-- o estado atual de clashBallOn. Usado pelo clique na bolinha.
+local autoClashTrack, autoClashThumb = nil, nil
+local function syncAutoClashToggle()
+        if not autoClashTrack or not autoClashThumb then return end
+        local v = clashBallOn
+        twPlay(autoClashTrack, 0.22, {BackgroundColor3 = v and C.toggleOn or C.toggleOff}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+        twPlay(autoClashThumb, 0.32, {Position = v and UDim2.new(0, 25, 0.5, -10) or UDim2.new(0, 3, 0.5, -10)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 end
 
 -- estado inicial coerente com backend
@@ -514,9 +520,12 @@ local clashBallIsDragging = makeDraggable(clashBall, clashBall, function()
 end)
 
 -- clique na bolinha: só dispara se NÃO arrastou (não tem keybind, só click)
+-- A bolinha é o MESMO controle que o toggle "Auto Clash" no painel,
+-- então depois de mexer no estado, sincroniza o toggle do painel.
 clashBall.Activated:Connect(function()
         if clashBallIsDragging() then return end
         setClashBall(not clashBallOn)
+        syncAutoClashToggle()
 end)
 
 -- se a config anterior tava com a bolinha visível, mostra de cara
@@ -929,11 +938,11 @@ local function createToggle(labelText, configKey, yPos, parent)
                 local v = Config[configKey]
 
                 -- Sincronia especial: Auto Clash no painel propaga pra bolinha
-                -- (mini clash) e mantém os 3 estados coerentes. setClashBall já
-                -- cuida de espelhar Config.ClashBallVisible e o toggle "Mini
-                -- Clash UI" abaixo.
+                -- (e vice-versa). setClashBall + paintClashBall mantêm coerência.
                 if configKey == "AutoClash" and setClashBall then
-                        setClashBall(v, true)  -- silent=true (toggle do painel já animou o thumb)
+                        setClashBall(v, true)  -- silent: o toggle do painel já anima
+                        -- pinta a bolinha caso esteja visível (sem animar posição)
+                        if clashBall then paintClashBall() end
                 end
 
                 twPlay(track, 0.22, {BackgroundColor3 = v and C.toggleOn or C.toggleOff}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
@@ -946,6 +955,12 @@ local function createToggle(labelText, configKey, yPos, parent)
 
                 saveConfig(Config)
         end)
+
+        -- expõe track/thumb na closure para o syncAutoClashToggle poder animar
+        if configKey == "AutoClash" then
+                autoClashTrack = track
+                autoClashThumb = thumb
+        end
 
         return yPos + 52 + CARD_GAP
 end
@@ -1190,25 +1205,24 @@ miniClashHitbox.Text = ""
 miniClashHitbox.ZIndex = 9
 
 -- Toggle "Mini Clash UI" no painel:
--- Controla SÓ a visibilidade da bolinha flutuante (atalho rápido p/ Auto Clash).
--- Regra (a que o user pediu):
---   * Mini Clash UI ON  -> mostra a bolinha (sem mexer no Auto Clash)
---   * Mini Clash UI OFF -> se Auto Clash tá ON, desliga o Auto Clash TAMBÉM
---                          (one-way: Mini Clash OFF sempre derruba Auto Clash,
---                           nunca sobrescreve ON de volta)
---                          se Auto Clash já tá OFF, só esconde a bolinha
--- "Auto Clash" e "Mini Clash UI" nunca competem: Mini Clash OFF = Auto Clash OFF.
+-- Liga/desliga a visibilidade da BOLINHA. Como a bolinha É o mesmo controle
+-- que o Auto Clash, desligar o Mini Clash UI = desligar o Auto Clash junto.
+-- Regra (one-way, não sobrescreve):
+--   * Mini Clash UI ON  -> mostra a bolinha, sem mexer no Auto Clash
+--   * Mini Clash UI OFF -> Auto Clash OFF + bolinha escondida (one-way)
 miniClashHitbox.Activated:Connect(function()
         miniClashOn = not miniClashOn
         Config.ClashBallVisible = miniClashOn
 
         if miniClashOn then
-                -- Mini Clash ON -> só mostra a bolinha, não liga o clash sozinho
+                -- só mostra a bolinha (Auto Clash fica como tá)
                 showClashBall(true)
         else
-                -- Mini Clash OFF -> regra: desliga Auto Clash junto (se tava ON)
+                -- Mini Clash UI OFF -> desliga o Auto Clash e esconde a bolinha
+                -- (são a mesma coisa: a bolinha é o controle do clash)
                 if clashBallOn then
                         setClashBall(false)
+                        syncAutoClashToggle()
                 end
                 showClashBall(false)
         end
