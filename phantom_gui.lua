@@ -456,21 +456,17 @@ local function paintClashBall()
 end
 
 -- função centralizada de toggle (usada pela bolinha, pelo painel e pelo keybind)
+-- REGRA: liga/desliga Auto Clash. NÃO mexe na visibilidade da bolinha —
+-- isso é responsabilidade do "Mini Clash UI" no painel.
+-- (Se o user desliga o "Mini Clash UI" com Auto Clash ON, o Auto Clash
+--  também cai junto via `applyMiniClashOff` no toggle do Mini Clash UI.)
 local function setClashBall(v, silent)
         clashBallOn = v
         _G.PhantomAutoClash = v
         Config.AutoClash = v
 
-        -- Mini Clash UI = atalho p/ Auto Clash: visibilidade espelha o estado
-        Config.ClashBallVisible = v
-        clashBallVisible = v
-
-        -- sincroniza o toggle do painel ("Mini Clash UI") com o estado real
-        if miniClashTrack and miniClashThumb then
-                twPlay(miniClashTrack, 0.22, {BackgroundColor3 = v and C.toggleOn or C.toggleOff}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
-                twPlay(miniClashThumb, 0.32, {Position = v and UDim2.new(0, 25, 0.5, -10) or UDim2.new(0, 3, 0.5, -10)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-        end
-        miniClashOn = v
+        -- a visibilidade da bolinha SÓ é controlada pelo "Mini Clash UI"
+        -- (showClashBall). Aqui a gente só pinta a cor, não anima posição.
 
         if not silent then
                 paintClashBall()
@@ -1194,29 +1190,32 @@ miniClashHitbox.Text = ""
 miniClashHitbox.ZIndex = 9
 
 -- Toggle "Mini Clash UI" no painel:
--- Atalho rápido p/ ligar/desligar o Auto Clash (atrás da bolinha flutuante).
--- Regra de sincronização:
---   * Mini Clash ON  -> Auto Clash ON  + bolinha visível (sempre que já estava)
---   * Mini Clash OFF -> Auto Clash OFF + bolinha escondida (one-way: nunca
---                       sobrescreve ON de volta quando desliga pelo painel)
--- O clique direto na bolinha continua sendo a forma principal de usar o clash;
--- o painel só reflete/controla o mesmo estado.
+-- Controla SÓ a visibilidade da bolinha flutuante (atalho rápido p/ Auto Clash).
+-- Regra (a que o user pediu):
+--   * Mini Clash UI ON  -> mostra a bolinha (sem mexer no Auto Clash)
+--   * Mini Clash UI OFF -> se Auto Clash tá ON, desliga o Auto Clash TAMBÉM
+--                          (one-way: Mini Clash OFF sempre derruba Auto Clash,
+--                           nunca sobrescreve ON de volta)
+--                          se Auto Clash já tá OFF, só esconde a bolinha
+-- "Auto Clash" e "Mini Clash UI" nunca competem: Mini Clash OFF = Auto Clash OFF.
 miniClashHitbox.Activated:Connect(function()
         miniClashOn = not miniClashOn
         Config.ClashBallVisible = miniClashOn
 
         if miniClashOn then
-                -- atalho rápido: liga o clash e mostra a bolinha
-                setClashBall(true)
+                -- Mini Clash ON -> só mostra a bolinha, não liga o clash sozinho
+                showClashBall(true)
         else
-                -- desliga TUDO (clash + visibilidade) — sem sobrescrita posterior
-                setClashBall(false)
+                -- Mini Clash OFF -> regra: desliga Auto Clash junto (se tava ON)
+                if clashBallOn then
+                        setClashBall(false)
+                end
+                showClashBall(false)
         end
 
-        -- espelha o toggle do painel com o estado real do clash
-        local actuallyOn = clashBallOn
-        twPlay(miniClashTrack, 0.22, {BackgroundColor3 = actuallyOn and C.toggleOn or C.toggleOff}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
-        twPlay(miniClashThumb, 0.32, {Position = actuallyOn and UDim2.new(0, 25, 0.5, -10) or UDim2.new(0, 3, 0.5, -10)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+        -- feedback do toggle do painel
+        twPlay(miniClashTrack, 0.22, {BackgroundColor3 = miniClashOn and C.toggleOn or C.toggleOff}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+        twPlay(miniClashThumb, 0.32, {Position = miniClashOn and UDim2.new(0, 25, 0.5, -10) or UDim2.new(0, 3, 0.5, -10)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
         twPlay(miniClashThumb, 0.08, {Size = UDim2.new(0, 24, 0, 24)}, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
         task.delay(0.08, function()
                 twPlay(miniClashThumb, 0.18, {Size = UDim2.new(0, 20, 0, 20)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
