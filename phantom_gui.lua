@@ -423,16 +423,23 @@ clashBall.BorderSizePixel = 0
 clashBall.Text = "C"
 clashBall.TextColor3 = Color3.new(1, 1, 1)
 clashBall.TextSize = 26
+
+-- Contorno fino no texto (ON/OFF) pra destacar do fundo da bolinha
+local clashBallTextStroke = Instance.new("UITextStroke")
+clashBallTextStroke.Color = Color3.fromRGB(0, 0, 0)  -- preto
+clashBallTextStroke.Thickness = 1
+clashBallTextStroke.Transparency = 0
+clashBallTextStroke.Parent = clashBall
 clashBall.Font = Enum.Font.GothamBold
 clashBall.Active = true
 clashBall.ZIndex = 10
 clashBall.Parent = screenGui
 Instance.new("UICorner", clashBall).CornerRadius = UDim.new(1, 0)  -- redondo total
 
--- Contorno escuro mais aparente (sempre visível, independente do estado ON/OFF)
+-- Contorno fino de 1px em volta da bolinha pra destacar do fundo do jogo
 local clashBallStroke = Instance.new("UIStroke")
-clashBallStroke.Color = Color3.fromRGB(10, 10, 16)  -- quase preto
-clashBallStroke.Thickness = 3
+clashBallStroke.Color = Color3.fromRGB(20, 20, 30)  -- quase preto
+clashBallStroke.Thickness = 1
 clashBallStroke.Transparency = 0
 clashBallStroke.Parent = clashBall
 
