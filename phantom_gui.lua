@@ -395,9 +395,175 @@ end)
 print("[PhantomGUI] Botao flutuante criado.")
 
 -- ==========================================
+-- BOLINHA FLUTUANTE - AUTO CLASH
+-- ==========================================
+-- Bolinha igual a "P", mas exclusiva pro Auto Clash.
+-- - Aparece/some com animação (entra pela esquerda, igual a mini de spam pela direita)
+-- - Arrastável (usa o mesmo makeDraggable; só move se arrastar de verdade)
+-- - Clique = toggle Auto Clash (verde quando ON, vermelho escuro quando OFF)
+-- - Contorno sempre escuro (mais grosso que a "P"), pra dar contraste
+-- - Permanece na tela mesmo se o painel principal for minimizado/fechado
+
+-- defaults de config pra primeira vez
+Config.ClashBallX        = Config.ClashBallX        -- X salvo (pode ser nil)
+Config.ClashBallY        = Config.ClashBallY
+Config.ClashBallVisible  = Config.ClashBallVisible or false
+Config.ClashKeybind      = Config.ClashKeybind
+Config.ClashKeybindMode  = Config.ClashKeybindMode or "Toggle"
+
+local CLASH_BALL_SIZE = 50  -- um pouco menor que a "P" (56)
+
+local clashBall = Instance.new("TextButton")
+clashBall.Name = "PhantomClashBall"
+clashBall.Size = UDim2.new(0, CLASH_BALL_SIZE, 0, CLASH_BALL_SIZE)
+clashBall.Position = UDim2.new(0, -CLASH_BALL_SIZE - 40, 0.5, -CLASH_BALL_SIZE / 2)  -- começa escondida na esquerda
+clashBall.BackgroundColor3 = C.red  -- começa OFF = vermelho
+clashBall.BackgroundTransparency = 0.1
+clashBall.BorderSizePixel = 0
+clashBall.Text = "C"
+clashBall.TextColor3 = Color3.new(1, 1, 1)
+clashBall.TextSize = 22
+clashBall.Font = Enum.Font.GothamBold
+clashBall.Active = true
+clashBall.ZIndex = 10
+clashBall.Parent = screenGui
+Instance.new("UICorner", clashBall).CornerRadius = UDim.new(1, 0)  -- redondo total
+
+-- Glow atrás da bolinha (igual o floatGlow da "P")
+local clashBallGlow = Instance.new("Frame", clashBall)
+clashBallGlow.Size = UDim2.new(1, 10, 1, 10)
+clashBallGlow.Position = UDim2.new(0, -5, 0, -5)
+clashBallGlow.BackgroundColor3 = C.red
+clashBallGlow.BackgroundTransparency = 0.9
+clashBallGlow.BorderSizePixel = 0
+clashBallGlow.ZIndex = 9
+Instance.new("UICorner", clashBallGlow).CornerRadius = UDim.new(1, 0)
+
+-- Contorno ESCURO (como tu pediu) — preto/cinza escuro, sempre visível
+local clashBallStroke = Instance.new("UIStroke")
+clashBallStroke.Color = Color3.fromRGB(20, 20, 28)  -- contorno escuro
+clashBallStroke.Thickness = 2.5
+clashBallStroke.Parent = clashBall
+
+-- posição visível (lado esquerdo da tela, oposto ao "P" que fica na direita)
+local clashBallVisibleX = Config.ClashBallX or 14
+local clashBallVisibleY = Config.ClashBallY or (Workspace.CurrentCamera.ViewportSize.Y / 2 - CLASH_BALL_SIZE / 2)
+
+local function getClashBallHiddenX()
+        return -CLASH_BALL_SIZE - 40  -- some pela esquerda
+end
+
+-- estado local espelhado de _G.PhantomAutoClash
+local clashBallOn = _G.PhantomAutoClash or false
+
+local function paintClashBall()
+        -- troca a cor verde <-> vermelho, e o glow junto
+        local color = clashBallOn and C.green or C.red
+        twPlay(clashBall,      0.28, {BackgroundColor3 = color}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+        twPlay(clashBallGlow,  0.28, {BackgroundColor3 = color}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+        clashBall.Text = clashBallOn and "ON" or "OFF"
+        clashBall.TextSize = clashBallOn and 16 or 14
+end
+
+-- função centralizada de toggle (usada pela bolinha, pelo painel e pelo keybind)
+local function setClashBall(v, silent)
+        clashBallOn = v
+        _G.PhantomAutoClash = v
+        Config.AutoClash = v
+
+        -- sincroniza o toggle do painel principal (track + thumb) sem rebobinar tudo
+        if clashTrack and clashThumb then
+                clashTrack.BackgroundColor3 = v and C.toggleOn or C.toggleOff
+                clashThumb.Position = v and UDim2.new(0, 25, 0.5, -10) or UDim2.new(0, 3, 0.5, -10)
+        end
+
+        if not silent then
+                paintClashBall()
+                -- pulse: encolhe e volta com elasticidade (feedback de click)
+                twPlay(clashBall, 0.08, {Size = UDim2.new(0, CLASH_BALL_SIZE - 6, 0, CLASH_BALL_SIZE - 6)}, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+                task.delay(0.08, function()
+                        twPlay(clashBall, 0.28, {Size = UDim2.new(0, CLASH_BALL_SIZE, 0, CLASH_BALL_SIZE)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+                end)
+        end
+
+        saveConfig(Config)
+end
+
+-- estado inicial coerente com backend
+clashBall.Text = clashBallOn and "ON" or "OFF"
+clashBall.TextSize = clashBallOn and 16 or 14
+clashBall.BackgroundColor3 = clashBallOn and C.green or C.red
+clashBallGlow.BackgroundColor3 = clashBallOn and C.green or C.red
+
+-- animação de pulso do glow (igual a "P", mas com a cor certa)
+task.spawn(function()
+        while screenGui.Parent do
+                twPlay(clashBallGlow, 0.8, {BackgroundTransparency = 0.75}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+                task.wait(0.8)
+                twPlay(clashBallGlow, 0.8, {BackgroundTransparency = 0.92}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+                task.wait(0.8)
+        end
+end)
+
+local clashBallVisible = false
+
+local function showClashBall(v)
+        clashBallVisible = v
+        Config.ClashBallVisible = v
+        if v then
+                twPlay(clashBall, 0.22, {Position = UDim2.new(0, clashBallVisibleX, 0, clashBallVisibleY)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+        else
+                twPlay(clashBall, 0.18, {Position = UDim2.new(0, getClashBallHiddenX(), 0, clashBallVisibleY)}, Enum.EasingStyle.Quint)
+        end
+        saveConfig(Config)
+end
+
+-- drag da bolinha (igual a "P") — usa o mesmo helper corrigido
+local clashBallIsDragging = makeDraggable(clashBall, clashBall, function()
+        clashBallVisibleX = clashBall.Position.X.Offset
+        clashBallVisibleY = clashBall.Position.Y.Offset
+        Config.ClashBallX = clashBallVisibleX
+        Config.ClashBallY = clashBallVisibleY
+        saveConfig(Config)
+end)
+
+-- clique na bolinha: só dispara se NÃO arrastou
+clashBall.Activated:Connect(function()
+        if clashBallIsDragging() then return end
+        setClashBall(not clashBallOn)
+end)
+
+-- keybind da bolinha (Toggle ou Hold)
+trackConn(UIS.InputBegan:Connect(function(input, gpe)
+        if not Config.ClashKeybind then return end
+        if input.KeyCode ~= Config.ClashKeybind then return end
+        if Config.ClashKeybindMode == "Hold" then
+                setClashBall(true)
+        else
+                setClashBall(not clashBallOn)
+        end
+end))
+
+trackConn(UIS.InputEnded:Connect(function(input)
+        if not Config.ClashKeybind then return end
+        if input.KeyCode ~= Config.ClashKeybind then return end
+        if Config.ClashKeybindMode == "Hold" then
+                setClashBall(false)
+        end
+end))
+
+-- se a config anterior tava com a bolinha visível, mostra de cara
+if Config.ClashBallVisible then
+        clashBall.Position = UDim2.new(0, clashBallVisibleX, 0, clashBallVisibleY)
+        clashBallVisible = true
+end
+
+print("[PhantomGUI] Bolinha Auto Clash criada.")
+
+-- ==========================================
 -- PAINEL PRINCIPAL
 -- ==========================================
-local PW, PH = 540, 360
+local PW, PH = 540, 520
 
 local configPanel = Instance.new("Frame")
 configPanel.Name = "PhantomPanel"
@@ -445,6 +611,10 @@ local GRAD_COLORS = {
         Color3.fromRGB(236, 72,  153), -- rosa
 }
 
+-- Lista global de gradients com efeito de "fluxo" - outros elementos (mini clash)
+-- podem se registrar depois pra entrar no mesmo loop animado
+local flowingGradients = {}
+
 local function attachFlowingGradient(stroke)
         local grad = Instance.new("UIGradient")
         grad.Color = ColorSequence.new({
@@ -454,6 +624,7 @@ local function attachFlowingGradient(stroke)
         })
         grad.Rotation = 0  -- 0deg = horizontal (esquerda -> direita)
         grad.Parent = stroke
+        table.insert(flowingGradients, grad)
         return grad
 end
 
@@ -468,15 +639,45 @@ task.spawn(function()
         while screenGui.Parent do
                 for offset = 0, 1, SPEED do
                         if not screenGui.Parent then return end
-                        panelGrad.Offset    = Vector2.new(offset, 0)
-                        floatingGrad.Offset = Vector2.new(offset, 0)
-                        miniGrad.Offset     = Vector2.new(offset, 0)
+                        for _, g in ipairs(flowingGradients) do
+                                if g and g.Parent then
+                                        g.Offset = Vector2.new(offset, 0)
+                                end
+                        end
                         task.wait(0.03)
                 end
         end
 end)
 
 -- ==========================================
+-- ==========================================
+-- RETRO-COMPAT: a antiga "mini gui clash" foi substituída pela BOLINHA.
+-- Mantemos os nomes antigos como aliases pra não quebrar o resto do código
+-- (toggle do painel principal, card "Mini Clash", keybind, etc).
+-- ==========================================
+Config.ClashKeybind     = Config.ClashKeybind
+Config.ClashKeybindMode = Config.ClashKeybindMode or "Toggle"
+-- legacy: alguem ainda pode ter MiniClashVisible na config — reseta, a bolinha
+-- tem seu próprio flag (ClashBallVisible)
+Config.MiniClashVisible = nil
+
+local clashBtn      = clashBall          -- o "botão" da antiga mini agora É a bolinha
+local clashMiniGui  = clashBall          -- idem
+local clashMiniOn   = clashBallOn
+local clashMiniVisible = clashBallVisible
+
+-- aliases das funções antigas -> bola nova
+local function setClashMini(v) setClashBall(v) end
+local function showClashMini(v, visBtn)
+        showClashBall(v)
+        if visBtn then
+                visBtn.Text = v and "Mini Clash: Visivel" or "Mini Clash: Oculto"
+                twPlay(visBtn, 0.15, {BackgroundColor3 = v and C.green or C.btnDark})
+        end
+end
+
+print("[PhantomGUI] Bolinha Auto Clash ativa (aliases retro-compat criados).")
+
 -- TITLE BAR
 -- ==========================================
 local TITLE_H = 50
@@ -1013,21 +1214,94 @@ clashHitbox.ZIndex = 9
 
 clashHitbox.Activated:Connect(function()
         clashOn = not clashOn
-        _G.PhantomAutoClash = clashOn
-        Config.AutoClash = clashOn
-        twPlay(clashTrack, 0.22, {BackgroundColor3 = clashOn and C.toggleOn or C.toggleOff}, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
-        twPlay(clashThumb, 0.32, {Position = clashOn and UDim2.new(0, 25, 0.5, -10) or UDim2.new(0, 3, 0.5, -10)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-        -- pulse no thumb
-        twPlay(clashThumb, 0.08, {Size = UDim2.new(0, 24, 0, 24)}, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+        -- delega pra setClashBall: já atualiza _G, Config, track/thumb e a bolinha
+        setClashBall(clashOn, true)
+        -- setClashBall(..., silent=true) NÃO pinta a bolinha nem dá pulse,
+        -- mas nós já animamos o track/thumb acima. A bolinha acompanha silenciosamente.
+        -- pulse da bolinha pra feedback
+        twPlay(clashBall, 0.08, {Size = UDim2.new(0, CLASH_BALL_SIZE - 6, 0, CLASH_BALL_SIZE - 6)}, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
         task.delay(0.08, function()
-                twPlay(clashThumb, 0.18, {Size = UDim2.new(0, 20, 0, 20)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+                twPlay(clashBall, 0.28, {Size = UDim2.new(0, CLASH_BALL_SIZE, 0, CLASH_BALL_SIZE)}, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
         end)
-        saveConfig(Config)
 end)
 
 yR = createCPSSelector(yR, colRight)
 yR = createKeybindSelector(yR, colRight)
 yR = createSpamPCCard(yR, colRight)
+
+-- Card da BOLINHA Auto Clash (espelhado do createSpamPCCard)
+local function createClashPCCard(yPos, parent)
+        local CARD_H = 118
+        local f = cardFrame(yPos, CARD_H, parent)
+        cardLabel("Bolinha Clash", f)
+
+        -- Botão de mostrar/ocultar a bolinha clash
+        local visBtn = makeBtn(
+                clashMiniVisible and "Bolinha Clash: Visivel" or "Bolinha Clash: Oculto",
+                8, 24, COL_W - 16, 30, f,
+                clashMiniVisible and C.green or C.btnDark
+        )
+        visBtn.TextSize = 11
+
+        visBtn.Activated:Connect(function()
+                showClashMini(not clashMiniVisible, visBtn)
+                -- clashMiniVisible já foi atualizado dentro de showClashMini via alias
+                saveConfig(Config)
+        end)
+
+        local halfW = math.floor((COL_W - 32) / 2)
+
+        -- Keybind da mini clash
+        local kbBtn = makeBtn(
+                Config.ClashKeybind and Config.ClashKeybind.Name or "C",
+                8, 64, halfW, 32, f, C.btnBlue
+        )
+
+        local listeningKb = false
+        kbBtn.Activated:Connect(function()
+                if listeningKb then return end
+                listeningKb = true
+                kbBtn.Text = "..."
+                twPlay(kbBtn, 0.1, {BackgroundColor3 = Color3.fromRGB(80, 85, 160)})
+                local conn
+                conn = UIS.InputBegan:Connect(function(input, gpe)
+                        if gpe then return end
+                        if input.UserInputType == Enum.UserInputType.Keyboard then
+                                Config.ClashKeybind = input.KeyCode
+                                kbBtn.Text = input.KeyCode.Name
+                                twPlay(kbBtn, 0.18, {BackgroundColor3 = C.btnBlue}, Enum.EasingStyle.Back)
+                                listeningKb = false
+                                conn:Disconnect()
+                                saveConfig(Config)
+                        end
+                end)
+        end)
+
+        -- Modo Toggle / Hold
+        local function getClashModeColor(mode)
+                return mode == "Hold" and C.hold or C.toggleOn
+        end
+
+        local modeBtn = makeBtn(
+                Config.ClashKeybindMode or "Toggle",
+                8 + halfW + 14, 64, halfW, 32, f,
+                getClashModeColor(Config.ClashKeybindMode or "Toggle")
+        )
+
+        modeBtn.Activated:Connect(function()
+                Config.ClashKeybindMode = (Config.ClashKeybindMode == "Toggle") and "Hold" or "Toggle"
+                modeBtn.Text = Config.ClashKeybindMode
+                twPlay(modeBtn, 0.18, {BackgroundColor3 = getClashModeColor(Config.ClashKeybindMode)}, Enum.EasingStyle.Back)
+                if Config.ClashKeybindMode == "Toggle" and _G.PhantomAutoClash then
+                        setClashMini(false)
+                end
+                saveConfig(Config)
+        end)
+
+        return yPos + CARD_H + CARD_GAP
+end
+
+yR = createClashPCCard(yR, colRight)
 
 print("[PhantomGUI] Colunas montadas.")
 
