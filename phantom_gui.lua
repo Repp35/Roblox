@@ -1,7 +1,6 @@
 --[[
     Phantom Ball GUI v9.0
     Paleta: Azul / Roxo / Rosa
-    Carregado via loadstring pelo phantom_logic
 ]]
 
 -- SESSAO: BOOT
@@ -15,26 +14,48 @@ local _spawn = task.spawn
 
 print("[PhantomGUI] v9.0 iniciando...")
 
+-- Espera ate 3s pelo phantom_logic; se nao vier, segue sozinho com config padrao.
 local bootTimeout = 0
-while not _G.PhantomConfig and bootTimeout < 10 do
+while not _G.PhantomConfig and bootTimeout < 3 do
     _wait(0.1)
     bootTimeout = bootTimeout + 0.1
-end
-
-if not _G.PhantomConfig then
-    warn("[PhantomGUI] _G.PhantomConfig nao encontrada. Rode phantom_logic primeiro.")
-    return
 end
 
 local old = CoreGui:FindFirstChild("PhantomUISystem")
 if old then old:Destroy() end
 
--- SESSAO: STATE / CONFIG
-local Config     = _G.PhantomConfig
+-- SESSAO: STATE / CONFIG (STANDALONE)
+local Config
+if _G.PhantomConfig then
+    Config = _G.PhantomConfig
+    print("[PhantomGUI] Config externo detectado, integrando.")
+else
+    Config = {
+        AutoParry         = false,
+        AutoClash         = false,
+        CPS               = 22,
+        CustomCPS         = false,
+        Keybind           = Enum.KeyCode.V,
+        SpamKeybind       = Enum.KeyCode.X,
+        SpamMode          = "Toggle",
+        ClashBallVisible  = false,
+        BtnX              = nil,
+        BtnY              = nil,
+        ClashBallX        = 14,
+        ClashBallY        = nil,
+        MiniX             = nil,
+        MiniY             = nil,
+        PanelX            = nil,
+        PanelY            = nil,
+    }
+    print("[PhantomGUI] Rodando em modo standalone (sem phantom_logic).")
+end
+
 local State      = _G.PhantomState or { conns = {} }
 local saveConfig = _G.PhantomSaveConfig or function() end
 if not State.conns then State.conns = State.connections or {} end
 _G.PhantomState  = State
+_G.PhantomConfig = Config
 
 local function trackConn(c)
     State.conns[#State.conns + 1] = c
@@ -237,7 +258,7 @@ end
 local clashBall = inst("TextButton", { Name = "PhantomClashBall", Size = UDim2.new(0, CLASH_SIZE, 0, CLASH_SIZE), Position = UDim2.new(0, -CLASH_SIZE - 40, 0.5, -CLASH_SIZE / 2), BackgroundColor3 = C.red, Text = "OFF", TextColor3 = Color3.new(1, 1, 1), TextSize = 16, Font = Enum.Font.GothamBold, Active = true, ZIndex = 8, Parent = screenGui, })
 corner(clashBall, 999)
 stroke(clashBall, Color3.fromRGB(20, 20, 30), 2)
-inst("UITextStroke", { Color = Color3.new(0, 0, 0), Thickness = 2 }, clashBall)
+stroke(clashBall, Color3.new(0, 0, 0), 2)
 
 local clashBallOn = _G.PhantomAutoClash or false
 
