@@ -375,6 +375,9 @@ floatGlow.BackgroundColor3 = C.accent
 floatGlow.BackgroundTransparency = 0.9
 floatGlow.BorderSizePixel = 0
 floatGlow.ZIndex = 9
+-- FIX: floatGlow cobria 5px em cada lado do P e bloqueava o clique/drag.
+-- Active = false deixa o glow apenas visual, sem capturar input.
+floatGlow.Active = false
 Instance.new("UICorner", floatGlow).CornerRadius = UDim.new(1, 0)
 
 local floatingStroke = Instance.new("UIStroke")
@@ -432,7 +435,10 @@ clashBallTextStroke.Transparency = 0
 clashBallTextStroke.Parent = clashBall
 clashBall.Font = Enum.Font.GothamBold
 clashBall.Active = true
-clashBall.ZIndex = 10
+-- FIX: ZIndex 8 pra ficar abaixo do "P" (ZIndex 10) na hierarquia visual.
+-- Como a C é criada DEPOIS do P, com mesmo ZIndex ela ficava em cima do P
+-- e bloqueava clique/drag mesmo quando posicionada longe.
+clashBall.ZIndex = 8
 clashBall.Parent = screenGui
 Instance.new("UICorner", clashBall).CornerRadius = UDim.new(1, 0)  -- redondo total
 
@@ -444,8 +450,20 @@ clashBallStroke.Transparency = 0
 clashBallStroke.Parent = clashBall
 
 -- posição visível (lado esquerdo da tela, oposto ao "P" que fica na direita)
+-- FIX: clamp da posição salva pra garantir que a bolinha NUNCA fique em cima
+-- do "P" (canto direito). Se a config salva apontava pra perto do P,
+-- reseta pro canto esquerdo padrão.
+local _vp = Workspace.CurrentCamera.ViewportSize
+local _pDefaultX = _vp.X - 70   -- posição X padrão do P
+local _pDefaultW = 56           -- largura do P
 local clashBallVisibleX = Config.ClashBallX or 14
-local clashBallVisibleY = Config.ClashBallY or (Workspace.CurrentCamera.ViewportSize.Y / 2 - CLASH_BALL_SIZE / 2)
+local clashBallVisibleY = Config.ClashBallY or (_vp.Y / 2 - CLASH_BALL_SIZE / 2)
+
+-- Se a posição salva sobrepõe a área do P, reseta pro canto esquerdo
+if clashBallVisibleX + CLASH_BALL_SIZE > _pDefaultX - 10 then
+        clashBallVisibleX = 14
+        Config.ClashBallX = 14
+end
 
 local function getClashBallHiddenX()
         return -CLASH_BALL_SIZE - 40  -- some pela esquerda
