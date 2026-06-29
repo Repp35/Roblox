@@ -1,7 +1,10 @@
 --[[
-    Phantom Ball GUI v9.0
+    Phantom Ball GUI
     Paleta: Azul / Roxo / Rosa
 ]]
+
+local SCRIPT_VERSION = "9.0"
+local SCRIPT_NAME    = "Phantom Ball GUI"
 
 -- SESSAO: BOOT
 local UIS          = game:GetService("UserInputService")
@@ -12,7 +15,7 @@ local Camera       = workspace.CurrentCamera
 local _wait = task.wait
 local _spawn = task.spawn
 
-print("[PhantomGUI] v9.0 iniciando...")
+print(("[%s v%s] iniciando..."):format(SCRIPT_NAME, SCRIPT_VERSION))
 
 -- Espera ate 3s pelo phantom_logic; se nao vier, segue sozinho com config padrao.
 local bootTimeout = 0
@@ -28,12 +31,12 @@ if old then old:Destroy() end
 local Config
 if _G.PhantomConfig then
     Config = _G.PhantomConfig
-    print("[PhantomGUI] Config externo detectado, integrando.")
+    print(("[%s v%s] Config externo detectado, integrando."):format(SCRIPT_NAME, SCRIPT_VERSION))
 else
     Config = {
         AutoParry         = false,
         AutoClash         = false,
-        CPS               = 22,
+        CPS               = 25, -- DEFAULT_CPS (consistente com funcional.lua)
         CustomCPS         = false,
         Keybind           = Enum.KeyCode.V,
         SpamKeybind       = Enum.KeyCode.X,
@@ -48,7 +51,7 @@ else
         PanelX            = nil,
         PanelY            = nil,
     }
-    print("[PhantomGUI] Rodando em modo standalone (sem phantom_logic).")
+    print(("[%s v%s] Rodando em modo standalone (sem phantom_logic)."):format(SCRIPT_NAME, SCRIPT_VERSION))
 end
 
 local State      = _G.PhantomState or { conns = {} }
@@ -231,18 +234,7 @@ local BTN_SIZE = 56
 local floatingButton = inst("TextButton", { Size = UDim2.new(0, BTN_SIZE, 0, BTN_SIZE), Position = Config.BtnX and UDim2.new(0, Config.BtnX, 0, Config.BtnY) or UDim2.new(1, -70, 0.5, -28), BackgroundColor3 = C.header, BackgroundTransparency = 0.1, Text = "P", TextColor3 = C.text, TextSize = 26, Font = Enum.Font.GothamBold, Active = true, ZIndex = 10, Parent = screenGui, })
 corner(floatingButton, 999)
 
-local floatGlow = inst("Frame", { Size = UDim2.new(1, 10, 1, 10), Position = UDim2.new(0, -5, 0, -5), BackgroundColor3 = C.accent, BackgroundTransparency = 0.9, Active = false, ZIndex = 9, Parent = floatingButton, })
-corner(floatGlow, 999)
 attachFlowingGradient(stroke(floatingButton, C.accent, 2))
-
-_spawn(function()
-    while screenGui.Parent do
-        twPlay(floatGlow, 0.8, { BackgroundTransparency = 0.75 }, EASE_SINE, DIR_INOUT)
-        _wait(0.8)
-        twPlay(floatGlow, 0.8, { BackgroundTransparency = 0.92 }, EASE_SINE, DIR_INOUT)
-        _wait(0.8)
-    end
-end)
 
 -- SESSAO: BOLINHA AUTO CLASH
 local CLASH_SIZE = 64
@@ -373,27 +365,73 @@ local TITLE_H, PAD, GAP, CARD_GAP = 50, 14, 12, 8
 local CONTENT_H = PH - TITLE_H - 60
 local COL_W = math.floor((PW - PAD * 2 - GAP) / 2)
 
-local configPanel = inst("Frame", { Name = "PhantomPanel", Size = UDim2.new(0, PW, 0, PH), Position = Config.PanelX and UDim2.new(0, Config.PanelX, 0, Config.PanelY) or UDim2.new(0.5, -PW / 2, 0.5, -PH / 2), BackgroundColor3 = C.bg, Visible = false, ZIndex = 5, ClipsDescendants = true, Parent = screenGui, })
+local configPanel = inst("Frame", { Name = "PhantomPanel", Size = UDim2.new(0, PW, 0, PH), Position = Config.PanelX and UDim2.new(0, Config.PanelX, 0, Config.PanelY) or UDim2.new(0.5, -PW / 2, 0.5, -PH / 2), BackgroundColor3 = C.bg, BackgroundTransparency = 0.08, Visible = false, ZIndex = 5, ClipsDescendants = true, Parent = screenGui, })
 corner(configPanel, 16)
-attachFlowingGradient(stroke(configPanel, C.accent, 2))
+stroke(configPanel, C.accent, 1.5) -- stroke estatico, sem gradiente animado
 
-local shadow = inst("Frame", { Name = "Shadow", Size = UDim2.new(1, 12, 1, 12), Position = UDim2.new(0, -6, 0, -6), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.5, ZIndex = 4, Parent = configPanel, })
-corner(shadow, 20)
+-- ============================================================
+-- SESSAO: PARTICULAS DE FUNDO (subindo, com leve perspectiva)
+-- ============================================================
+local particleLayer = inst("Frame", {
+    Name = "ParticleLayer",
+    Size = UDim2.new(1, 0, 1, 0),
+    BackgroundTransparency = 1,
+    ZIndex = 4,
+    ClipsDescendants = true,
+    Parent = configPanel,
+})
+
+-- cores desaturadas (misturadas com o fundo escuro)
+local PARTICLE_COLORS = {
+    Color3.fromRGB(85, 90, 140),   -- indigo desaturado
+    Color3.fromRGB(110, 95, 150),  -- roxo desaturado
+    Color3.fromRGB(150, 95, 130),  -- rosa desaturado
+    Color3.fromRGB(95, 130, 165),  -- ciano desaturado
+}
+
+local function spawnParticle()
+    local isFar = math.random() < 0.6
+    local size = isFar and math.random(2, 3) or math.random(4, 6)
+    local startTrans = isFar and 0.5 or 0.2
+
+    local dot = inst("Frame", {
+        Size = UDim2.new(0, size, 0, size),
+        Position = UDim2.new(math.random(), 0, 1, 0),
+        BackgroundColor3 = PARTICLE_COLORS[math.random(1, #PARTICLE_COLORS)],
+        BackgroundTransparency = startTrans,
+        ZIndex = 4,
+        Parent = particleLayer,
+    })
+    corner(dot, 999)
+
+    local dur = isFar and math.random(5, 9) or math.random(3, 5)
+    local endX = math.clamp(dot.Position.X.Scale + (math.random() - 0.5) * 0.15, 0, 1)
+
+    twPlay(dot, 0.6, { BackgroundTransparency = math.max(startTrans - 0.1, 0.05) }, EASE_SINE, DIR_OUT)
+    twPlay(dot, dur, { Position = UDim2.new(endX, 0, -0.1, 0), BackgroundTransparency = 1 }, EASE_SINE, DIR_INOUT)
+
+    task.delay(dur + 0.2, function()
+        if dot.Parent then dot:Destroy() end
+    end)
+end
+
+_spawn(function()
+    while true do
+        _wait(math.random() * 0.6 + 0.15)
+        if configPanel.Visible then spawnParticle() end
+    end
+end)
 
 -- title bar
 local titleBar = inst("Frame", { Size = UDim2.new(1, 0, 0, TITLE_H), BackgroundColor3 = C.header, ZIndex = 6, Parent = configPanel, })
 corner(titleBar, 16)
-inst("Frame", { Size = UDim2.new(1, 0, 0, 16), Position = UDim2.new(0, 0, 1, -16), BackgroundColor3 = C.header, ZIndex = 6, Parent = titleBar, })
 
-inst("Frame", { Size = UDim2.new(0, 10, 0, 10), Position = UDim2.new(0, 16, 0.5, -5), BackgroundColor3 = C.accentPink, ZIndex = 7, Parent = titleBar, })
+inst("TextLabel", { Size = UDim2.new(1, -120, 1, 0), Position = UDim2.new(0, 0, 0, 0), BackgroundTransparency = 1, Text = ("Phantom - Config v%s"):format(SCRIPT_VERSION), TextColor3 = C.text, TextSize = 16, Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 7, Parent = titleBar, })
 
-local accentLine = inst("Frame", { Size = UDim2.new(0, 60, 0, 3), Position = UDim2.new(0.5, -30, 0, 0), BackgroundColor3 = C.accent, ZIndex = 7, Parent = titleBar, })
-corner(accentLine, 2)
-gradient(accentLine, { C.accent, C.accentGlow, C.accentPink })
-
-inst("TextLabel", { Size = UDim2.new(1, -60, 1, 0), Position = UDim2.new(0, 34, 0, 0), BackgroundTransparency = 1, Text = "Phantom - Config", TextColor3 = C.text, TextSize = 16, Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7, Parent = titleBar, })
-inst("TextLabel", { Size = UDim2.new(0, 200, 0, 14), Position = UDim2.new(0, 34, 0.5, 6), BackgroundTransparency = 1, Text = "v9.0 - Refactor", TextColor3 = C.subtext, TextSize = 10, Font = Enum.Font.Gotham, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7, Parent = titleBar, })
-inst("Frame", { Size = UDim2.new(1, -28, 0, 1), Position = UDim2.new(0, 14, 1, 0), BackgroundColor3 = C.divider, ZIndex = 6, Parent = titleBar, })
+do
+    local badge = inst("TextLabel", { Size = UDim2.new(0, 56, 0, 18), Position = UDim2.new(0, 10, 0.5, -9), BackgroundColor3 = C.accent, BackgroundTransparency = 0.25, Text = ("v%s"):format(SCRIPT_VERSION), TextColor3 = C.text, TextSize = 10, Font = Enum.Font.GothamBold, ZIndex = 7, Parent = titleBar, })
+    corner(badge, 6)
+end
 
 local closeButton = inst("TextButton", { Size = UDim2.new(0, 30, 0, 30), Position = UDim2.new(1, -42, 0.5, -15), BackgroundColor3 = C.red, BackgroundTransparency = 0.3, Text = "X", TextColor3 = Color3.new(1, 1, 1), TextSize = 14, Font = Enum.Font.GothamBold, ZIndex = 7, Parent = titleBar, })
 corner(closeButton, 8)
@@ -404,24 +442,50 @@ closeButton.MouseLeave:Connect(function() twPlay(closeButton, 0.12, { Background
 local colLeft  = inst("Frame", { Size = UDim2.new(0, COL_W, 0, CONTENT_H), Position = UDim2.new(0, PAD, 0, TITLE_H + 12), BackgroundTransparency = 1, ZIndex = 6, Parent = configPanel })
 local colRight = inst("Frame", { Size = UDim2.new(0, COL_W, 0, CONTENT_H), Position = UDim2.new(0, PAD + COL_W + GAP, 0, TITLE_H + 12), BackgroundTransparency = 1, ZIndex = 6, Parent = configPanel })
 
-local divider = inst("Frame", { Size = UDim2.new(0, 1, 0, CONTENT_H - 10), Position = UDim2.new(0, PAD + COL_W + math.floor(GAP / 2), 0, TITLE_H + 18), BackgroundColor3 = C.divider, ZIndex = 6, Parent = configPanel, })
-gradient(divider, { Color3.new(0, 0, 0), C.accent, Color3.new(0, 0, 0) }, 90)
-
--- kill button
-local killBtn = inst("TextButton", { Size = UDim2.new(0, 140, 0, 28), Position = UDim2.new(0.5, -70, 1, -36), BackgroundColor3 = C.redDark, BackgroundTransparency = 0.1, Text = "Fechar Script", TextColor3 = Color3.fromRGB(255, 185, 185), TextSize = 12, Font = Enum.Font.GothamBold, ZIndex = 7, Parent = configPanel, })
-corner(killBtn, 8)
-stroke(killBtn, C.red, 1)
+-- kill button (sem stroke, mais discreto, sem efeito de resize no hover)
+local killBtn = inst("TextButton", { Size = UDim2.new(0, 124, 0, 26), Position = UDim2.new(0.5, -62, 1, -52), BackgroundColor3 = C.redDark, BackgroundTransparency = 0.15, Text = "Fechar Script", TextColor3 = Color3.fromRGB(255, 200, 200), TextSize = 11, Font = Enum.Font.GothamBold, ZIndex = 7, Parent = configPanel, })
+corner(killBtn, 6)
 
 if not UIS.TouchEnabled then
     killBtn.MouseEnter:Connect(function()
-        twPlay(killBtn, 0.15, { BackgroundColor3 = Color3.fromRGB(185, 35, 35), Size = UDim2.new(0, 144, 0, 30) })
-        killBtn.Position = UDim2.new(0.5, -72, 1, -37)
+        twPlay(killBtn, 0.12, { BackgroundColor3 = Color3.fromRGB(170, 35, 35) })
     end)
     killBtn.MouseLeave:Connect(function()
-        twPlay(killBtn, 0.15, { BackgroundColor3 = C.redDark, Size = UDim2.new(0, 140, 0, 28) })
-        killBtn.Position = UDim2.new(0.5, -70, 1, -36)
+        twPlay(killBtn, 0.12, { BackgroundColor3 = C.redDark })
     end)
 end
+
+-- SESSAO: FAIXA DE STATUS (info do funcional + versao)
+local DIAG_H = 18
+local diagBar = inst("Frame", { Size = UDim2.new(1, -PAD * 2, 0, DIAG_H), Position = UDim2.new(0, PAD, 1, -52 - DIAG_H - 4), BackgroundColor3 = C.card, BackgroundTransparency = 0.4, ZIndex = 7, Parent = configPanel, })
+corner(diagBar, 6)
+stroke(diagBar, C.border, 1)
+
+local diagLabel = inst("TextLabel", { Size = UDim2.new(1, -12, 1, 0), Position = UDim2.new(0, 6, 0, 0), BackgroundTransparency = 1, Text = ("%s v%s | aguardando funcional..."):format(SCRIPT_NAME, SCRIPT_VERSION), TextColor3 = C.subtext, TextSize = 10, Font = Enum.Font.GothamSemibold, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 8, Parent = diagBar, })
+
+local function refreshDiag()
+    local d = _G.PhantomDiag
+    if type(d) ~= "table" then
+        diagLabel.Text = ("%s v%s | funcional nao detectado").format(SCRIPT_NAME, SCRIPT_VERSION)
+        return
+    end
+    local ver   = tostring(d.version or "?")
+    local name  = tostring(d.scriptName or "funcional")
+    local rem   = d.parryRemote and d.parryRemote:match("[^%.]+$") or (d.remotesOk and "?" or "nil")
+    local ball  = d.ballOk and "ok" or "nil"
+    local ping  = d.ping and (("%.0fms"):format((d.ping or 0) * 1000)) or "?"
+    local place = d.placeName or ("#" .. tostring(d.placeId or "?"))
+    local res   = d.resilience and ("res+" .. tostring(d.resStack or 0)) or "no-res"
+    diagLabel.Text = (("%s v%s + %s v%s | %s | rmt=%s | ball=%s | ping=%s | %s"):format(
+        SCRIPT_NAME, SCRIPT_VERSION, name, ver, place, rem, ball, ping, res))
+end
+
+_spawn(function()
+    while screenGui.Parent do
+        if configPanel.Visible then pcall(refreshDiag) end
+        _wait(0.4)
+    end
+end)
 
 -- SESSAO: COMPONENTES
 local function cardFrame(yPos, h, parent)
@@ -510,7 +574,7 @@ local function createCPSSelector(yPos, parent)
     local defBtn = makeBtn("Padrao", 52, ROW_Y, 68, ROW_H, f, C.btnBlue)
     defBtn.TextSize = 11
 
-    local inputBox = inst("TextBox", { Size = UDim2.new(0, 72, 0, ROW_H), Position = UDim2.new(1, -82, 0, ROW_Y), BackgroundColor3 = C.inputBg, BackgroundTransparency = 0.1, Text = tostring(Config.CPS or 22), PlaceholderText = "CPS", TextColor3 = C.text, TextSize = 13, Font = Enum.Font.GothamBold, ZIndex = 7, Parent = f, })
+    local inputBox = inst("TextBox", { Size = UDim2.new(0, 72, 0, ROW_H), Position = UDim2.new(1, -82, 0, ROW_Y), BackgroundColor3 = C.inputBg, BackgroundTransparency = 0.1, Text = tostring(Config.CPS or 25), PlaceholderText = "CPS", TextColor3 = C.text, TextSize = 13, Font = Enum.Font.GothamBold, ZIndex = 7, Parent = f, })
     corner(inputBox, 8)
     local inputStroke = stroke(inputBox, C.border, 1)
     inputBox.Focused:Connect(function() twPlay(inputStroke, 0.15, { Color = C.accent }) end)
@@ -518,8 +582,8 @@ local function createCPSSelector(yPos, parent)
 
     defBtn.Activated:Connect(function()
         Config.CustomCPS = false
-        Config.CPS = 22
-        inputBox.Text = "22"
+        Config.CPS = 25
+        inputBox.Text = "25"
         twPlay(defBtn, 0.15, { BackgroundColor3 = C.green })
         task.delay(0.5, function() twPlay(defBtn, 0.15, { BackgroundColor3 = C.btnBlue }) end)
         safe(saveConfig, Config)
@@ -533,7 +597,7 @@ local function createCPSSelector(yPos, parent)
                 Config.CustomCPS = true
             end
         else
-            inputBox.Text = tostring(Config.CPS or 22)
+            inputBox.Text = tostring(Config.CPS or 25)
         end
         safe(saveConfig, Config)
     end)
@@ -713,63 +777,56 @@ end))
 
 -- SESSAO: KILL BUTTON
 killBtn.Activated:Connect(function()
+    -- 1) salva config final ANTES de qualquer animacao/cleanup
+    --    garante que CPS, AutoClash, AutoParry, keybinds, posicoes etc. persistem
     safe(saveConfig, Config)
+
+    -- 2) pede pro funcional encerrar (se ele tiver shutdown)
+    if _G.__phantomBackend and type(_G.__phantomBackend.shutdown) == "function" then
+        safe(_G.__phantomBackend.shutdown)
+    end
+    if _G.PhantomStop and type(_G.PhantomStop) == "function" then
+        safe(_G.PhantomStop)
+    end
+
+    -- 3) desconecta tudo que essa GUI registrou
+    if State.conns then
+        for _, c in ipairs(State.conns) do safe(function() c:Disconnect() end) end
+        State.conns = {}
+    end
+
+    -- 4) flipa flags globais
+    _G.PhantomManual     = false
+    _G.PhantomAutoClash  = false
+
+    -- 5) CRITICO: limpa refs do _G para a proxima execucao nao herdar estado zumbi
+    --    (sem isso o funcional acha que a GUI ja carregou e nao recarrega)
+    _G.__phantomGUI_loaded = nil
+    _G.__phantomGUI_src    = nil
+    _G.__phantomBackend    = nil
+    _G.PhantomDiag         = nil
+    _G.PhantomConfig       = nil
+    _G.PhantomState        = nil
+    _G.PhantomSaveConfig   = nil
+
+    -- 6) animacao de saida
     twPlay(configPanel, 0.25,
         { BackgroundTransparency = 1, Size = UDim2.new(0, PW * 0.85, 0, PH * 0.85) }, EASE_OUT)
     twPlay(floatingButton, 0.25,
         { BackgroundTransparency = 1, TextTransparency = 1, Size = UDim2.new(0, 0, 0, 0) })
     _wait(0.3)
-    if _G.__phantomBackend and type(_G.__phantomBackend.shutdown) == "function" then
-        safe(_G.__phantomBackend.shutdown)
-    end
-    if State.conns then
-        for _, c in ipairs(State.conns) do safe(function() c:Disconnect() end) end
-        State.conns = {}
-    end
-    _G.PhantomManual = false
-    _G.PhantomAutoClash = false
+
     safe(function() screenGui:Destroy() end)
-    print("[PhantomGUI] Encerrado.")
+    print(("[%s v%s] Encerrado."):format(SCRIPT_NAME, SCRIPT_VERSION))
 end)
 
 -- ============================================================
--- SESSAO: EFEITOS (SCAN LINE + PARTICULAS)
+-- SESSAO: EFEITOS (DESATIVADOS)
 -- ============================================================
-local scanLine = inst("Frame", { Size = UDim2.new(1, 0, 0, 2), BackgroundColor3 = C.accent, BackgroundTransparency = 0.85, ZIndex = 2, Parent = configPanel, })
-gradient(scanLine, { Color3.new(0, 0, 0), C.accent, Color3.new(0, 0, 0) })
-
-_spawn(function()
-    while configPanel.Parent do
-        twPlay(scanLine, 3.5, { Position = UDim2.new(0, 0, 1, 0) }, EASE_SINE, DIR_INOUT)
-        _wait(3.5)
-        scanLine.Position = UDim2.new(0, 0, 0, 0)
-        _wait(0.4)
-    end
-end)
-
-local particleContainer = inst("Frame", { Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, ZIndex = 1, ClipsDescendants = true, Parent = configPanel, })
-
-local PARTICLE_COLORS = { C.accent, C.accentGlow, C.accentPink, C.accentCyan }
-
-local function spawnParticle()
-    local dot = inst("Frame", { Size = UDim2.new(0, math.random(2, 5), 0, math.random(2, 5)), Position = UDim2.new(math.random(), 0, 1, 0), BackgroundColor3 = PARTICLE_COLORS[math.random(1, #PARTICLE_COLORS)], BackgroundTransparency = 0.3, ZIndex = 1, Parent = particleContainer, })
-    corner(dot, 999)
-    local dur = math.random(4, 8)
-    local endX = math.clamp(dot.Position.X.Scale + (math.random() - 0.5) * 0.15, 0, 1)
-    twPlay(dot, 0.6, { BackgroundTransparency = 0.1 }, EASE_SINE, DIR_OUT)
-    twPlay(dot, dur, { Position = UDim2.new(endX, 0, -0.1, 0), BackgroundTransparency = 1 }, EASE_SINE, DIR_INOUT)
-    task.delay(dur, function() if dot.Parent then dot:Destroy() end end)
-end
-
-_spawn(function()
-    while true do
-        _wait(math.random() * 0.6 + 0.15)
-        if configPanel.Visible then spawnParticle() end
-    end
-end)
+-- scanline + particulas removidos: poluiam o visual do painel.
 
 if Config.ClashBallVisible then
     clashBall.Position = UDim2.new(0, clashX, 0, clashY)
 end
 
-print("[PhantomGUI] v9.0 carregada | tecla: " .. (Config.Keybind and Config.Keybind.Name or "?"))
+print(("[%s v%s] carregada | tecla: %s"):format(SCRIPT_NAME, SCRIPT_VERSION, Config.Keybind and Config.Keybind.Name or "?"))
