@@ -17,7 +17,6 @@ local _spawn = task.spawn
 
 print(("[%s v%s] iniciando..."):format(SCRIPT_NAME, SCRIPT_VERSION))
 
--- Espera ate 3s pelo phantom_logic; se nao vier, segue sozinho com config padrao.
 local bootTimeout = 0
 while not _G.PhantomConfig and bootTimeout < 3 do
     _wait(0.1)
@@ -144,7 +143,7 @@ end
 local function makeDraggable(handle, target, onDragEnd)
     local state, dragInput, dragOffX, dragOffY = "Idle", nil, 0, 0
     local wasDragged, startX, startY = false, 0, 0
-    local THRESH_SQ = 100  -- 10px²
+    local THRESH_SQ = 100
 
     trackConn(handle.InputBegan:Connect(function(input)
         if input.UserInputType ~= Enum.UserInputType.MouseButton1
@@ -367,7 +366,7 @@ local COL_W = math.floor((PW - PAD * 2 - GAP) / 2)
 
 local configPanel = inst("Frame", { Name = "PhantomPanel", Size = UDim2.new(0, PW, 0, PH), Position = Config.PanelX and UDim2.new(0, Config.PanelX, 0, Config.PanelY) or UDim2.new(0.5, -PW / 2, 0.5, -PH / 2), BackgroundColor3 = C.bg, BackgroundTransparency = 0.08, Visible = false, ZIndex = 5, ClipsDescendants = true, Parent = screenGui, })
 corner(configPanel, 16)
-stroke(configPanel, C.accent, 1.5) -- stroke estatico, sem gradiente animado
+stroke(configPanel, C.accent, 1.5)
 
 -- ============================================================
 -- SESSAO: PARTICULAS DE FUNDO (subindo, com leve perspectiva)
@@ -381,12 +380,11 @@ local particleLayer = inst("Frame", {
     Parent = configPanel,
 })
 
--- cores desaturadas (misturadas com o fundo escuro)
 local PARTICLE_COLORS = {
-    Color3.fromRGB(85, 90, 140),   -- indigo desaturado
-    Color3.fromRGB(110, 95, 150),  -- roxo desaturado
-    Color3.fromRGB(150, 95, 130),  -- rosa desaturado
-    Color3.fromRGB(95, 130, 165),  -- ciano desaturado
+    Color3.fromRGB(85, 90, 140),
+    Color3.fromRGB(110, 95, 150),
+    Color3.fromRGB(150, 95, 130),
+    Color3.fromRGB(95, 130, 165),
 }
 
 local function spawnParticle()
@@ -442,7 +440,7 @@ closeButton.MouseLeave:Connect(function() twPlay(closeButton, 0.12, { Background
 local colLeft  = inst("Frame", { Size = UDim2.new(0, COL_W, 0, CONTENT_H), Position = UDim2.new(0, PAD, 0, TITLE_H + 12), BackgroundTransparency = 1, ZIndex = 6, Parent = configPanel })
 local colRight = inst("Frame", { Size = UDim2.new(0, COL_W, 0, CONTENT_H), Position = UDim2.new(0, PAD + COL_W + GAP, 0, TITLE_H + 12), BackgroundTransparency = 1, ZIndex = 6, Parent = configPanel })
 
--- kill button (sem stroke, mais discreto, sem efeito de resize no hover)
+-- kill button
 local killBtn = inst("TextButton", { Size = UDim2.new(0, 124, 0, 26), Position = UDim2.new(0.5, -62, 1, -52), BackgroundColor3 = C.redDark, BackgroundTransparency = 0.15, Text = "Fechar Script", TextColor3 = Color3.fromRGB(255, 200, 200), TextSize = 11, Font = Enum.Font.GothamBold, ZIndex = 7, Parent = configPanel, })
 corner(killBtn, 6)
 
@@ -777,11 +775,8 @@ end))
 
 -- SESSAO: KILL BUTTON
 killBtn.Activated:Connect(function()
-    -- 1) salva config final ANTES de qualquer animacao/cleanup
-    --    garante que CPS, AutoClash, AutoParry, keybinds, posicoes etc. persistem
     safe(saveConfig, Config)
 
-    -- 2) pede pro funcional encerrar (se ele tiver shutdown)
     if _G.__phantomBackend and type(_G.__phantomBackend.shutdown) == "function" then
         safe(_G.__phantomBackend.shutdown)
     end
@@ -789,18 +784,14 @@ killBtn.Activated:Connect(function()
         safe(_G.PhantomStop)
     end
 
-    -- 3) desconecta tudo que essa GUI registrou
     if State.conns then
         for _, c in ipairs(State.conns) do safe(function() c:Disconnect() end) end
         State.conns = {}
     end
 
-    -- 4) flipa flags globais
     _G.PhantomManual     = false
     _G.PhantomAutoClash  = false
 
-    -- 5) CRITICO: limpa refs do _G para a proxima execucao nao herdar estado zumbi
-    --    (sem isso o funcional acha que a GUI ja carregou e nao recarrega)
     _G.__phantomGUI_loaded = nil
     _G.__phantomGUI_src    = nil
     _G.__phantomBackend    = nil
@@ -809,7 +800,6 @@ killBtn.Activated:Connect(function()
     _G.PhantomState        = nil
     _G.PhantomSaveConfig   = nil
 
-    -- 6) animacao de saida
     twPlay(configPanel, 0.25,
         { BackgroundTransparency = 1, Size = UDim2.new(0, PW * 0.85, 0, PH * 0.85) }, EASE_OUT)
     twPlay(floatingButton, 0.25,
@@ -823,7 +813,6 @@ end)
 -- ============================================================
 -- SESSAO: EFEITOS (DESATIVADOS)
 -- ============================================================
--- scanline + particulas removidos: poluiam o visual do painel.
 
 if Config.ClashBallVisible then
     clashBall.Position = UDim2.new(0, clashX, 0, clashY)
