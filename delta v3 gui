@@ -1,8 +1,4 @@
--- DELTA V3 — CONTROLE v4.0
--- [UPD] CPS VAR: usa limite real do servidor automaticamente (padrão)
--- [UPD] Spam GUI oculta por padrão, ativada pelo botão no controle
--- [UPD] Badge "DUAL" no card CPS indica dual-queue ativo
--- [UPD] Status bar atualizada
+-- DELTA V5 ALMA
 
 local Players          = game:GetService("Players")
 local TweenService     = game:GetService("TweenService")
