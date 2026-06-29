@@ -1,4 +1,4 @@
--- DELTA V5 ALMA
+-- DELTA V5 CONTROLE
 
 local Players          = game:GetService("Players")
 local TweenService     = game:GetService("TweenService")
