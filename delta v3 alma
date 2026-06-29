@@ -1,10 +1,4 @@
 -- DELTA ΔV25
--- Base: V23
--- Fixes:
---   clashDecayTime 0.8 → 1.0
---   loop principal não mata mais o clash (removido timer do loop)
---   clash renova LastActivationTime toda vez que bola vem pra mim (não só na mudança de target)
---   watchdog do Heartbeat vira único responsável pelo timeout (2s)
 
 local math_clamp = math.clamp
 local typeof     = typeof
