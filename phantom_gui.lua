@@ -1061,4 +1061,26 @@ if Config.ClashBallVisible then
     clashBall.Position = UDim2.new(0, clashX, 0, clashY)
 end
 
+print(("[%s v%s] carregada | tecla: %s"):format(SCRIPT_NAME, SCRIPT_VERSION, Config.Keybind and Config.Keybind.Name or "?"))fig       = nil
+    _G.PhantomState        = nil
+    _G.PhantomSaveConfig   = nil
+
+    twPlay(configPanel, 0.25,
+        { BackgroundTransparency = 1, Size = UDim2.new(0, PW * 0.85, 0, PH * 0.85) }, EASE_OUT)
+    twPlay(floatingButton, 0.25,
+        { BackgroundTransparency = 1, TextTransparency = 1, Size = UDim2.new(0, 0, 0, 0) })
+    _wait(0.3)
+
+    safe(function() screenGui:Destroy() end)
+    print(("[%s v%s] Encerrado."):format(SCRIPT_NAME, SCRIPT_VERSION))
+end)
+
+-- ============================================================
+-- SESSAO: EFEITOS (DESATIVADOS)
+-- ============================================================
+
+if Config.ClashBallVisible then
+    clashBall.Position = UDim2.new(0, clashX, 0, clashY)
+end
+
 print(("[%s v%s] carregada | tecla: %s"):format(SCRIPT_NAME, SCRIPT_VERSION, Config.Keybind and Config.Keybind.Name or "?"))
