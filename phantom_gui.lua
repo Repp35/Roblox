@@ -3,20 +3,21 @@
     Paleta: Azul / Roxo / Rosa
 ]]
 
-local SCRIPT_VERSION = "9.0"
-local SCRIPT_NAME    = "Phantom Ball GUI"
+local SCRIPT_VERSION = "9.1"
+local SCRIPT_NAME    = "PhantomBallGUI"
 
--- BOOT
+-- SERVICOS
 local UIS          = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local CoreGui      = game:GetService("CoreGui")
 local Camera       = workspace.CurrentCamera
 
-local _wait = task.wait
+local _wait  = task.wait
 local _spawn = task.spawn
 
 print(("[%s v%s] iniciando..."):format(SCRIPT_NAME, SCRIPT_VERSION))
 
+-- AGUARDA CONFIG EXTERNO (max 3s)
 local bootTimeout = 0
 while not _G.PhantomConfig and bootTimeout < 3 do
     _wait(0.1)
@@ -26,31 +27,31 @@ end
 local old = CoreGui:FindFirstChild("PhantomUISystem")
 if old then old:Destroy() end
 
--- STATE / CONFIG
+-- CONFIG
 local Config
 if _G.PhantomConfig then
     Config = _G.PhantomConfig
-    print(("[%s v%s] Config externo detectado, integrando."):format(SCRIPT_NAME, SCRIPT_VERSION))
+    print(("[%s v%s] Config externo detectado."):format(SCRIPT_NAME, SCRIPT_VERSION))
 else
     Config = {
-        AutoParry         = false,
-        AutoClash         = false,
-        CPS               = 25,
-        CustomCPS         = false,
-        Keybind           = Enum.KeyCode.V,
-        SpamKeybind       = Enum.KeyCode.X,
-        SpamMode          = "Toggle",
-        ClashBallVisible  = false,
-        BtnX              = nil,
-        BtnY              = nil,
-        ClashBallX        = 14,
-        ClashBallY        = nil,
-        MiniX             = nil,
-        MiniY             = nil,
-        PanelX            = nil,
-        PanelY            = nil,
+        AutoParry        = false,
+        AutoClash        = false,
+        CPS              = 25,
+        CustomCPS        = false,
+        Keybind          = Enum.KeyCode.V,
+        SpamKeybind      = Enum.KeyCode.X,
+        SpamMode         = "Toggle",
+        ClashBallVisible = false,
+        BtnX             = nil,
+        BtnY             = nil,
+        ClashBallX       = 14,
+        ClashBallY       = nil,
+        MiniX            = nil,
+        MiniY            = nil,
+        PanelX           = nil,
+        PanelY           = nil,
     }
-    print(("[%s v%s] Rodando em modo standalone (sem phantom_logic)."):format(SCRIPT_NAME, SCRIPT_VERSION))
+    print(("[%s v%s] Modo standalone."):format(SCRIPT_NAME, SCRIPT_VERSION))
 end
 
 local State      = _G.PhantomState or { conns = {} }
@@ -59,6 +60,7 @@ if not State.conns then State.conns = State.connections or {} end
 _G.PhantomState  = State
 _G.PhantomConfig = Config
 
+-- UTIL
 local function trackConn(c)
     State.conns[#State.conns + 1] = c
     return c
@@ -78,26 +80,23 @@ end
 
 -- PALETA
 local C = {
-    bg          = Color3.fromRGB(8, 8, 22),
-    header      = Color3.fromRGB(14, 14, 34),
-    card        = Color3.fromRGB(20, 20, 44),
-    accent      = Color3.fromRGB(99, 102, 241),
-    accentGlow  = Color3.fromRGB(139, 92, 246),
-    accentPink  = Color3.fromRGB(236, 72, 153),
-    accentCyan  = Color3.fromRGB(56, 189, 248),
-    green       = Color3.fromRGB(34, 197, 94),
-    red         = Color3.fromRGB(239, 68, 68),
-    redDark     = Color3.fromRGB(153, 27, 27),
-    text        = Color3.fromRGB(240, 240, 255),
-    subtext     = Color3.fromRGB(140, 140, 200),
-    divider     = Color3.fromRGB(45, 45, 85),
-    border      = Color3.fromRGB(55, 55, 100),
-    btnBlue     = Color3.fromRGB(45, 55, 130),
-    btnDark     = Color3.fromRGB(30, 30, 65),
-    toggleOn    = Color3.fromRGB(139, 92, 246),
-    toggleOff   = Color3.fromRGB(45, 45, 80),
-    hold        = Color3.fromRGB(236, 72, 153),
-    inputBg     = Color3.fromRGB(16, 16, 38),
+    bg         = Color3.fromRGB(8, 8, 22),
+    header     = Color3.fromRGB(14, 14, 34),
+    card       = Color3.fromRGB(20, 20, 44),
+    accent     = Color3.fromRGB(99, 102, 241),
+    accentPink = Color3.fromRGB(236, 72, 153),
+    green      = Color3.fromRGB(34, 197, 94),
+    red        = Color3.fromRGB(239, 68, 68),
+    redDark    = Color3.fromRGB(153, 27, 27),
+    text       = Color3.fromRGB(240, 240, 255),
+    subtext    = Color3.fromRGB(140, 140, 200),
+    border     = Color3.fromRGB(55, 55, 100),
+    btnBlue    = Color3.fromRGB(45, 55, 130),
+    btnDark    = Color3.fromRGB(30, 30, 65),
+    toggleOn   = Color3.fromRGB(139, 92, 246),
+    toggleOff  = Color3.fromRGB(45, 45, 80),
+    hold       = Color3.fromRGB(236, 72, 153),
+    inputBg    = Color3.fromRGB(16, 16, 38),
 }
 
 local GRAD = {
@@ -106,13 +105,15 @@ local GRAD = {
     Color3.fromRGB(236, 72, 153),
 }
 
-local EASE_OUT, EASE_BACK, EASE_SINE = Enum.EasingStyle.Quint, Enum.EasingStyle.Back, Enum.EasingStyle.Sine
-local DIR_OUT, DIR_IN, DIR_INOUT = Enum.EasingDirection.Out, Enum.EasingDirection.In, Enum.EasingDirection.InOut
+local EASE_OUT, EASE_BACK, EASE_SINE =
+    Enum.EasingStyle.Quint, Enum.EasingStyle.Back, Enum.EasingStyle.Sine
+local DIR_OUT, DIR_IN, DIR_INOUT =
+    Enum.EasingDirection.Out, Enum.EasingDirection.In, Enum.EasingDirection.InOut
 
--- UTIL
+-- HELPERS
 local function inst(cls, props, parent)
     local o = Instance.new(cls)
-    for k, v in pairs(props or {}) do o[k] = v end
+    if props then for k, v in pairs(props) do o[k] = v end end
     if parent then o.Parent = parent end
     return o
 end
@@ -125,12 +126,12 @@ local function stroke(obj, col, th)
     return inst("UIStroke", { Color = col, Thickness = th or 1 }, obj)
 end
 
-local function gradient(obj, colors, rotation)
-    local g = inst("UIGradient", { Rotation = rotation or 0 }, obj)
+local function attachFlow(s)
+    local g = inst("UIGradient", { Rotation = 0 }, s)
     g.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0,   colors[1]),
-        ColorSequenceKeypoint.new(0.5, colors[2]),
-        ColorSequenceKeypoint.new(1,   colors[3]),
+        ColorSequenceKeypoint.new(0,   GRAD[1]),
+        ColorSequenceKeypoint.new(0.5, GRAD[2]),
+        ColorSequenceKeypoint.new(1,   GRAD[3]),
     })
     return g
 end
@@ -141,26 +142,22 @@ local function twPlay(obj, t, props, style, dir)
     return tween
 end
 
-local function safeCancel(tween)
-    if tween then safe(function() tween:Cancel() end) end
-end
+local function safeCancel(t) if t then safe(function() t:Cancel() end) end end
 
 -- DRAG
 local function makeDraggable(handle, target, onDragEnd)
-    local state, dragInput, dragOffX, dragOffY = "Idle", nil, 0, 0
-    local wasDragged, startX, startY = false, 0, 0
+    local dragInput, dragOffX, dragOffY = nil, 0, 0
+    local state, wasDragged, startX, startY = "Idle", false, 0, 0
     local THRESH_SQ = 100
 
     trackConn(handle.InputBegan:Connect(function(input)
         if input.UserInputType ~= Enum.UserInputType.MouseButton1
         and input.UserInputType ~= Enum.UserInputType.Touch then return end
         if state ~= "Idle" then return end
-        state = "Pressed"
-        wasDragged = false
+        state, wasDragged, dragInput = "Pressed", false, input
         local abs = target.AbsolutePosition
         dragOffX, dragOffY = input.Position.X - abs.X, input.Position.Y - abs.Y
         startX, startY = input.Position.X, input.Position.Y
-        dragInput = input
     end))
 
     trackConn(UIS.InputChanged:Connect(function(input)
@@ -168,11 +165,8 @@ local function makeDraggable(handle, target, onDragEnd)
         if input.UserInputType ~= Enum.UserInputType.MouseMovement
         and input.UserInputType ~= Enum.UserInputType.Touch then return end
 
-        local dx = input.Position.X - startX
-        local dy = input.Position.Y - startY
-
-        if state == "Pressed" then
-            if (dx * dx + dy * dy) < THRESH_SQ then return end
+        local dx, dy = input.Position.X - startX, input.Position.Y - startY
+        if state == "Pressed" and (dx * dx + dy * dy) >= THRESH_SQ then
             state, wasDragged = "Dragging", true
         end
 
@@ -195,7 +189,29 @@ local function makeDraggable(handle, target, onDragEnd)
     return function() return state == "Dragging" end
 end
 
--- SCREEN GUI + GRADIENTE ANIMADO
+-- GRADIENTE ANIMADO COMPARTILHADO
+local flowingGradients = {}
+local function registerFlow(obj)
+    flowingGradients[#flowingGradients + 1] = attachFlow(obj)
+end
+
+local function startFlowingLoop(gui)
+    _spawn(function()
+        local STEP = 0.005
+        while gui.Parent do
+            for off = 0, 1, STEP do
+                if not gui.Parent then return end
+                for i = 1, #flowingGradients do
+                    local g = flowingGradients[i]
+                    if g and g.Parent then g.Offset = Vector2.new(off, 0) end
+                end
+                _wait(0.03)
+            end
+        end
+    end)
+end
+
+-- SCREEN GUI
 local screenGui = inst("ScreenGui", {
     Name           = "PhantomUISystem",
     ResetOnSpawn   = false,
@@ -203,38 +219,21 @@ local screenGui = inst("ScreenGui", {
     ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
     Parent         = CoreGui,
 })
+startFlowingLoop(screenGui)
 
-local flowingGradients = {}
-local function attachFlowingGradient(s)
-    local g = inst("UIGradient", { Rotation = 0 }, s)
-    g.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0,   GRAD[1]),
-        ColorSequenceKeypoint.new(0.5, GRAD[2]),
-        ColorSequenceKeypoint.new(1,   GRAD[3]),
-    })
-    flowingGradients[#flowingGradients + 1] = g
-    return g
+-- BOTAO FLUTUANTE
+local BTN_SIZE = 56
+local function btnPos()
+    local x, y = Config.BtnX, Config.BtnY
+    if type(x) == "number" and type(y) == "number" then
+        return UDim2.new(0, x, 0, y)
+    end
+    return UDim2.new(1, -70, 0.5, -28)
 end
 
-_spawn(function()
-    local STEP = 0.005
-    while screenGui.Parent do
-        for off = 0, 1, STEP do
-            if not screenGui.Parent then return end
-            for i = 1, #flowingGradients do
-                local g = flowingGradients[i]
-                if g and g.Parent then g.Offset = Vector2.new(off, 0) end
-            end
-            _wait(0.03)
-        end
-    end
-end)
-
--- BOTAO FLUTUANTE (P)
-local BTN_SIZE = 56
 local floatingButton = inst("TextButton", {
     Size = UDim2.new(0, BTN_SIZE, 0, BTN_SIZE),
-    Position = Config.BtnX and UDim2.new(0, Config.BtnX, 0, Config.BtnY) or UDim2.new(1, -70, 0.5, -28),
+    Position = btnPos(),
     BackgroundColor3 = C.header,
     BackgroundTransparency = 0.1,
     Text = "P",
@@ -246,23 +245,24 @@ local floatingButton = inst("TextButton", {
     Parent = screenGui,
 })
 corner(floatingButton, 999)
-attachFlowingGradient(stroke(floatingButton, C.accent, 2))
+registerFlow(stroke(floatingButton, C.accent, 2))
 
 -- BOLINHA AUTO CLASH
 local CLASH_SIZE = 64
+local OFFSCREEN_X = -CLASH_SIZE - 40
+
 local clashX = Config.ClashBallX or 14
 local clashY = Config.ClashBallY or (viewport().Y / 2 - CLASH_SIZE / 2)
 Config.ClashBallVisible = Config.ClashBallVisible or false
 
 if clashX + CLASH_SIZE > viewport().X - BTN_SIZE - 10 then
-    clashX = 14
-    Config.ClashBallX = 14
+    clashX, Config.ClashBallX = 14, 14
 end
 
 local clashBall = inst("TextButton", {
     Name = "PhantomClashBall",
     Size = UDim2.new(0, CLASH_SIZE, 0, CLASH_SIZE),
-    Position = UDim2.new(0, -CLASH_SIZE - 40, 0.5, -CLASH_SIZE / 2),
+    Position = UDim2.new(0, OFFSCREEN_X, 0.5, -CLASH_SIZE / 2),
     BackgroundColor3 = C.red,
     Text = "OFF",
     TextColor3 = Color3.new(1, 1, 1),
@@ -273,47 +273,48 @@ local clashBall = inst("TextButton", {
     Parent = screenGui,
 })
 corner(clashBall, 999)
-stroke(clashBall, Color3.fromRGB(20, 20, 30), 2)
 stroke(clashBall, Color3.new(0, 0, 0), 2)
 
 local clashBallOn = _G.PhantomAutoClash or false
 
-local autoClashTrack, autoClashThumb = nil, nil
+local autoClashTrack, autoClashThumb
+
+local function paintClashBall()
+    twPlay(clashBall, 0.28, { BackgroundColor3 = clashBallOn and C.green or C.red }, EASE_SINE, DIR_INOUT)
+    clashBall.Text     = clashBallOn and "ON" or "OFF"
+    clashBall.TextSize = clashBallOn and 18 or 16
+end
+
 local function syncAutoClashToggle()
     if not (autoClashTrack and autoClashThumb) then return end
     local v = clashBallOn
     twPlay(autoClashTrack, 0.22, { BackgroundColor3 = v and C.toggleOn or C.toggleOff }, EASE_SINE, DIR_INOUT)
-    twPlay(autoClashThumb,  0.32, { Position = v and UDim2.new(0, 25, 0.5, -10) or UDim2.new(0, 3, 0.5, -10) }, EASE_BACK, DIR_OUT)
-end
-
-local function paintClashBall()
-    twPlay(clashBall, 0.28, { BackgroundColor3 = clashBallOn and C.green or C.red }, EASE_SINE, DIR_INOUT)
-    clashBall.Text = clashBallOn and "ON" or "OFF"
-    clashBall.TextSize = clashBallOn and 18 or 16
+    twPlay(autoClashThumb,  0.32,
+        { Position = v and UDim2.new(0, 25, 0.5, -10) or UDim2.new(0, 3, 0.5, -10) },
+        EASE_BACK, DIR_OUT)
 end
 
 local function setClashBall(v, silent)
     clashBallOn = v
     _G.PhantomAutoClash = v
-    Config.AutoClash = v
-    if not silent then
-        paintClashBall()
-        twPlay(clashBall, 0.08, { Size = UDim2.new(0, CLASH_SIZE - 6, 0, CLASH_SIZE - 6) }, EASE_SINE, DIR_OUT)
-        task.delay(0.08, function()
-            twPlay(clashBall, 0.28, { Size = UDim2.new(0, CLASH_SIZE, 0, CLASH_SIZE) }, EASE_BACK, DIR_OUT)
-        end)
-    end
+    Config.AutoClash    = v
+    if silent then return end
+    paintClashBall()
+    twPlay(clashBall, 0.08, { Size = UDim2.new(0, CLASH_SIZE - 6, 0, CLASH_SIZE - 6) }, EASE_SINE, DIR_OUT)
+    task.delay(0.08, function()
+        twPlay(clashBall, 0.28, { Size = UDim2.new(0, CLASH_SIZE, 0, CLASH_SIZE) }, EASE_BACK, DIR_OUT)
+    end)
     safe(saveConfig, Config)
 end
 
-clashBall.Text = clashBallOn and "ON" or "OFF"
-clashBall.TextSize = clashBallOn and 18 or 16
+clashBall.Text           = clashBallOn and "ON" or "OFF"
+clashBall.TextSize       = clashBallOn and 18 or 16
 clashBall.BackgroundColor3 = clashBallOn and C.green or C.red
 
 local function showClashBall(v)
     Config.ClashBallVisible = v
     twPlay(clashBall, (v and 0.22) or 0.18,
-        { Position = v and UDim2.new(0, clashX, 0, clashY) or UDim2.new(0, -CLASH_SIZE - 40, 0, clashY) },
+        { Position = v and UDim2.new(0, clashX, 0, clashY) or UDim2.new(0, OFFSCREEN_X, 0, clashY) },
         v and EASE_BACK or EASE_OUT, DIR_OUT)
 end
 
@@ -329,16 +330,15 @@ clashBall.Activated:Connect(function()
 end)
 
 -- MINI GUI SPAM
-local MINI_W = 120
-local MINI_H = 90
+local MINI_W, MINI_H = 120, 90
 local miniX = Config.MiniX or (viewport().X - MINI_W - 14)
 local miniY = Config.MiniY or (viewport().Y / 2 - MINI_H / 2)
+local MINI_OFF_X = viewport().X + 30
 
 local miniGui = inst("Frame", {
     Name = "PhantomSpamMini",
     Size = UDim2.new(0, MINI_W, 0, MINI_H),
     BackgroundColor3 = C.header,
-    BackgroundTransparency = 0,
     BorderSizePixel = 0,
     ZIndex = 15,
     Parent = screenGui,
@@ -355,7 +355,7 @@ local miniGlow = inst("Frame", {
     Parent = miniGui,
 })
 corner(miniGlow, 18)
-attachFlowingGradient(stroke(miniGui, C.accent, 1.5))
+registerFlow(stroke(miniGui, C.accent, 1.5))
 
 local miniTitleBar = inst("Frame", {
     Size = UDim2.new(1, 0, 0, 26),
@@ -403,7 +403,6 @@ local spamBtn = inst("TextButton", {
     Size = UDim2.new(1, -16, 0, 48),
     Position = UDim2.new(0, 8, 0, 32),
     BackgroundColor3 = C.red,
-    BackgroundTransparency = 0,
     BorderSizePixel = 0,
     Text = "OFF",
     TextColor3 = Color3.new(1, 1, 1),
@@ -428,11 +427,11 @@ end
 
 spamBtn.Activated:Connect(function() setSpam(not spamOn) end)
 
-miniGui.Position = UDim2.new(0, viewport().X + 30, 0, miniY)
+miniGui.Position = UDim2.new(0, MINI_OFF_X, 0, miniY)
 
 local function showMini(v, visBtn)
     twPlay(miniGui, (v and 0.22) or 0.18,
-        { Position = v and UDim2.new(0, miniX, 0, miniY) or UDim2.new(0, viewport().X + 30, 0, miniY) },
+        { Position = v and UDim2.new(0, miniX, 0, miniY) or UDim2.new(0, MINI_OFF_X, 0, miniY) },
         v and EASE_BACK or EASE_OUT, DIR_OUT)
     if visBtn then
         visBtn.Text = v and "Mini UI: Visivel" or "Mini UI: Oculto"
@@ -452,10 +451,18 @@ local TITLE_H, PAD, GAP, CARD_GAP = 50, 14, 12, 8
 local CONTENT_H = PH - TITLE_H - 60
 local COL_W = math.floor((PW - PAD * 2 - GAP) / 2)
 
+local function panelPos()
+    local x, y = Config.PanelX, Config.PanelY
+    if type(x) == "number" and type(y) == "number" then
+        return UDim2.new(0, x, 0, y)
+    end
+    return UDim2.new(0.5, -PW / 2, 0.5, -PH / 2)
+end
+
 local configPanel = inst("Frame", {
     Name = "PhantomPanel",
     Size = UDim2.new(0, PW, 0, PH),
-    Position = Config.PanelX and UDim2.new(0, Config.PanelX, 0, Config.PanelY) or UDim2.new(0.5, -PW / 2, 0.5, -PH / 2),
+    Position = panelPos(),
     BackgroundColor3 = C.bg,
     BackgroundTransparency = 0.08,
     Visible = false,
@@ -485,20 +492,21 @@ local PARTICLE_COLORS = {
 
 local function spawnParticle()
     local isFar = math.random() < 0.6
-    local size = isFar and math.random(2, 3) or math.random(4, 6)
-    local startTrans = isFar and 0.5 or 0.2
+    local size        = isFar and math.random(2, 3) or math.random(4, 6)
+    local startTrans  = isFar and 0.5 or 0.2
+    local color       = PARTICLE_COLORS[math.random(1, #PARTICLE_COLORS)]
 
     local dot = inst("Frame", {
         Size = UDim2.new(0, size, 0, size),
         Position = UDim2.new(math.random(), 0, 1, 0),
-        BackgroundColor3 = PARTICLE_COLORS[math.random(1, #PARTICLE_COLORS)],
+        BackgroundColor3 = color,
         BackgroundTransparency = startTrans,
         ZIndex = 4,
         Parent = particleLayer,
     })
     corner(dot, 999)
 
-    local dur = isFar and math.random(5, 9) or math.random(3, 5)
+    local dur  = isFar and math.random(5, 9) or math.random(3, 5)
     local endX = math.clamp(dot.Position.X.Scale + (math.random() - 0.5) * 0.15, 0, 1)
 
     twPlay(dot, 0.6, { BackgroundTransparency = math.max(startTrans - 0.1, 0.05) }, EASE_SINE, DIR_OUT)
@@ -516,7 +524,7 @@ _spawn(function()
     end
 end)
 
--- TITLE BAR DO PAINEL
+-- TITLE BAR
 local titleBar = inst("Frame", {
     Size = UDim2.new(1, 0, 0, TITLE_H),
     BackgroundColor3 = C.header,
@@ -537,21 +545,19 @@ inst("TextLabel", {
     Parent = titleBar,
 })
 
-do
-    local badge = inst("TextLabel", {
-        Size = UDim2.new(0, 56, 0, 18),
-        Position = UDim2.new(0, 10, 0.5, -9),
-        BackgroundColor3 = C.accent,
-        BackgroundTransparency = 0.25,
-        Text = ("v%s"):format(SCRIPT_VERSION),
-        TextColor3 = C.text,
-        TextSize = 10,
-        Font = Enum.Font.GothamBold,
-        ZIndex = 7,
-        Parent = titleBar,
-    })
-    corner(badge, 6)
-end
+local badge = inst("TextLabel", {
+    Size = UDim2.new(0, 56, 0, 18),
+    Position = UDim2.new(0, 10, 0.5, -9),
+    BackgroundColor3 = C.accent,
+    BackgroundTransparency = 0.25,
+    Text = ("v%s"):format(SCRIPT_VERSION),
+    TextColor3 = C.text,
+    TextSize = 10,
+    Font = Enum.Font.GothamBold,
+    ZIndex = 7,
+    Parent = titleBar,
+})
+corner(badge, 6)
 
 local closeButton = inst("TextButton", {
     Size = UDim2.new(0, 30, 0, 30),
@@ -570,7 +576,7 @@ closeButton.MouseEnter:Connect(function() twPlay(closeButton, 0.12, { Background
 closeButton.MouseLeave:Connect(function() twPlay(closeButton, 0.12, { BackgroundTransparency = 0.3 }) end)
 
 -- COLUNAS
-local colLeft  = inst("Frame", {
+local colLeft = inst("Frame", {
     Size = UDim2.new(0, COL_W, 0, CONTENT_H),
     Position = UDim2.new(0, PAD, 0, TITLE_H + 12),
     BackgroundTransparency = 1,
@@ -609,7 +615,7 @@ if not UIS.TouchEnabled then
     end)
 end
 
--- COMPONENTES
+-- COMPONENTES REUTILIZAVEIS
 local function cardFrame(yPos, h, parent)
     local f = inst("Frame", {
         Size = UDim2.new(1, 0, 0, h),
@@ -664,6 +670,39 @@ local function makeBtn(text, x, y, w, h, parent, bg)
     return b
 end
 
+local function makeToggle(trackParent, initial)
+    local track = inst("Frame", {
+        Size = UDim2.new(0, 48, 0, 26),
+        Position = UDim2.new(1, -62, 0.5, -13),
+        BackgroundColor3 = initial and C.toggleOn or C.toggleOff,
+        BackgroundTransparency = 0.1,
+        ZIndex = 7,
+        Parent = trackParent,
+    })
+    corner(track, 999)
+    local thumb = inst("Frame", {
+        Size = UDim2.new(0, 20, 0, 20),
+        Position = initial and UDim2.new(0, 25, 0.5, -10) or UDim2.new(0, 3, 0.5, -10),
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        ZIndex = 8,
+        Parent = track,
+    })
+    corner(thumb, 999)
+
+    local function setVisual(v)
+        twPlay(track, 0.22, { BackgroundColor3 = v and C.toggleOn or C.toggleOff }, EASE_SINE, DIR_INOUT)
+        twPlay(thumb, 0.32,
+            { Position = v and UDim2.new(0, 25, 0.5, -10) or UDim2.new(0, 3, 0.5, -10) },
+            EASE_BACK, DIR_OUT)
+        twPlay(thumb, 0.08, { Size = UDim2.new(0, 24, 0, 24) }, EASE_SINE, DIR_OUT)
+        task.delay(0.08, function()
+            twPlay(thumb, 0.18, { Size = UDim2.new(0, 20, 0, 20) }, EASE_BACK, DIR_OUT)
+        end)
+    end
+
+    return track, thumb, setVisual
+end
+
 local function bindKeyCapture(btn, onPicked)
     local listening = false
     btn.Activated:Connect(function()
@@ -682,7 +721,7 @@ local function bindKeyCapture(btn, onPicked)
     end)
 end
 
-local function createToggle(labelText, configKey, yPos, parent)
+local function createToggleCard(labelText, configKey, yPos, parent, onAfter)
     local f = cardFrame(yPos, 52, parent)
     inst("TextLabel", {
         Size = UDim2.new(0.55, 0, 1, 0),
@@ -697,23 +736,9 @@ local function createToggle(labelText, configKey, yPos, parent)
         Parent = f,
     })
 
-    local track = inst("Frame", {
-        Size = UDim2.new(0, 48, 0, 26),
-        Position = UDim2.new(1, -62, 0.5, -13),
-        BackgroundColor3 = Config[configKey] and C.toggleOn or C.toggleOff,
-        BackgroundTransparency = 0.1,
-        ZIndex = 7,
-        Parent = f,
-    })
-    corner(track, 999)
-    local thumb = inst("Frame", {
-        Size = UDim2.new(0, 20, 0, 20),
-        Position = Config[configKey] and UDim2.new(0, 25, 0.5, -10) or UDim2.new(0, 3, 0.5, -10),
-        BackgroundColor3 = Color3.new(1, 1, 1),
-        ZIndex = 8,
-        Parent = track,
-    })
-    corner(thumb, 999)
+    local initial = configKey and Config[configKey] or false
+    local state = initial
+    local _, _, setVisual = makeToggle(f, initial)
 
     inst("TextButton", {
         Size = UDim2.new(1, 0, 1, 0),
@@ -722,37 +747,25 @@ local function createToggle(labelText, configKey, yPos, parent)
         ZIndex = 9,
         Parent = f,
     }).Activated:Connect(function()
-        Config[configKey] = not Config[configKey]
-        local v = Config[configKey]
-
-        if configKey == "AutoClash" then
-            setClashBall(v, true)
-            paintClashBall()
+        state = not state
+        if configKey then
+            Config[configKey] = state
+            safe(saveConfig, Config)
         end
-
-        twPlay(track, 0.22, { BackgroundColor3 = v and C.toggleOn or C.toggleOff }, EASE_SINE, DIR_INOUT)
-        twPlay(thumb,  0.32, { Position = v and UDim2.new(0, 25, 0.5, -10) or UDim2.new(0, 3, 0.5, -10) }, EASE_BACK, DIR_OUT)
-        twPlay(thumb, 0.08, { Size = UDim2.new(0, 24, 0, 24) }, EASE_SINE, DIR_OUT)
-        task.delay(0.08, function()
-            twPlay(thumb, 0.18, { Size = UDim2.new(0, 20, 0, 20) }, EASE_BACK, DIR_OUT)
-        end)
-        safe(saveConfig, Config)
+        setVisual(state)
+        if onAfter then onAfter(state) end
     end)
 
-    if configKey == "AutoClash" then
-        autoClashTrack, autoClashThumb = track, thumb
-    end
     return yPos + 52 + CARD_GAP
 end
 
 local function createCPSSelector(yPos, parent)
-    local ROW_Y, ROW_H = 28, 30
     local f = cardFrame(yPos, 68, parent)
     cardLabel("CPS Spam", f)
 
     inst("TextLabel", {
-        Size = UDim2.new(0, 36, 0, ROW_H),
-        Position = UDim2.new(0, 14, 0, ROW_Y),
+        Size = UDim2.new(0, 36, 0, 30),
+        Position = UDim2.new(0, 14, 0, 28),
         BackgroundTransparency = 1,
         Text = "CPS:",
         TextColor3 = C.text,
@@ -763,12 +776,12 @@ local function createCPSSelector(yPos, parent)
         Parent = f,
     })
 
-    local defBtn = makeBtn("Padrao", 52, ROW_Y, 68, ROW_H, f, C.btnBlue)
+    local defBtn = makeBtn("Padrao", 52, 28, 68, 30, f, C.btnBlue)
     defBtn.TextSize = 11
 
     local inputBox = inst("TextBox", {
-        Size = UDim2.new(0, 72, 0, ROW_H),
-        Position = UDim2.new(1, -82, 0, ROW_Y),
+        Size = UDim2.new(0, 72, 0, 30),
+        Position = UDim2.new(1, -82, 0, 28),
         BackgroundColor3 = C.inputBg,
         BackgroundTransparency = 0.1,
         Text = tostring(Config.CPS or 25),
@@ -796,10 +809,7 @@ local function createCPSSelector(yPos, parent)
     inputBox.FocusLost:Connect(function()
         local v = tonumber(inputBox.Text)
         if v and v > 0 and v <= 10000 then
-            if v ~= Config.CPS then
-                Config.CPS = v
-                Config.CustomCPS = true
-            end
+            if v ~= Config.CPS then Config.CPS, Config.CustomCPS = v, true end
         else
             inputBox.Text = tostring(Config.CPS or 25)
         end
@@ -826,7 +836,6 @@ local function createKeybindSelector(yPos, parent)
 
     local kbBtn = makeBtn(Config.Keybind and Config.Keybind.Name or "V", 0, 0, 88, 30, f, C.btnBlue)
     kbBtn.Position = UDim2.new(1, -100, 0.5, -15)
-    kbBtn.Font = Enum.Font.GothamBold
     bindKeyCapture(kbBtn, function(keyCode)
         Config.Keybind = keyCode
         kbBtn.Text = keyCode.Name
@@ -836,13 +845,15 @@ local function createKeybindSelector(yPos, parent)
     return yPos + 52 + CARD_GAP
 end
 
-local function createSpamPCCard(yPos, parent)
+local function createSpamCard(yPos, parent)
     local f = cardFrame(yPos, 118, parent)
     cardLabel("Manual Spam", f)
 
     local visBtn = makeBtn("Mini UI: Oculto", 8, 24, COL_W - 16, 30, f, C.btnDark)
     visBtn.TextSize = 11
-    visBtn.Activated:Connect(function() showMini(miniGui.Position.X.Offset > viewport().X - 50, visBtn) end)
+    visBtn.Activated:Connect(function()
+        showMini(miniGui.Position.X.Offset > viewport().X - 50, visBtn)
+    end)
 
     local halfW = math.floor((COL_W - 32) / 2)
     local kbBtn = makeBtn(Config.SpamKeybind and Config.SpamKeybind.Name or "X", 8, 64, halfW, 32, f, C.btnBlue)
@@ -853,12 +864,12 @@ local function createSpamPCCard(yPos, parent)
         safe(saveConfig, Config)
     end)
 
-    local function getModeColor(mode) return mode == "Hold" and C.hold or C.toggleOn end
-    local modeBtn = makeBtn(Config.SpamMode or "Toggle", 8 + halfW + 14, 64, halfW, 32, f, getModeColor(Config.SpamMode or "Toggle"))
+    local function modeColor(mode) return mode == "Hold" and C.hold or C.toggleOn end
+    local modeBtn = makeBtn(Config.SpamMode or "Toggle", 8 + halfW + 14, 64, halfW, 32, f, modeColor(Config.SpamMode))
     modeBtn.Activated:Connect(function()
         Config.SpamMode = (Config.SpamMode == "Toggle") and "Hold" or "Toggle"
         modeBtn.Text = Config.SpamMode
-        twPlay(modeBtn, 0.18, { BackgroundColor3 = getModeColor(Config.SpamMode) }, EASE_BACK)
+        twPlay(modeBtn, 0.18, { BackgroundColor3 = modeColor(Config.SpamMode) }, EASE_BACK)
         if Config.SpamMode == "Toggle" and _G.PhantomManual then setSpam(false) end
         safe(saveConfig, Config)
     end)
@@ -866,50 +877,45 @@ local function createSpamPCCard(yPos, parent)
     return yPos + 118 + CARD_GAP
 end
 
-local function createMiniClashToggle(yPos, parent)
-    local f = cardFrame(yPos, 52, parent)
-    inst("TextLabel", {
-        Size = UDim2.new(0.55, 0, 1, 0),
-        Position = UDim2.new(0, 14, 0, 0),
-        BackgroundTransparency = 1,
-        Text = "Mini Clash UI",
-        TextColor3 = C.text,
-        TextSize = 14,
-        Font = Enum.Font.GothamSemibold,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        ZIndex = 7,
-        Parent = f,
-    })
-
-    local on = Config.ClashBallVisible or false
-    local track = inst("Frame", {
-        Size = UDim2.new(0, 48, 0, 26),
-        Position = UDim2.new(1, -62, 0.5, -13),
-        BackgroundColor3 = on and C.toggleOn or C.toggleOff,
-        BackgroundTransparency = 0.1,
-        ZIndex = 7,
-        Parent = f,
-    })
-    corner(track, 999)
-    local thumb = inst("Frame", {
-        Size = UDim2.new(0, 20, 0, 20),
-        Position = on and UDim2.new(0, 25, 0.5, -10) or UDim2.new(0, 3, 0.5, -10),
-        BackgroundColor3 = Color3.new(1, 1, 1),
-        ZIndex = 8,
-        Parent = track,
-    })
-    corner(thumb, 999)
-
-    inst("TextButton", {
-        Size = UDim2.new(1, 0, 1, 0),
-        BackgroundTransparency = 1,
-        Text = "",
-        ZIndex = 9,
-        Parent = f,
-    }).Activated:Connect(function()
-        on = not on
-        Config.ClashBallVisible = on
-        if on then
+-- AUTO CLASH: cria toggle proprio e expoe track/thumb
+do
+    local yL = 4
+    local _track, _thumb
+    local function buildAutoClash(y)
+        local f = cardFrame(y, 52, colLeft)
+        inst("TextLabel", {
+            Size = UDim2.new(0.55, 0, 1, 0),
+            Position = UDim2.new(0, 14, 0, 0),
+            BackgroundTransparency = 1,
+            Text = "Auto Clash",
+            TextColor3 = C.text,
+            TextSize = 14,
+            Font = Enum.Font.GothamSemibold,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 7,
+            Parent = f,
+        })
+        local track, thumb, setVisual = makeToggle(f, Config.AutoClash)
+        _track, _thumb = track, thumb
+        inst("TextButton", {
+            Size = UDim2.new(1, 0, 1, 0),
+            BackgroundTransparency = 1,
+            Text = "",
+            ZIndex = 9,
+            Parent = f,
+        }).Activated:Connect(function()
+            Config.AutoClash = not Config.AutoClash
+            setVisual(Config.AutoClash)
+            setClashBall(Config.AutoClash, true)
+            paintClashBall()
+            safe(saveConfig, Config)
+        end)
+        return y + 52 + CARD_GAP
+    end
+    yL = createToggleCard("Auto Parry", "AutoParry", yL, colLeft)
+    yL = buildAutoClash(yL)
+    yL = createToggleCard("Mini Clash UI", "ClashBallVisible", yL, colLeft, function(v)
+        if v then
             showClashBall(true)
         else
             if clashBallOn then
@@ -918,27 +924,14 @@ local function createMiniClashToggle(yPos, parent)
             end
             showClashBall(false)
         end
-        twPlay(track, 0.22, { BackgroundColor3 = on and C.toggleOn or C.toggleOff }, EASE_SINE, DIR_INOUT)
-        twPlay(thumb, 0.32, { Position = on and UDim2.new(0, 25, 0.5, -10) or UDim2.new(0, 3, 0.5, -10) }, EASE_BACK, DIR_OUT)
-        twPlay(thumb, 0.08, { Size = UDim2.new(0, 24, 0, 24) }, EASE_SINE, DIR_OUT)
-        task.delay(0.08, function()
-            twPlay(thumb, 0.18, { Size = UDim2.new(0, 20, 0, 20) }, EASE_BACK, DIR_OUT)
-        end)
-        safe(saveConfig, Config)
     end)
-
-    return yPos + 52 + CARD_GAP
+    autoClashTrack, autoClashThumb = _track, _thumb
 end
 
--- MONTAR COLUNAS
-local yL, yR = 4, 4
-yL = createToggle("Auto Parry", "AutoParry", yL, colLeft)
-yL = createToggle("Auto Clash", "AutoClash", yL, colLeft)
-yL = createMiniClashToggle(yL, colLeft)
-
+local yR = 4
 yR = createCPSSelector(yR, colRight)
 yR = createKeybindSelector(yR, colRight)
-yR = createSpamPCCard(yR, colRight)
+yR = createSpamCard(yR, colRight)
 
 -- DRAG DO PAINEL / BOTAO
 makeDraggable(titleBar, configPanel, function()
@@ -994,6 +987,7 @@ floatingButton.Activated:Connect(function()
     if btnIsDragging() then return end
     togglePanel()
 end)
+
 closeButton.Activated:Connect(function()
     if panelOpen then togglePanel() end
 end)
@@ -1015,8 +1009,7 @@ trackConn(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 trackConn(UIS.InputEnded:Connect(function(input)
-    if not Config.SpamKeybind then return end
-    if input.KeyCode ~= Config.SpamKeybind then return end
+    if not Config.SpamKeybind or input.KeyCode ~= Config.SpamKeybind then return end
     if Config.SpamMode == "Hold" then setSpam(false) end
 end))
 
@@ -1036,8 +1029,8 @@ killBtn.Activated:Connect(function()
         State.conns = {}
     end
 
-    _G.PhantomManual     = false
-    _G.PhantomAutoClash  = false
+    _G.PhantomManual    = false
+    _G.PhantomAutoClash = false
 
     _G.__phantomGUI_loaded = nil
     _G.__phantomGUI_src    = nil
@@ -1057,30 +1050,10 @@ killBtn.Activated:Connect(function()
     print(("[%s v%s] Encerrado."):format(SCRIPT_NAME, SCRIPT_VERSION))
 end)
 
+-- ESTADO INICIAL DO CLASH BALL
 if Config.ClashBallVisible then
     clashBall.Position = UDim2.new(0, clashX, 0, clashY)
 end
 
-print(("[%s v%s] carregada | tecla: %s"):format(SCRIPT_NAME, SCRIPT_VERSION, Config.Keybind and Config.Keybind.Name or "?"))fig       = nil
-    _G.PhantomState        = nil
-    _G.PhantomSaveConfig   = nil
-
-    twPlay(configPanel, 0.25,
-        { BackgroundTransparency = 1, Size = UDim2.new(0, PW * 0.85, 0, PH * 0.85) }, EASE_OUT)
-    twPlay(floatingButton, 0.25,
-        { BackgroundTransparency = 1, TextTransparency = 1, Size = UDim2.new(0, 0, 0, 0) })
-    _wait(0.3)
-
-    safe(function() screenGui:Destroy() end)
-    print(("[%s v%s] Encerrado."):format(SCRIPT_NAME, SCRIPT_VERSION))
-end)
-
--- ============================================================
--- SESSAO: EFEITOS (DESATIVADOS)
--- ============================================================
-
-if Config.ClashBallVisible then
-    clashBall.Position = UDim2.new(0, clashX, 0, clashY)
-end
-
-print(("[%s v%s] carregada | tecla: %s"):format(SCRIPT_NAME, SCRIPT_VERSION, Config.Keybind and Config.Keybind.Name or "?"))
+print(("[%s v%s] carregada | tecla: %s"):format(
+    SCRIPT_NAME, SCRIPT_VERSION, Config.Keybind and Config.Keybind.Name or "?"))
