@@ -2,20 +2,24 @@
     Phantom Ball LOGIC
 ]]
 
+-- version
 local SCRIPT_VERSION = "10.0"
-local SCRIPT_NAME    = "Phantom Ball logic"
+local SCRIPT_NAME    = "Phantom Ball LOGIC"
 
+-- services
 local Players    = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Replicated = game:GetService("ReplicatedStorage")
 local Stats      = game:GetService("Stats")
 local UIS        = game:GetService("UserInputService")
 
+-- shortcuts
 local lp, ws = Players.LocalPlayer, workspace
 local now    = os.clock
 local INF    = math.huge
 local V3     = Vector3.zero
 
+-- tuning: clash / targeting
 local C = {
     DECAY = 0.310, HOLD = 0.20, REACT_CD = 0.120,
     BALL_RANGE = 18, BALL_HARD_CAP = 22, MAX_BALL_DIST = 45,
@@ -39,6 +43,7 @@ local C = {
     DANGER_INSTANT = 120,
 }
 
+-- tuning: parry / resilience
 local P = {
     CD = 0.08, FIRE_LOCK = 0.080, MIN_SPD = 3,
     DEFLECT_R = 8, RAD_FLOOR = 14,
@@ -47,12 +52,14 @@ local P = {
     RES_HITBOX_PROX = 60, RES_HITBOX_OWN_WINDOW = 0.30,
 }
 
+-- constants
 local PING_EMA, PING_MAX, PING_SAMPLE = 0.5, 0.150, 1.5
 local TELEPORT_LOCK, SYNC_FRESH_T, RING_BUF = 0.20, 1.0, 8
 local BALL_CACHE_TTL, LIVE_TIMP_TTL = 0.5, 0.05
 local PING_BOOT_FALLBACK, PARRY_PROBE_INTERVAL = 0.060, 3.0
 local DEFAULT_CPS = 25
 
+-- config (user-facing toggles + runtime state)
 local Config = {
     AutoParry = true, ManualSpam = false, AutoClash = true,
     CPS = DEFAULT_CPS, CustomCPS = false,
@@ -60,6 +67,7 @@ local Config = {
 }
 local State = { active = true, conns = {} }
 
+-- state: runtime (clash / target ring / ping)
 local S = {
     ball = nil, lastTarget = -999,
     clashOn = false, clashAt = 0, clashHoldUntil = 0, lastClashOff = 0,
@@ -74,6 +82,7 @@ local S = {
     tImpRiseHist = {0, 0, 0},
 }
 
+-- state: sync (server-sent ball data)
 local Sync = {
     Speed = 0, RealPos = V3,
     ForceDir = false, ForcedDir = V3, DeflectDir = V3,
@@ -81,6 +90,7 @@ local Sync = {
     Target = -999, lastSyncAt = 0, forcedAt = 0,
 }
 
+-- state: auto-parry + ball cache + resilience
 local AP = { armed = false, fired = false, firedAt = 0 }
 local parryR, parryMode, parryInit = nil, nil, false
 local _ball, _ballAt = nil, 0
@@ -90,6 +100,7 @@ local RES = {
     lastFireBallRef = nil, lastFireBallAt = 0,
 }
 
+-- resilience: detect + refresh + deflect distance
 local function checkResilienceInRoot(root)
     if not root then return false end
     for _, c in ipairs(root:GetChildren()) do
@@ -121,6 +132,7 @@ local function serverDeflectDistance()
     return P.RES_BASE + bonus
 end
 
+-- globals (exposed for the GUI)
 _G.PhantomConfig = Config
 _G.PhantomState  = State
 _G.PhantomManual = false
@@ -142,6 +154,7 @@ _G.PhantomStop = function()
     _G.PhantomDiag        = nil
 end
 
+-- utils: connection tracking + cps clamp + reset
 local function track(c)
     if c and c.Disconnect then State.conns[#State.conns + 1] = c end
     return c
@@ -179,6 +192,7 @@ local function resetAllState()
     RES.lastFireBallRef, RES.lastFireBallAt = nil, 0
 end
 
+-- ping
 local function getPing()
     local p = S.smoothPing
     if p <= 0 then p = PING_BOOT_FALLBACK end
@@ -194,6 +208,7 @@ local function samplePing()
     end
 end
 
+-- refs: TS / Remotes / GenRemotes / Abilities / GameInfo
 local TSFolder   = Replicated:FindFirstChild("TS")
 local Remotes    = Replicated:FindFirstChild("Remotes")
 local GenRemotes = TSFolder and TSFolder:FindFirstChild("GeneratedNetworkRemotes")
@@ -228,6 +243,7 @@ local function refreshRefs()
     end
 end
 
+-- remote resolution
 local function validRemote(r)
     return typeof(r) == "Instance" and r.Parent ~= nil and r:IsA("RemoteEvent")
 end
@@ -280,6 +296,7 @@ local function resolveRemote()
     return nil
 end
 
+-- cooldown probe (find the right remote by trial fire)
 local cooldownFrame = nil
 
 local function getCooldownFrame()
@@ -325,6 +342,7 @@ local function probeNamedRemoteEvents()
     return nil
 end
 
+-- parry: buffer / init / fire
 local function makeBuf(flag)
     if type(buffer) ~= "table" then return nil end
     if type(buffer.fromstring) == "function" then
@@ -357,6 +375,7 @@ local function fireParry(r, m, flag)
     return pcall(r.FireServer, r, p)
 end
 
+-- send: parry + spam
 local _apResolveCache, _spamResolveCache, _spamCooldownUntil = 0, 0, 0
 
 local function sendParry()
@@ -400,6 +419,7 @@ local function sendSpam()
     return false
 end
 
+-- ball: lookup + nearest player
 local function getBall()
     local t = now()
     if _ball and _ball.Parent and (t - _ballAt) < BALL_CACHE_TTL then
@@ -450,6 +470,7 @@ local function nearestPlayerAlive(hrp)
     return bestD, bestAlive
 end
 
+-- ball math: speed / position
 local function ballSpeed(ball, t)
     if (t - Sync.lastSyncAt) < SYNC_FRESH_T and Sync.Speed > 0 then return Sync.Speed end
     local ok, av = pcall(function() return ball.AssemblyLinearVelocity end)
@@ -471,6 +492,7 @@ local function ballPos(ball, t)
     return ball.Position
 end
 
+-- tImp: ping compensation + scaling
 local function pingOneWay() return math.max(getPing(), C.PING_FLOOR) end
 
 local function pingScale()
@@ -507,6 +529,7 @@ local function liveTImp()
     return _liveTImpCache
 end
 
+-- targeting: is me / cps window / ring push
 local function isTargeted()
     return Sync.Target == lp.UserId
         or S.lastTarget == lp.UserId
@@ -527,6 +550,7 @@ local function ringPush(t)
     S.targetRing[S.targetRingIdx] = t
 end
 
+-- clash: snapshot + on/off limits + evaluate
 local _ctxCache = { t = 0, valid = false }
 local _ctxBuf = {}
 
@@ -714,6 +738,7 @@ local function evaluateClash()
     end
 end
 
+-- auto-parry loop (per character)
 local apBind, apDead = 0, false
 local function bindParry(ch)
     apBind = apBind + 1
@@ -777,6 +802,7 @@ local function bindParry(ch)
     end))
 end
 
+-- keybinds: panic toggle + spam toggle/hold
 local keyConn, keyHoldConn = nil, nil
 
 local function installKeys()
@@ -803,6 +829,7 @@ local function installKeys()
     end
 end
 
+-- gui polling: hot-apply config + bind keys when ready
 local CONFIG_KEYS = { "AutoParry", "AutoClash", "CPS", "CustomCPS", "Keybind", "SpamKeybind", "SpamMode" }
 local guiReady = false
 local _pollAcc = 0
@@ -828,6 +855,7 @@ end
 
 installKeys()
 
+-- spam ticker (when clash/manual is active)
 local _spamRing = table.create(64, 0)
 local _spamRingHead, _spamRingCount = 0, 0
 local _spamDebt, _spamWinStart, _spamClickIdx, _spamWasActive = 0, now(), 0, false
@@ -874,6 +902,7 @@ local function tickSpam(dt)
     end
 end
 
+-- character bind: cleanup + main heartbeat
 local function bindChar(ch)
     if not (ch and ch.Parent) then return end
     local hrp = ch:WaitForChild("HumanoidRootPart", 9e9)
@@ -904,6 +933,7 @@ local function bindChar(ch)
     end))
 end
 
+-- character spawned: wire resilience + parry + char loop
 local _resBackpackConn, _resCharConn = nil, nil
 
 local function onChar(ch)
@@ -933,6 +963,7 @@ end
 track(lp.CharacterAdded:Connect(onChar))
 if lp.Character then task.defer(function() pcall(onChar, lp.Character) end) end
 
+-- server sync (BallSyncData) - updates target + sync state
 local ballSync = Remotes and Remotes:FindFirstChild("BallSyncData")
 if ballSync and ballSync:IsA("RemoteEvent") then
     track(ballSync.OnClientEvent:Connect(function(d)
@@ -993,6 +1024,7 @@ if ballSync and ballSync:IsA("RemoteEvent") then
     end))
 end
 
+-- ball watcher (workspace tree)
 local gameFolder  = ws:WaitForChild("Game", 30)
 local ballWatcher = gameFolder and gameFolder:FindFirstChild("Ball")
 
@@ -1008,6 +1040,7 @@ if ballWatcher then
     if existing and existing:IsA("BasePart") then setBall(existing) end
 end
 
+-- revalidation + diagnostics
 local function revalidateParryRemote()
     if not (parryR and parryR:IsA("RemoteEvent") and parryR.Parent) then
         parryR, parryMode, parryInit = nil, nil, false
