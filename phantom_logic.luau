@@ -1,5 +1,5 @@
 --[[
-    Phantom Ball logic
+    Phantom Ball LOGIC
 ]]
 
 local SCRIPT_VERSION = "10.0"
