@@ -6,7 +6,7 @@
 local SCRIPT_VERSION = "9.0"
 local SCRIPT_NAME    = "Phantom Ball GUI"
 
--- BOOT
+-- SESSAO: BOOT
 local UIS          = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local CoreGui      = game:GetService("CoreGui")
@@ -26,7 +26,7 @@ end
 local old = CoreGui:FindFirstChild("PhantomUISystem")
 if old then old:Destroy() end
 
--- STATE / CONFIG
+-- SESSAO: STATE / CONFIG (STANDALONE)
 local Config
 if _G.PhantomConfig then
     Config = _G.PhantomConfig
@@ -35,7 +35,7 @@ else
     Config = {
         AutoParry         = false,
         AutoClash         = false,
-        CPS               = 25,
+        CPS               = 25, -- DEFAULT_CPS (consistente com funcional.lua)
         CustomCPS         = false,
         Keybind           = Enum.KeyCode.V,
         SpamKeybind       = Enum.KeyCode.X,
@@ -76,7 +76,7 @@ local function viewport()
     return Camera.ViewportSize
 end
 
--- PALETA
+-- SESSAO: PALETA / UTIL
 local C = {
     bg          = Color3.fromRGB(8, 8, 22),
     header      = Color3.fromRGB(14, 14, 34),
@@ -109,7 +109,6 @@ local GRAD = {
 local EASE_OUT, EASE_BACK, EASE_SINE = Enum.EasingStyle.Quint, Enum.EasingStyle.Back, Enum.EasingStyle.Sine
 local DIR_OUT, DIR_IN, DIR_INOUT = Enum.EasingDirection.Out, Enum.EasingDirection.In, Enum.EasingDirection.InOut
 
--- UTIL
 local function inst(cls, props, parent)
     local o = Instance.new(cls)
     for k, v in pairs(props or {}) do o[k] = v end
@@ -117,13 +116,8 @@ local function inst(cls, props, parent)
     return o
 end
 
-local function corner(obj, r)
-    return inst("UICorner", { CornerRadius = UDim.new(0, r) }, obj)
-end
-
-local function stroke(obj, col, th)
-    return inst("UIStroke", { Color = col, Thickness = th or 1 }, obj)
-end
+local function corner(obj, r)  return inst("UICorner",   { CornerRadius = UDim.new(0, r) }, obj) end
+local function stroke(obj, col, th) return inst("UIStroke", { Color = col, Thickness = th or 1 }, obj) end
 
 local function gradient(obj, colors, rotation)
     local g = inst("UIGradient", { Rotation = rotation or 0 }, obj)
@@ -145,7 +139,7 @@ local function safeCancel(tween)
     if tween then safe(function() tween:Cancel() end) end
 end
 
--- DRAG
+-- SESSAO: DRAG
 local function makeDraggable(handle, target, onDragEnd)
     local state, dragInput, dragOffX, dragOffY = "Idle", nil, 0, 0
     local wasDragged, startX, startY = false, 0, 0
@@ -195,7 +189,9 @@ local function makeDraggable(handle, target, onDragEnd)
     return function() return state == "Dragging" end
 end
 
--- SCREEN GUI + GRADIENTE ANIMADO
+-- ============================================================
+-- SESSAO: SCREEN GUI + GRADIENTE ANIMADO
+-- ============================================================
 local screenGui = inst("ScreenGui", {
     Name           = "PhantomUISystem",
     ResetOnSpawn   = false,
@@ -230,25 +226,16 @@ _spawn(function()
     end
 end)
 
--- BOTAO FLUTUANTE (P)
+-- ============================================================
+-- SESSAO: BOTAO FLUTUANTE (P)
+-- ============================================================
 local BTN_SIZE = 56
-local floatingButton = inst("TextButton", {
-    Size = UDim2.new(0, BTN_SIZE, 0, BTN_SIZE),
-    Position = Config.BtnX and UDim2.new(0, Config.BtnX, 0, Config.BtnY) or UDim2.new(1, -70, 0.5, -28),
-    BackgroundColor3 = C.header,
-    BackgroundTransparency = 0.1,
-    Text = "P",
-    TextColor3 = C.text,
-    TextSize = 26,
-    Font = Enum.Font.GothamBold,
-    Active = true,
-    ZIndex = 10,
-    Parent = screenGui,
-})
+local floatingButton = inst("TextButton", { Size = UDim2.new(0, BTN_SIZE, 0, BTN_SIZE), Position = Config.BtnX and UDim2.new(0, Config.BtnX, 0, Config.BtnY) or UDim2.new(1, -70, 0.5, -28), BackgroundColor3 = C.header, BackgroundTransparency = 0.1, Text = "P", TextColor3 = C.text, TextSize = 26, Font = Enum.Font.GothamBold, Active = true, ZIndex = 10, Parent = screenGui, })
 corner(floatingButton, 999)
+
 attachFlowingGradient(stroke(floatingButton, C.accent, 2))
 
--- BOLINHA AUTO CLASH
+-- SESSAO: BOLINHA AUTO CLASH
 local CLASH_SIZE = 64
 local clashX = Config.ClashBallX or 14
 local clashY = Config.ClashBallY or (viewport().Y / 2 - CLASH_SIZE / 2)
@@ -259,19 +246,7 @@ if clashX + CLASH_SIZE > viewport().X - BTN_SIZE - 10 then
     Config.ClashBallX = 14
 end
 
-local clashBall = inst("TextButton", {
-    Name = "PhantomClashBall",
-    Size = UDim2.new(0, CLASH_SIZE, 0, CLASH_SIZE),
-    Position = UDim2.new(0, -CLASH_SIZE - 40, 0.5, -CLASH_SIZE / 2),
-    BackgroundColor3 = C.red,
-    Text = "OFF",
-    TextColor3 = Color3.new(1, 1, 1),
-    TextSize = 16,
-    Font = Enum.Font.GothamBold,
-    Active = true,
-    ZIndex = 8,
-    Parent = screenGui,
-})
+local clashBall = inst("TextButton", { Name = "PhantomClashBall", Size = UDim2.new(0, CLASH_SIZE, 0, CLASH_SIZE), Position = UDim2.new(0, -CLASH_SIZE - 40, 0.5, -CLASH_SIZE / 2), BackgroundColor3 = C.red, Text = "OFF", TextColor3 = Color3.new(1, 1, 1), TextSize = 16, Font = Enum.Font.GothamBold, Active = true, ZIndex = 8, Parent = screenGui, })
 corner(clashBall, 999)
 stroke(clashBall, Color3.fromRGB(20, 20, 30), 2)
 stroke(clashBall, Color3.new(0, 0, 0), 2)
@@ -328,90 +303,29 @@ clashBall.Activated:Connect(function()
     syncAutoClashToggle()
 end)
 
--- MINI GUI SPAM
-local MINI_W = 120
-local MINI_H = 90
+-- SESSAO: MINI GUI SPAM
+local MINI_W, MINI_H = 120, 90
 local miniX = Config.MiniX or (viewport().X - MINI_W - 14)
 local miniY = Config.MiniY or (viewport().Y / 2 - MINI_H / 2)
 
-local miniGui = inst("Frame", {
-    Name = "PhantomSpamMini",
-    Size = UDim2.new(0, MINI_W, 0, MINI_H),
-    BackgroundColor3 = C.header,
-    BackgroundTransparency = 0,
-    BorderSizePixel = 0,
-    ZIndex = 15,
-    Parent = screenGui,
-})
+local miniGui = inst("Frame", { Name = "PhantomSpamMini", Size = UDim2.new(0, MINI_W, 0, MINI_H), Position = UDim2.new(0, viewport().X + 30, 0, miniY), BackgroundColor3 = C.header, BackgroundTransparency = 0.1, ZIndex = 15, Parent = screenGui, })
 corner(miniGui, 14)
 
-local miniGlow = inst("Frame", {
-    Size = UDim2.new(1, 8, 1, 8),
-    Position = UDim2.new(0, -4, 0, -4),
-    BackgroundColor3 = C.accent,
-    BackgroundTransparency = 0.92,
-    BorderSizePixel = 0,
-    ZIndex = 14,
-    Parent = miniGui,
-})
-corner(miniGlow, 18)
+inst("Frame", { Size = UDim2.new(1, 8, 1, 8), Position = UDim2.new(0, -4, 0, -4), BackgroundColor3 = C.accent, BackgroundTransparency = 0.92, ZIndex = 14, Parent = miniGui, })
+corner(miniGui, 18)
 attachFlowingGradient(stroke(miniGui, C.accent, 1.5))
 
-local miniTitleBar = inst("Frame", {
-    Size = UDim2.new(1, 0, 0, 26),
-    BackgroundColor3 = Color3.fromRGB(20, 20, 46),
-    BackgroundTransparency = 0.05,
-    BorderSizePixel = 0,
-    ZIndex = 16,
-    Parent = miniGui,
-})
+local miniTitleBar = inst("Frame", { Size = UDim2.new(1, 0, 0, 26), BackgroundColor3 = Color3.fromRGB(20, 20, 46), BackgroundTransparency = 0.05, ZIndex = 16, Parent = miniGui, })
 corner(miniTitleBar, 14)
 
-inst("Frame", {
-    Size = UDim2.new(1, 0, 0, 12),
-    Position = UDim2.new(0, 0, 1, -12),
-    BackgroundColor3 = Color3.fromRGB(20, 20, 46),
-    BackgroundTransparency = 0.05,
-    BorderSizePixel = 0,
-    ZIndex = 16,
-    Parent = miniTitleBar,
-})
+inst("Frame", { Size = UDim2.new(1, 0, 0, 12), Position = UDim2.new(0, 0, 1, -12), BackgroundColor3 = Color3.fromRGB(20, 20, 46), BackgroundTransparency = 0.05, ZIndex = 16, Parent = miniTitleBar, })
 
-local miniAccent = inst("Frame", {
-    Size = UDim2.new(0.5, 0, 0, 2),
-    Position = UDim2.new(0.25, 0, 0, 0),
-    BackgroundColor3 = C.accentPink,
-    BorderSizePixel = 0,
-    ZIndex = 17,
-    Parent = miniTitleBar,
-})
-corner(miniAccent, 1)
+local miniAccent = inst("Frame", { Size = UDim2.new(0.5, 0, 0, 2), Position = UDim2.new(0.25, 0, 0, 0), BackgroundColor3 = C.accentPink, ZIndex = 17, Parent = miniTitleBar, })
+corner(miniAccent, 999)
 
-inst("TextLabel", {
-    Size = UDim2.new(1, -8, 1, 0),
-    Position = UDim2.new(0, 8, 0, 0),
-    BackgroundTransparency = 1,
-    Text = "Spam",
-    TextColor3 = C.subtext,
-    TextScaled = true,
-    Font = Enum.Font.GothamBold,
-    ZIndex = 17,
-    Parent = miniTitleBar,
-})
+inst("TextLabel", { Size = UDim2.new(1, -8, 1, 0), Position = UDim2.new(0, 8, 0, 0), BackgroundTransparency = 1, Text = "Spam", TextColor3 = C.subtext, TextScaled = true, Font = Enum.Font.GothamBold, ZIndex = 17, Parent = miniTitleBar, })
 
-local spamBtn = inst("TextButton", {
-    Size = UDim2.new(1, -16, 0, 48),
-    Position = UDim2.new(0, 8, 0, 32),
-    BackgroundColor3 = C.red,
-    BackgroundTransparency = 0,
-    BorderSizePixel = 0,
-    Text = "OFF",
-    TextColor3 = Color3.new(1, 1, 1),
-    TextSize = 24,
-    Font = Enum.Font.GothamBold,
-    ZIndex = 16,
-    Parent = miniGui,
-})
+local spamBtn = inst("TextButton", { Size = UDim2.new(1, -16, 0, 48), Position = UDim2.new(0, 8, 0, 32), BackgroundColor3 = C.red, BackgroundTransparency = 0.1, Text = "OFF", TextColor3 = Color3.new(1, 1, 1), TextSize = 24, Font = Enum.Font.GothamBold, ZIndex = 16, Parent = miniGui, })
 corner(spamBtn, 10)
 
 local spamOn = false
@@ -428,7 +342,11 @@ end
 
 spamBtn.Activated:Connect(function() setSpam(not spamOn) end)
 
-miniGui.Position = UDim2.new(0, viewport().X + 30, 0, miniY)
+makeDraggable(miniTitleBar, miniGui, function()
+    miniX, miniY = miniGui.Position.X.Offset, miniGui.Position.Y.Offset
+    Config.MiniX, Config.MiniY = miniX, miniY
+    safe(saveConfig, Config)
+end)
 
 local function showMini(v, visBtn)
     twPlay(miniGui, (v and 0.22) or 0.18,
@@ -440,33 +358,19 @@ local function showMini(v, visBtn)
     end
 end
 
-makeDraggable(miniTitleBar, miniGui, function()
-    miniX, miniY = miniGui.Position.X.Offset, miniGui.Position.Y.Offset
-    Config.MiniX, Config.MiniY = miniX, miniY
-    safe(saveConfig, Config)
-end)
-
--- PAINEL PRINCIPAL
+-- SESSAO: PAINEL PRINCIPAL
 local PW, PH = 540, 380
 local TITLE_H, PAD, GAP, CARD_GAP = 50, 14, 12, 8
 local CONTENT_H = PH - TITLE_H - 60
 local COL_W = math.floor((PW - PAD * 2 - GAP) / 2)
 
-local configPanel = inst("Frame", {
-    Name = "PhantomPanel",
-    Size = UDim2.new(0, PW, 0, PH),
-    Position = Config.PanelX and UDim2.new(0, Config.PanelX, 0, Config.PanelY) or UDim2.new(0.5, -PW / 2, 0.5, -PH / 2),
-    BackgroundColor3 = C.bg,
-    BackgroundTransparency = 0.08,
-    Visible = false,
-    ZIndex = 5,
-    ClipsDescendants = true,
-    Parent = screenGui,
-})
+local configPanel = inst("Frame", { Name = "PhantomPanel", Size = UDim2.new(0, PW, 0, PH), Position = Config.PanelX and UDim2.new(0, Config.PanelX, 0, Config.PanelY) or UDim2.new(0.5, -PW / 2, 0.5, -PH / 2), BackgroundColor3 = C.bg, BackgroundTransparency = 0.08, Visible = false, ZIndex = 5, ClipsDescendants = true, Parent = screenGui, })
 corner(configPanel, 16)
 stroke(configPanel, C.accent, 1.5)
 
--- PARTICULAS DE FUNDO
+-- ============================================================
+-- SESSAO: PARTICULAS DE FUNDO (subindo, com leve perspectiva)
+-- ============================================================
 local particleLayer = inst("Frame", {
     Name = "ParticleLayer",
     Size = UDim2.new(1, 0, 1, 0),
@@ -516,88 +420,28 @@ _spawn(function()
     end
 end)
 
--- TITLE BAR DO PAINEL
-local titleBar = inst("Frame", {
-    Size = UDim2.new(1, 0, 0, TITLE_H),
-    BackgroundColor3 = C.header,
-    ZIndex = 6,
-    Parent = configPanel,
-})
+-- title bar
+local titleBar = inst("Frame", { Size = UDim2.new(1, 0, 0, TITLE_H), BackgroundColor3 = C.header, ZIndex = 6, Parent = configPanel, })
 corner(titleBar, 16)
 
-inst("TextLabel", {
-    Size = UDim2.new(1, -120, 1, 0),
-    BackgroundTransparency = 1,
-    Text = ("Phantom - Config v%s"):format(SCRIPT_VERSION),
-    TextColor3 = C.text,
-    TextSize = 16,
-    Font = Enum.Font.GothamBold,
-    TextXAlignment = Enum.TextXAlignment.Center,
-    ZIndex = 7,
-    Parent = titleBar,
-})
+inst("TextLabel", { Size = UDim2.new(1, -120, 1, 0), Position = UDim2.new(0, 0, 0, 0), BackgroundTransparency = 1, Text = ("Phantom - Config v%s"):format(SCRIPT_VERSION), TextColor3 = C.text, TextSize = 16, Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 7, Parent = titleBar, })
 
 do
-    local badge = inst("TextLabel", {
-        Size = UDim2.new(0, 56, 0, 18),
-        Position = UDim2.new(0, 10, 0.5, -9),
-        BackgroundColor3 = C.accent,
-        BackgroundTransparency = 0.25,
-        Text = ("v%s"):format(SCRIPT_VERSION),
-        TextColor3 = C.text,
-        TextSize = 10,
-        Font = Enum.Font.GothamBold,
-        ZIndex = 7,
-        Parent = titleBar,
-    })
+    local badge = inst("TextLabel", { Size = UDim2.new(0, 56, 0, 18), Position = UDim2.new(0, 10, 0.5, -9), BackgroundColor3 = C.accent, BackgroundTransparency = 0.25, Text = ("v%s"):format(SCRIPT_VERSION), TextColor3 = C.text, TextSize = 10, Font = Enum.Font.GothamBold, ZIndex = 7, Parent = titleBar, })
     corner(badge, 6)
 end
 
-local closeButton = inst("TextButton", {
-    Size = UDim2.new(0, 30, 0, 30),
-    Position = UDim2.new(1, -42, 0.5, -15),
-    BackgroundColor3 = C.red,
-    BackgroundTransparency = 0.3,
-    Text = "X",
-    TextColor3 = Color3.new(1, 1, 1),
-    TextSize = 14,
-    Font = Enum.Font.GothamBold,
-    ZIndex = 7,
-    Parent = titleBar,
-})
+local closeButton = inst("TextButton", { Size = UDim2.new(0, 30, 0, 30), Position = UDim2.new(1, -42, 0.5, -15), BackgroundColor3 = C.red, BackgroundTransparency = 0.3, Text = "X", TextColor3 = Color3.new(1, 1, 1), TextSize = 14, Font = Enum.Font.GothamBold, ZIndex = 7, Parent = titleBar, })
 corner(closeButton, 8)
 closeButton.MouseEnter:Connect(function() twPlay(closeButton, 0.12, { BackgroundTransparency = 0 }) end)
 closeButton.MouseLeave:Connect(function() twPlay(closeButton, 0.12, { BackgroundTransparency = 0.3 }) end)
 
--- COLUNAS
-local colLeft  = inst("Frame", {
-    Size = UDim2.new(0, COL_W, 0, CONTENT_H),
-    Position = UDim2.new(0, PAD, 0, TITLE_H + 12),
-    BackgroundTransparency = 1,
-    ZIndex = 6,
-    Parent = configPanel,
-})
-local colRight = inst("Frame", {
-    Size = UDim2.new(0, COL_W, 0, CONTENT_H),
-    Position = UDim2.new(0, PAD + COL_W + GAP, 0, TITLE_H + 12),
-    BackgroundTransparency = 1,
-    ZIndex = 6,
-    Parent = configPanel,
-})
+-- colunas
+local colLeft  = inst("Frame", { Size = UDim2.new(0, COL_W, 0, CONTENT_H), Position = UDim2.new(0, PAD, 0, TITLE_H + 12), BackgroundTransparency = 1, ZIndex = 6, Parent = configPanel })
+local colRight = inst("Frame", { Size = UDim2.new(0, COL_W, 0, CONTENT_H), Position = UDim2.new(0, PAD + COL_W + GAP, 0, TITLE_H + 12), BackgroundTransparency = 1, ZIndex = 6, Parent = configPanel })
 
--- KILL BUTTON
-local killBtn = inst("TextButton", {
-    Size = UDim2.new(0, 124, 0, 26),
-    Position = UDim2.new(0.5, -62, 1, -52),
-    BackgroundColor3 = C.redDark,
-    BackgroundTransparency = 0.15,
-    Text = "Fechar Script",
-    TextColor3 = Color3.fromRGB(255, 200, 200),
-    TextSize = 11,
-    Font = Enum.Font.GothamBold,
-    ZIndex = 7,
-    Parent = configPanel,
-})
+-- kill button
+local killBtn = inst("TextButton", { Size = UDim2.new(0, 124, 0, 26), Position = UDim2.new(0.5, -62, 1, -52), BackgroundColor3 = C.redDark, BackgroundTransparency = 0.15, Text = "Fechar Script", TextColor3 = Color3.fromRGB(255, 200, 200), TextSize = 11, Font = Enum.Font.GothamBold, ZIndex = 7, Parent = configPanel, })
 corner(killBtn, 6)
 
 if not UIS.TouchEnabled then
@@ -609,16 +453,41 @@ if not UIS.TouchEnabled then
     end)
 end
 
--- COMPONENTES
+-- SESSAO: FAIXA DE STATUS (info do funcional + versao)
+local DIAG_H = 18
+local diagBar = inst("Frame", { Size = UDim2.new(1, -PAD * 2, 0, DIAG_H), Position = UDim2.new(0, PAD, 1, -52 - DIAG_H - 4), BackgroundColor3 = C.card, BackgroundTransparency = 0.4, ZIndex = 7, Parent = configPanel, })
+corner(diagBar, 6)
+stroke(diagBar, C.border, 1)
+
+local diagLabel = inst("TextLabel", { Size = UDim2.new(1, -12, 1, 0), Position = UDim2.new(0, 6, 0, 0), BackgroundTransparency = 1, Text = ("%s v%s | aguardando funcional..."):format(SCRIPT_NAME, SCRIPT_VERSION), TextColor3 = C.subtext, TextSize = 10, Font = Enum.Font.GothamSemibold, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 8, Parent = diagBar, })
+
+local function refreshDiag()
+    local d = _G.PhantomDiag
+    if type(d) ~= "table" then
+        diagLabel.Text = ("%s v%s | funcional nao detectado").format(SCRIPT_NAME, SCRIPT_VERSION)
+        return
+    end
+    local ver   = tostring(d.version or "?")
+    local name  = tostring(d.scriptName or "funcional")
+    local rem   = d.parryRemote and d.parryRemote:match("[^%.]+$") or (d.remotesOk and "?" or "nil")
+    local ball  = d.ballOk and "ok" or "nil"
+    local ping  = d.ping and (("%.0fms"):format((d.ping or 0) * 1000)) or "?"
+    local place = d.placeName or ("#" .. tostring(d.placeId or "?"))
+    local res   = d.resilience and ("res+" .. tostring(d.resStack or 0)) or "no-res"
+    diagLabel.Text = (("%s v%s + %s v%s | %s | rmt=%s | ball=%s | ping=%s | %s"):format(
+        SCRIPT_NAME, SCRIPT_VERSION, name, ver, place, rem, ball, ping, res))
+end
+
+_spawn(function()
+    while screenGui.Parent do
+        if configPanel.Visible then pcall(refreshDiag) end
+        _wait(0.4)
+    end
+end)
+
+-- SESSAO: COMPONENTES
 local function cardFrame(yPos, h, parent)
-    local f = inst("Frame", {
-        Size = UDim2.new(1, 0, 0, h),
-        Position = UDim2.new(0, 0, 0, yPos),
-        BackgroundColor3 = C.card,
-        BackgroundTransparency = 0.1,
-        ZIndex = 6,
-        Parent = parent,
-    })
+    local f = inst("Frame", { Size = UDim2.new(1, 0, 0, h), Position = UDim2.new(0, 0, 0, yPos), BackgroundColor3 = C.card, BackgroundTransparency = 0.1, ZIndex = 6, Parent = parent, })
     corner(f, 12)
     local s = stroke(f, C.border, 1)
     f.MouseEnter:Connect(function()
@@ -633,33 +502,11 @@ local function cardFrame(yPos, h, parent)
 end
 
 local function cardLabel(text, parent)
-    inst("TextLabel", {
-        Size = UDim2.new(1, -10, 0, 16),
-        Position = UDim2.new(0, 10, 0, 5),
-        BackgroundTransparency = 1,
-        Text = text,
-        TextColor3 = C.accent,
-        TextSize = 10,
-        Font = Enum.Font.GothamBold,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        ZIndex = 7,
-        Parent = parent,
-    })
+    inst("TextLabel", { Size = UDim2.new(1, -10, 0, 16), Position = UDim2.new(0, 10, 0, 5), BackgroundTransparency = 1, Text = text, TextColor3 = C.accent, TextSize = 10, Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7, Parent = parent, })
 end
 
 local function makeBtn(text, x, y, w, h, parent, bg)
-    local b = inst("TextButton", {
-        Size = UDim2.new(0, w, 0, h),
-        Position = UDim2.new(0, x, 0, y),
-        BackgroundColor3 = bg or C.btnBlue,
-        BackgroundTransparency = 0.1,
-        Text = text,
-        TextColor3 = C.text,
-        TextSize = 13,
-        Font = Enum.Font.GothamBold,
-        ZIndex = 7,
-        Parent = parent,
-    })
+    local b = inst("TextButton", { Size = UDim2.new(0, w, 0, h), Position = UDim2.new(0, x, 0, y), BackgroundColor3 = bg or C.btnBlue, BackgroundTransparency = 0.1, Text = text, TextColor3 = C.text, TextSize = 13, Font = Enum.Font.GothamBold, ZIndex = 7, Parent = parent, })
     corner(b, 8)
     return b
 end
@@ -684,44 +531,14 @@ end
 
 local function createToggle(labelText, configKey, yPos, parent)
     local f = cardFrame(yPos, 52, parent)
-    inst("TextLabel", {
-        Size = UDim2.new(0.55, 0, 1, 0),
-        Position = UDim2.new(0, 14, 0, 0),
-        BackgroundTransparency = 1,
-        Text = labelText,
-        TextColor3 = C.text,
-        TextSize = 14,
-        Font = Enum.Font.GothamSemibold,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        ZIndex = 7,
-        Parent = f,
-    })
+    inst("TextLabel", { Size = UDim2.new(0.55, 0, 1, 0), Position = UDim2.new(0, 14, 0, 0), BackgroundTransparency = 1, Text = labelText, TextColor3 = C.text, TextSize = 14, Font = Enum.Font.GothamSemibold, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7, Parent = f, })
 
-    local track = inst("Frame", {
-        Size = UDim2.new(0, 48, 0, 26),
-        Position = UDim2.new(1, -62, 0.5, -13),
-        BackgroundColor3 = Config[configKey] and C.toggleOn or C.toggleOff,
-        BackgroundTransparency = 0.1,
-        ZIndex = 7,
-        Parent = f,
-    })
+    local track = inst("Frame", { Size = UDim2.new(0, 48, 0, 26), Position = UDim2.new(1, -62, 0.5, -13), BackgroundColor3 = Config[configKey] and C.toggleOn or C.toggleOff, BackgroundTransparency = 0.1, ZIndex = 7, Parent = f, })
     corner(track, 999)
-    local thumb = inst("Frame", {
-        Size = UDim2.new(0, 20, 0, 20),
-        Position = Config[configKey] and UDim2.new(0, 25, 0.5, -10) or UDim2.new(0, 3, 0.5, -10),
-        BackgroundColor3 = Color3.new(1, 1, 1),
-        ZIndex = 8,
-        Parent = track,
-    })
+    local thumb = inst("Frame", { Size = UDim2.new(0, 20, 0, 20), Position = Config[configKey] and UDim2.new(0, 25, 0.5, -10) or UDim2.new(0, 3, 0.5, -10), BackgroundColor3 = Color3.new(1, 1, 1), ZIndex = 8, Parent = track, })
     corner(thumb, 999)
 
-    inst("TextButton", {
-        Size = UDim2.new(1, 0, 1, 0),
-        BackgroundTransparency = 1,
-        Text = "",
-        ZIndex = 9,
-        Parent = f,
-    }).Activated:Connect(function()
+    inst("TextButton", { Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = "", ZIndex = 9, Parent = f, }).Activated:Connect(function()
         Config[configKey] = not Config[configKey]
         local v = Config[configKey]
 
@@ -750,35 +567,12 @@ local function createCPSSelector(yPos, parent)
     local f = cardFrame(yPos, 68, parent)
     cardLabel("CPS Spam", f)
 
-    inst("TextLabel", {
-        Size = UDim2.new(0, 36, 0, ROW_H),
-        Position = UDim2.new(0, 14, 0, ROW_Y),
-        BackgroundTransparency = 1,
-        Text = "CPS:",
-        TextColor3 = C.text,
-        TextSize = 13,
-        Font = Enum.Font.Gotham,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        ZIndex = 7,
-        Parent = f,
-    })
+    inst("TextLabel", { Size = UDim2.new(0, 36, 0, ROW_H), Position = UDim2.new(0, 14, 0, ROW_Y), BackgroundTransparency = 1, Text = "CPS:", TextColor3 = C.text, TextSize = 13, Font = Enum.Font.Gotham, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7, Parent = f, })
 
     local defBtn = makeBtn("Padrao", 52, ROW_Y, 68, ROW_H, f, C.btnBlue)
     defBtn.TextSize = 11
 
-    local inputBox = inst("TextBox", {
-        Size = UDim2.new(0, 72, 0, ROW_H),
-        Position = UDim2.new(1, -82, 0, ROW_Y),
-        BackgroundColor3 = C.inputBg,
-        BackgroundTransparency = 0.1,
-        Text = tostring(Config.CPS or 25),
-        PlaceholderText = "CPS",
-        TextColor3 = C.text,
-        TextSize = 13,
-        Font = Enum.Font.GothamBold,
-        ZIndex = 7,
-        Parent = f,
-    })
+    local inputBox = inst("TextBox", { Size = UDim2.new(0, 72, 0, ROW_H), Position = UDim2.new(1, -82, 0, ROW_Y), BackgroundColor3 = C.inputBg, BackgroundTransparency = 0.1, Text = tostring(Config.CPS or 25), PlaceholderText = "CPS", TextColor3 = C.text, TextSize = 13, Font = Enum.Font.GothamBold, ZIndex = 7, Parent = f, })
     corner(inputBox, 8)
     local inputStroke = stroke(inputBox, C.border, 1)
     inputBox.Focused:Connect(function() twPlay(inputStroke, 0.15, { Color = C.accent }) end)
@@ -811,18 +605,7 @@ end
 
 local function createKeybindSelector(yPos, parent)
     local f = cardFrame(yPos, 52, parent)
-    inst("TextLabel", {
-        Size = UDim2.new(0.55, 0, 1, 0),
-        Position = UDim2.new(0, 14, 0, 0),
-        BackgroundTransparency = 1,
-        Text = "Tecla de Atalho",
-        TextColor3 = C.text,
-        TextSize = 14,
-        Font = Enum.Font.GothamSemibold,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        ZIndex = 7,
-        Parent = f,
-    })
+    inst("TextLabel", { Size = UDim2.new(0.55, 0, 1, 0), Position = UDim2.new(0, 14, 0, 0), BackgroundTransparency = 1, Text = "Tecla de Atalho", TextColor3 = C.text, TextSize = 14, Font = Enum.Font.GothamSemibold, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7, Parent = f, })
 
     local kbBtn = makeBtn(Config.Keybind and Config.Keybind.Name or "V", 0, 0, 88, 30, f, C.btnBlue)
     kbBtn.Position = UDim2.new(1, -100, 0.5, -15)
@@ -868,45 +651,15 @@ end
 
 local function createMiniClashToggle(yPos, parent)
     local f = cardFrame(yPos, 52, parent)
-    inst("TextLabel", {
-        Size = UDim2.new(0.55, 0, 1, 0),
-        Position = UDim2.new(0, 14, 0, 0),
-        BackgroundTransparency = 1,
-        Text = "Mini Clash UI",
-        TextColor3 = C.text,
-        TextSize = 14,
-        Font = Enum.Font.GothamSemibold,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        ZIndex = 7,
-        Parent = f,
-    })
+    inst("TextLabel", { Size = UDim2.new(0.55, 0, 1, 0), Position = UDim2.new(0, 14, 0, 0), BackgroundTransparency = 1, Text = "Mini Clash UI", TextColor3 = C.text, TextSize = 14, Font = Enum.Font.GothamSemibold, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7, Parent = f, })
 
     local on = Config.ClashBallVisible or false
-    local track = inst("Frame", {
-        Size = UDim2.new(0, 48, 0, 26),
-        Position = UDim2.new(1, -62, 0.5, -13),
-        BackgroundColor3 = on and C.toggleOn or C.toggleOff,
-        BackgroundTransparency = 0.1,
-        ZIndex = 7,
-        Parent = f,
-    })
+    local track = inst("Frame", { Size = UDim2.new(0, 48, 0, 26), Position = UDim2.new(1, -62, 0.5, -13), BackgroundColor3 = on and C.toggleOn or C.toggleOff, BackgroundTransparency = 0.1, ZIndex = 7, Parent = f, })
     corner(track, 999)
-    local thumb = inst("Frame", {
-        Size = UDim2.new(0, 20, 0, 20),
-        Position = on and UDim2.new(0, 25, 0.5, -10) or UDim2.new(0, 3, 0.5, -10),
-        BackgroundColor3 = Color3.new(1, 1, 1),
-        ZIndex = 8,
-        Parent = track,
-    })
+    local thumb = inst("Frame", { Size = UDim2.new(0, 20, 0, 20), Position = on and UDim2.new(0, 25, 0.5, -10) or UDim2.new(0, 3, 0.5, -10), BackgroundColor3 = Color3.new(1, 1, 1), ZIndex = 8, Parent = track, })
     corner(thumb, 999)
 
-    inst("TextButton", {
-        Size = UDim2.new(1, 0, 1, 0),
-        BackgroundTransparency = 1,
-        Text = "",
-        ZIndex = 9,
-        Parent = f,
-    }).Activated:Connect(function()
+    inst("TextButton", { Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = "", ZIndex = 9, Parent = f, }).Activated:Connect(function()
         on = not on
         Config.ClashBallVisible = on
         if on then
@@ -930,7 +683,7 @@ local function createMiniClashToggle(yPos, parent)
     return yPos + 52 + CARD_GAP
 end
 
--- MONTAR COLUNAS
+-- SESSAO: MONTAR COLUNAS
 local yL, yR = 4, 4
 yL = createToggle("Auto Parry", "AutoParry", yL, colLeft)
 yL = createToggle("Auto Clash", "AutoClash", yL, colLeft)
@@ -940,7 +693,7 @@ yR = createCPSSelector(yR, colRight)
 yR = createKeybindSelector(yR, colRight)
 yR = createSpamPCCard(yR, colRight)
 
--- DRAG DO PAINEL / BOTAO
+-- SESSAO: DRAG PAINEL / BOTAO
 makeDraggable(titleBar, configPanel, function()
     Config.PanelX = configPanel.Position.X.Offset
     Config.PanelY = configPanel.Position.Y.Offset
@@ -953,7 +706,7 @@ local btnIsDragging = makeDraggable(floatingButton, floatingButton, function()
     safe(saveConfig, Config)
 end)
 
--- ABRIR / FECHAR PAINEL
+-- SESSAO: ABRIR / FECHAR PAINEL
 local panelOpen, panelTween, btnTween = false, nil, nil
 
 local function togglePanel()
@@ -998,7 +751,7 @@ closeButton.Activated:Connect(function()
     if panelOpen then togglePanel() end
 end)
 
--- KEYBINDS GLOBAIS
+-- SESSAO: KEYBINDS GLOBAIS
 trackConn(UIS.InputBegan:Connect(function(input, gpe)
     if gpe then return end
     if Config.Keybind and input.KeyCode == Config.Keybind then
@@ -1020,7 +773,7 @@ trackConn(UIS.InputEnded:Connect(function(input)
     if Config.SpamMode == "Hold" then setSpam(false) end
 end))
 
--- KILL BUTTON
+-- SESSAO: KILL BUTTON
 killBtn.Activated:Connect(function()
     safe(saveConfig, Config)
 
@@ -1056,6 +809,10 @@ killBtn.Activated:Connect(function()
     safe(function() screenGui:Destroy() end)
     print(("[%s v%s] Encerrado."):format(SCRIPT_NAME, SCRIPT_VERSION))
 end)
+
+-- ============================================================
+-- SESSAO: EFEITOS (DESATIVADOS)
+-- ============================================================
 
 if Config.ClashBallVisible then
     clashBall.Position = UDim2.new(0, clashX, 0, clashY)
